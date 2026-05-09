@@ -17,30 +17,21 @@
     .section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.1rem 1.3rem; margin-bottom: 1rem; }
     .section-title { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #9ca3af; margin-bottom: 12px; }
     .subsection { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 12px; }
-    .subsection-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #9ca3af; margin-bottom: 10px; }
 
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
     .grid-1 { display: grid; grid-template-columns: 1fr; gap: 10px; }
     .mt-10  { margin-top: 10px; }
 
     .field { display: flex; flex-direction: column; gap: 4px; }
     .field label { font-size: 12px; color: #6b7280; display: flex; align-items: center; gap: 4px; }
-    .field input, .field select {
-      font-size: 13px; padding: 7px 9px; border: 1px solid #d1d5db;
-      border-radius: 7px; background: #f9fafb; color: #111; width: 100%; transition: border-color 0.15s;
-    }
+    .field input, .field select { font-size: 13px; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 7px; background: #f9fafb; color: #111; width: 100%; transition: border-color 0.15s; }
     .field input:focus, .field select:focus { outline: none; border-color: #6b7280; background: #fff; }
-    .field input.error { border-color: #ef4444; }
+    .field input.error, .field select.error { border-color: #ef4444; }
     .field input::placeholder { color: #c0c4cc; }
     .field-hint { font-size: 11px; color: #9ca3af; margin-top: 2px; line-height: 1.4; }
 
-    /* Pager deshabilitado */
-    .field input:disabled, .field select:disabled {
-      background: #f3f4f6; color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb;
-      opacity: 0.7;
-    }
+    .field input:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb; opacity: 0.7; }
     .pager-note { font-size: 10px; color: #9ca3af; margin-top: 3px; font-style: italic; }
 
     .req { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
@@ -73,7 +64,7 @@
     .spinner { display: none; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #1a1a1a; border-radius: 50%; animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    @media (max-width: 520px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } .header img { height: 26px; } }
+    @media (max-width: 520px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } .header img { height: 26px; } }
   </style>
 </head>
 <body>
@@ -118,16 +109,17 @@
         <label>Fecha <span class="req"></span></label>
         <input type="date" id="f-fecha" />
       </div>
-      <!-- Proveedor y Origen — solo Descarga -->
-      <div class="field" id="field-proveedor" style="display:none">
+    </div>
+
+    <!-- Proveedor y Origen — solo Descarga -->
+    <div class="grid-2 mt-10" id="field-descarga-wrap" style="display:none">
+      <div class="field">
         <label>Proveedor</label>
         <input type="text" id="f-proveedor" placeholder="Nombre del proveedor" />
       </div>
-    </div>
-    <div class="grid-1 mt-10" id="field-origen-wrap" style="display:none">
       <div class="field">
-        <label>Origen</label>
-        <input type="text" id="f-origen" placeholder="Lugar de origen de la carga" />
+        <label>Origen (Localidad / Provincia)</label>
+        <input type="text" id="f-origen" placeholder="Ej: Rosario, Santa Fe" />
       </div>
     </div>
   </div>
@@ -140,14 +132,13 @@
         <label>Cantidad de cisternas <span class="req"></span>
           <span class="tip-wrap">
             <span class="tip-icon">?</span>
-            <span class="tip-box">Ingrese la cantidad de cisternas del camión. Se generarán campos para completar los m³ de cada una.</span>
+            <span class="tip-box">Máximo 7 cisternas. Se generarán campos para completar los m³ de cada una.</span>
           </span>
         </label>
         <select id="f-cant-cisternas" onchange="updateCisternas()">
           <option value="">Seleccionar...</option>
           <option>1</option><option>2</option><option>3</option>
-          <option>4</option><option>5</option><option>6</option>
-          <option>7</option><option>8</option><option>9</option><option>10</option>
+          <option>4</option><option>5</option><option>6</option><option>7</option>
         </select>
       </div>
     </div>
@@ -160,11 +151,13 @@
     <div class="grid-3">
       <div class="field">
         <label>Patente camión <span class="req"></span></label>
-        <input type="text" id="f-camion" placeholder="Ej: AH471VE" oninput="this.value=this.value.toUpperCase()" />
+        <input type="text" id="f-camion" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="7" />
+        <span class="field-hint">Sin espacios. Formato: AA333DD</span>
       </div>
       <div class="field">
         <label>Patente acoplado</label>
-        <input type="text" id="f-acoplado" placeholder="Ej: JZX953" oninput="this.value=this.value.toUpperCase()" />
+        <input type="text" id="f-acoplado" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="7" />
+        <span class="field-hint">Sin espacios. Formato: AA333DD</span>
       </div>
       <div class="field">
         <label>Empresa transportista <span class="req"></span></label>
