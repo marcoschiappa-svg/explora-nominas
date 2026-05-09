@@ -3,180 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nómina de Carga — Explora</title>
+  <title>Nómina de operación — Explora</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f5f7; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
+    .container { max-width: 660px; margin: 0 auto; }
 
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #f4f5f7;
-      color: #1a1a1a;
-      min-height: 100vh;
-      padding: 2rem 1rem;
-    }
-
-    .container {
-      max-width: 660px;
-      margin: 0 auto;
-    }
-
-    /* HEADER */
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #fff;
-      border-radius: 12px;
-      padding: 1.1rem 1.4rem;
-      margin-bottom: 1.2rem;
-      border: 1px solid #e5e7eb;
-    }
+    .header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-radius: 12px; padding: 1.1rem 1.4rem; margin-bottom: 1.2rem; border: 1px solid #e5e7eb; }
     .header-text h1 { font-size: 17px; font-weight: 600; color: #111; }
     .header-text p  { font-size: 12px; color: #6b7280; margin-top: 2px; }
     .header img { height: 34px; width: auto; }
 
-    /* SECCIONES */
-    .section {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 1.1rem 1.3rem;
-      margin-bottom: 1rem;
-    }
-    .section-title {
-      font-size: 10.5px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: #9ca3af;
-      margin-bottom: 12px;
-    }
+    .section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.1rem 1.3rem; margin-bottom: 1rem; }
+    .section-title { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #9ca3af; margin-bottom: 12px; }
+    .subsection { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 12px; }
+    .subsection-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #9ca3af; margin-bottom: 10px; }
 
-    /* SUBSECCIÓN EXPORTACIÓN */
-    .subsection {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 0.85rem 1rem;
-      margin-top: 12px;
-    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+    .grid-1 { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .mt-10  { margin-top: 10px; }
 
-    /* GRIDS */
-    .grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-3  { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .grid-1  { display: grid; grid-template-columns: 1fr; gap: 10px; }
-    .mt-10   { margin-top: 10px; }
-
-    /* CAMPOS */
     .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label {
-      font-size: 12px;
-      color: #6b7280;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
+    .field label { font-size: 12px; color: #6b7280; display: flex; align-items: center; gap: 4px; }
     .field input, .field select {
-      font-size: 13px;
-      padding: 7px 9px;
-      border: 1px solid #d1d5db;
-      border-radius: 7px;
-      background: #f9fafb;
-      color: #111;
-      width: 100%;
-      transition: border-color 0.15s;
+      font-size: 13px; padding: 7px 9px; border: 1px solid #d1d5db;
+      border-radius: 7px; background: #f9fafb; color: #111; width: 100%; transition: border-color 0.15s;
     }
-    .field input:focus, .field select:focus {
-      outline: none;
-      border-color: #6b7280;
-      background: #fff;
-    }
+    .field input:focus, .field select:focus { outline: none; border-color: #6b7280; background: #fff; }
     .field input.error { border-color: #ef4444; }
     .field input::placeholder { color: #c0c4cc; }
-    .field input[style*="uppercase"] { text-transform: uppercase; }
+    .field-hint { font-size: 11px; color: #9ca3af; margin-top: 2px; line-height: 1.4; }
 
-    .field-hint {
-      font-size: 11px;
-      color: #9ca3af;
-      margin-top: 2px;
-      line-height: 1.4;
+    /* Pager deshabilitado */
+    .field input:disabled, .field select:disabled {
+      background: #f3f4f6; color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb;
+      opacity: 0.7;
     }
+    .pager-note { font-size: 10px; color: #9ca3af; margin-top: 3px; font-style: italic; }
 
-    /* OBLIGATORIO */
     .req { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
 
-    /* TOOLTIP */
     .tip-wrap { position: relative; display: inline-flex; align-items: center; }
-    .tip-icon {
-      width: 14px; height: 14px; border-radius: 50%;
-      background: #f3f4f6; border: 1px solid #d1d5db;
-      display: inline-flex; align-items: center; justify-content: center;
-      font-size: 9px; color: #6b7280; cursor: default; flex-shrink: 0;
-    }
-    .tip-box {
-      display: none; position: absolute; left: 18px; top: -4px;
-      background: #fff; border: 1px solid #d1d5db; border-radius: 7px;
-      padding: 7px 10px; font-size: 11px; color: #6b7280;
-      line-height: 1.5; width: 200px; z-index: 10;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
+    .tip-icon { width: 14px; height: 14px; border-radius: 50%; background: #f3f4f6; border: 1px solid #d1d5db; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #6b7280; cursor: default; flex-shrink: 0; }
+    .tip-box { display: none; position: absolute; left: 18px; top: -4px; background: #fff; border: 1px solid #d1d5db; border-radius: 7px; padding: 7px 10px; font-size: 11px; color: #6b7280; line-height: 1.5; width: 200px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
     .tip-wrap:hover .tip-box { display: block; }
 
-    /* TOGGLE */
-    .toggle-row {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 10px; cursor: pointer; user-select: none;
-    }
-    .toggle {
-      width: 28px; height: 16px; border-radius: 8px;
-      background: #d1d5db; position: relative; transition: background 0.2s; flex-shrink: 0;
-    }
+    .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; user-select: none; }
+    .toggle { width: 28px; height: 16px; border-radius: 8px; background: #d1d5db; position: relative; transition: background 0.2s; flex-shrink: 0; }
     .toggle.on { background: #D85A30; }
-    .toggle::after {
-      content: ''; position: absolute; left: 2px; top: 2px;
-      width: 12px; height: 12px; border-radius: 50%;
-      background: white; transition: left 0.2s;
-    }
+    .toggle::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: white; transition: left 0.2s; }
     .toggle.on::after { left: 14px; }
     .toggle-label { font-size: 12px; color: #6b7280; }
 
-    /* SUBMIT */
-    .submit-row {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-top: 1.25rem;
-    }
+    .cisternas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; }
+
+    .submit-row { display: flex; align-items: center; justify-content: space-between; margin-top: 1.25rem; }
     .legend { font-size: 11px; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
     .legend .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; }
-
-    .btn-submit {
-      background: #1a1a1a; color: #fff; border: none;
-      border-radius: 8px; padding: 9px 22px;
-      font-size: 14px; font-weight: 500; cursor: pointer;
-      transition: opacity 0.15s;
-    }
+    .btn-submit { background: #1a1a1a; color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
     .btn-submit:hover { opacity: 0.82; }
     .btn-submit:disabled { opacity: 0.45; cursor: default; }
 
-    /* BANNERS */
-    .banner {
-      display: none; border-radius: 8px;
-      padding: 12px 16px; font-size: 13px; margin-top: 1rem;
-    }
+    .banner { display: none; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 1rem; }
     .banner.success { background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; }
     .banner.error   { background: #fef2f2; border: 1px solid #fca5a5; color: #7f1d1d; }
 
-    /* SPINNER */
-    .spinner {
-      display: none; width: 18px; height: 18px;
-      border: 2px solid #d1d5db; border-top-color: #1a1a1a;
-      border-radius: 50%; animation: spin 0.6s linear infinite;
-    }
+    .spinner { display: none; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #1a1a1a; border-radius: 50%; animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    @media (max-width: 520px) {
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-      .header img { height: 26px; }
-    }
+    @media (max-width: 520px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } .header img { height: 26px; } }
   </style>
 </head>
 <body>
@@ -185,7 +82,7 @@
   <!-- HEADER -->
   <div class="header">
     <div class="header-text">
-      <h1>Nómina de carga</h1>
+      <h1>Nómina de operación</h1>
       <p>Complete los campos y envíe. Los datos se registran automáticamente.</p>
     </div>
     <img src="logo.png" alt="Explora" />
@@ -200,46 +97,61 @@
         <input type="text" id="f-cliente" placeholder="Razón social" />
       </div>
       <div class="field">
-        <label>Tipo de operación
-          <span class="tip-wrap">
-            <span class="tip-icon">?</span>
-            <span class="tip-box">Seleccione si es venta o compra para asociar el número de orden.</span>
-          </span>
-        </label>
-        <select id="f-tipo-op" onchange="updateOrdenLabel()">
+        <label>Tipo de operación <span class="req"></span></label>
+        <select id="f-tipo-op" onchange="updateTipo()">
           <option value="">Seleccionar...</option>
-          <option value="venta">Venta</option>
-          <option value="compra">Compra</option>
+          <option value="Carga">Carga</option>
+          <option value="Descarga">Descarga</option>
         </select>
       </div>
       <div class="field">
-        <label id="label-orden">N° Orden</label>
+        <label>N° de Orden de Compra o Venta</label>
         <input type="text" id="f-orden" placeholder="Número de orden (opcional)" />
       </div>
       <div class="field">
-        <label>Producto</label>
-        <select id="f-producto" onchange="updateProductoHint()">
-          <option value="">Seleccionar...</option>
-          <optgroup label="Biodiesel">
-            <option value="B100 — Biodiesel puro">B100 — Biodiesel puro</option>
-            <option value="Mezcla biodiesel">Mezcla biodiesel</option>
-          </optgroup>
-          <optgroup label="Glicerina">
-            <option value="Glicerina cruda">Glicerina cruda</option>
-            <option value="Glicerina refinada">Glicerina refinada</option>
-          </optgroup>
-          <optgroup label="Otros">
-            <option value="EMAG">EMAG</option>
-            <option value="MMPP / Materia prima">MMPP / Materia prima</option>
-          </optgroup>
+        <label>Producto <span class="req"></span></label>
+        <select id="f-producto" onchange="updateProducto()">
+          <option value="">Seleccionar tipo primero</option>
         </select>
-        <span class="field-hint" id="producto-hint"></span>
       </div>
       <div class="field">
-        <label>Fecha de carga <span class="req"></span></label>
+        <label>Fecha <span class="req"></span></label>
         <input type="date" id="f-fecha" />
       </div>
+      <!-- Proveedor y Origen — solo Descarga -->
+      <div class="field" id="field-proveedor" style="display:none">
+        <label>Proveedor</label>
+        <input type="text" id="f-proveedor" placeholder="Nombre del proveedor" />
+      </div>
     </div>
+    <div class="grid-1 mt-10" id="field-origen-wrap" style="display:none">
+      <div class="field">
+        <label>Origen</label>
+        <input type="text" id="f-origen" placeholder="Lugar de origen de la carga" />
+      </div>
+    </div>
+  </div>
+
+  <!-- CISTERNAS — solo Carga -->
+  <div class="section" id="sec-cisternas" style="display:none">
+    <div class="section-title">Cisternas</div>
+    <div class="grid-2">
+      <div class="field">
+        <label>Cantidad de cisternas <span class="req"></span>
+          <span class="tip-wrap">
+            <span class="tip-icon">?</span>
+            <span class="tip-box">Ingrese la cantidad de cisternas del camión. Se generarán campos para completar los m³ de cada una.</span>
+          </span>
+        </label>
+        <select id="f-cant-cisternas" onchange="updateCisternas()">
+          <option value="">Seleccionar...</option>
+          <option>1</option><option>2</option><option>3</option>
+          <option>4</option><option>5</option><option>6</option>
+          <option>7</option><option>8</option><option>9</option><option>10</option>
+        </select>
+      </div>
+    </div>
+    <div class="cisternas-grid" id="cisternas-campos"></div>
   </div>
 
   <!-- TRANSPORTE -->
@@ -248,7 +160,7 @@
     <div class="grid-3">
       <div class="field">
         <label>Patente camión <span class="req"></span></label>
-        <input type="text" id="f-camion" placeholder="Ej: AH471VE" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" />
+        <input type="text" id="f-camion" placeholder="Ej: AH471VE" oninput="this.value=this.value.toUpperCase()" />
       </div>
       <div class="field">
         <label>Patente acoplado</label>
@@ -274,55 +186,63 @@
       </div>
     </div>
 
-    <!-- EXPORTACIÓN GLICERINA -->
+    <!-- PAGER — deshabilitado en esta versión -->
     <div class="subsection">
-      <div class="toggle-row" onclick="toggleExport()">
-        <div class="toggle" id="toggle-export"></div>
-        <span class="toggle-label">Exportación de glicerina</span>
-      </div>
-      <div id="export-fields" style="display:none">
-        <div class="grid-2">
-          <div class="field">
-            <label>Nacionalidad</label>
-            <input type="text" id="f-nac" placeholder="País de destino" />
-          </div>
-          <div class="field">
-            <label>Tipo de contenedor</label>
-            <select id="f-cont-tipo">
-              <option value="">Seleccionar...</option>
-              <option>20 pies estándar</option>
-              <option>40 pies estándar</option>
-              <option>40 pies high cube</option>
-              <option>Flexi-tank</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Permiso de embarque
-              <span class="tip-wrap">
-                <span class="tip-icon">?</span>
-                <span class="tip-box">Número de permiso emitido por la Aduana argentina (PE).</span>
-              </span>
-            </label>
-            <input type="text" id="f-permiso" placeholder="Nro. permiso" />
-          </div>
-          <div class="field">
-            <label>N° contenedor
-              <span class="tip-wrap">
-                <span class="tip-icon">?</span>
-                <span class="tip-box">Código ISO: 4 letras + 7 dígitos. Ej: MSCU1234567.</span>
-              </span>
-            </label>
-            <input type="text" id="f-nro-cont" placeholder="XXXX0000000" />
-          </div>
+      <div class="section-title">Pager / Llamador</div>
+      <div class="grid-2">
+        <div class="field">
+          <label>N° de Pager</label>
+          <input type="text" id="f-pager" placeholder="Asignado en portería" disabled />
+          <span class="pager-note">Se asigna al momento del ingreso a planta</span>
         </div>
-        <div class="grid-3 mt-10">
-          <div class="field">
-            <label>TARA contenedor (kg)</label>
-            <input type="number" id="f-tara-cont" placeholder="0" />
+      </div>
+    </div>
+
+    <!-- EXPORTACIÓN GLICERINA — solo Carga + Glicerina -->
+    <div id="subsec-export" style="display:none">
+      <div class="subsection">
+        <div class="toggle-row" onclick="toggleExport()">
+          <div class="toggle" id="toggle-export"></div>
+          <span class="toggle-label">Exportación de glicerina</span>
+        </div>
+        <div id="export-fields" style="display:none">
+          <div class="grid-2">
+            <div class="field">
+              <label>Nacionalidad</label>
+              <input type="text" id="f-nac" placeholder="País de destino" />
+            </div>
+            <div class="field">
+              <label>Tipo de contenedor</label>
+              <select id="f-cont-tipo">
+                <option value="">Seleccionar...</option>
+                <option>20 pies estándar</option>
+                <option>40 pies estándar</option>
+                <option>40 pies high cube</option>
+                <option>Flexi-tank</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Permiso de embarque
+                <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Número de permiso emitido por la Aduana argentina (PE).</span></span>
+              </label>
+              <input type="text" id="f-permiso" placeholder="Nro. permiso" />
+            </div>
+            <div class="field">
+              <label>N° contenedor
+                <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Código ISO: 4 letras + 7 dígitos. Ej: MSCU1234567.</span></span>
+              </label>
+              <input type="text" id="f-nro-cont" placeholder="XXXX0000000" />
+            </div>
           </div>
-          <div class="field">
-            <label>TARA flexi (kg)</label>
-            <input type="number" id="f-tara-flexi" placeholder="0" />
+          <div class="grid-3 mt-10">
+            <div class="field">
+              <label>TARA contenedor (kg)</label>
+              <input type="number" id="f-tara-cont" placeholder="0" />
+            </div>
+            <div class="field">
+              <label>TARA flexi (kg)</label>
+              <input type="number" id="f-tara-flexi" placeholder="0" />
+            </div>
           </div>
         </div>
       </div>
@@ -335,10 +255,7 @@
     <div class="grid-1">
       <div class="field">
         <label>Destino / Terminal <span class="req"></span>
-          <span class="tip-wrap">
-            <span class="tip-icon">?</span>
-            <span class="tip-box">Nombre comercial del punto de descarga. Ej: "Terminal Montecristo", "Puerto Rosario".</span>
-          </span>
+          <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Nombre comercial del punto de descarga. Ej: "Terminal Montecristo", "Puerto Rosario".</span></span>
         </label>
         <input type="text" id="f-destino" placeholder="Nombre del punto de descarga" />
         <span class="field-hint">Indique el nombre exacto de la terminal o planta receptora.</span>
@@ -347,10 +264,7 @@
     <div class="grid-2 mt-10">
       <div class="field">
         <label>Dirección / Ruta
-          <span class="tip-wrap">
-            <span class="tip-icon">?</span>
-            <span class="tip-box">Calle, ruta y número. Ej: Ruta Nacional 19, Km 3, S/N.</span>
-          </span>
+          <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Calle, ruta y número. Ej: Ruta Nacional 19, Km 3, S/N.</span></span>
         </label>
         <input type="text" id="f-dir" placeholder="Ruta o calle y número" />
       </div>
@@ -363,12 +277,7 @@
         <input type="text" id="f-provincia" placeholder="Ej: Córdoba" />
       </div>
       <div class="field">
-        <label>Código postal
-          <span class="tip-wrap">
-            <span class="tip-icon">?</span>
-            <span class="tip-box">CP de la localidad de destino. Requerido para documentación de transporte.</span>
-          </span>
-        </label>
+        <label>Código postal</label>
         <input type="text" id="f-cp" placeholder="Ej: 5025" />
       </div>
     </div>
@@ -382,19 +291,10 @@
       <button class="btn-submit" id="btn-submit" onclick="handleSubmit()">Enviar nómina</button>
     </div>
   </div>
-
-  <div class="banner success" id="banner-ok">
-    ✓ Nómina enviada correctamente. El equipo de operaciones de Explora fue notificado.
-  </div>
-  <div class="banner error" id="banner-err">
-    ✗ Hubo un error al enviar. Por favor intentá de nuevo o contactá a operaciones.
-  </div>
+  <div class="banner success" id="banner-ok">✓ Nómina enviada correctamente. El equipo de operaciones de Explora fue notificado.</div>
+  <div class="banner error"   id="banner-err">✗ Hubo un error al enviar. Por favor intentá de nuevo o contactá a operaciones.</div>
 
 </div>
-
-
-
-<!-- Google Sheets API via fetch -->
 <script src="app.js"></script>
 </body>
 </html>
