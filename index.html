@@ -3,17 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nómina de operación — Explora</title>
+  <title>Nóminas — Explora</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f5f7; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
     .container { max-width: 660px; margin: 0 auto; }
 
-    .header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-radius: 12px; padding: 1.1rem 1.4rem; margin-bottom: 1.2rem; border: 1px solid #e5e7eb; }
-    .header-text h1 { font-size: 17px; font-weight: 600; color: #111; }
-    .header-text p  { font-size: 12px; color: #6b7280; margin-top: 2px; }
-    .header img { height: 34px; width: auto; }
+    /* AUTH SCREENS */
+    .auth-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2rem; max-width: 400px; margin: 4rem auto; }
+    .auth-logo { display: flex; justify-content: center; margin-bottom: 1.5rem; }
+    .auth-logo img { height: 38px; }
+    .auth-title { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 4px; }
+    .auth-sub { font-size: 13px; color: #6b7280; text-align: center; margin-bottom: 1.5rem; }
+    .auth-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .auth-field label { font-size: 12px; color: #6b7280; }
+    .auth-field input { font-size: 13px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 7px; background: #f9fafb; color: #111; }
+    .auth-field input:focus { outline: none; border-color: #6b7280; background: #fff; }
+    .auth-btn { width: 100%; padding: 10px; background: #1a1a1a; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 8px; }
+    .auth-btn:hover { opacity: 0.85; }
+    .auth-link { font-size: 12px; color: #6b7280; text-align: center; margin-top: 14px; }
+    .auth-link a { color: #D85A30; cursor: pointer; text-decoration: none; }
+    .auth-error { font-size: 12px; color: #ef4444; text-align: center; margin-top: 8px; min-height: 18px; }
+    .auth-success { font-size: 12px; color: #059669; text-align: center; margin-top: 8px; min-height: 18px; }
 
+    /* HEADER FORMULARIO */
+    .header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-radius: 12px; padding: 1rem 1.4rem; margin-bottom: 1.2rem; border: 1px solid #e5e7eb; }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-left img { height: 32px; }
+    .header-text h1 { font-size: 16px; font-weight: 600; color: #111; }
+    .header-text p { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .header-user { display: flex; align-items: center; gap: 10px; }
+    .header-user span { font-size: 12px; color: #6b7280; }
+    .btn-logout { font-size: 11px; color: #6b7280; background: none; border: 1px solid #e5e7eb; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+    .btn-logout:hover { background: #f3f4f6; }
+
+    /* MODO SELECTOR */
+    .mode-selector { display: flex; gap: 10px; margin-bottom: 1rem; }
+    .mode-btn { flex: 1; padding: 10px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; font-size: 13px; font-weight: 500; cursor: pointer; color: #6b7280; transition: all 0.15s; }
+    .mode-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+    .mode-btn:hover:not(.active) { background: #f3f4f6; }
+
+    /* SECCIONES FORMULARIO */
     .section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.1rem 1.3rem; margin-bottom: 1rem; }
     .section-title { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #9ca3af; margin-bottom: 12px; }
     .subsection { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 12px; }
@@ -21,7 +51,7 @@
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     .grid-1 { display: grid; grid-template-columns: 1fr; gap: 10px; }
-    .mt-10  { margin-top: 10px; }
+    .mt-10 { margin-top: 10px; }
 
     .field { display: flex; flex-direction: column; gap: 4px; }
     .field label { font-size: 12px; color: #6b7280; display: flex; align-items: center; gap: 4px; }
@@ -29,9 +59,8 @@
     .field input:focus, .field select:focus { outline: none; border-color: #6b7280; background: #fff; }
     .field input.error, .field select.error { border-color: #ef4444; }
     .field input::placeholder { color: #c0c4cc; }
-    .field-hint { font-size: 11px; color: #9ca3af; margin-top: 2px; line-height: 1.4; }
-
     .field input:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb; opacity: 0.7; }
+    .field-hint { font-size: 11px; color: #9ca3af; margin-top: 2px; line-height: 1.4; }
     .pager-note { font-size: 10px; color: #9ca3af; margin-top: 3px; font-style: italic; }
 
     .req { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
@@ -48,14 +77,27 @@
     .toggle.on::after { left: 14px; }
     .toggle-label { font-size: 12px; color: #6b7280; }
 
-    .cisternas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; }
+    .cisternas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-top: 8px; }
 
+    /* CARGA MASIVA */
+    .tabla-masiva { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tabla-masiva th { background: #1a1a1a; color: #fff; padding: 7px 8px; text-align: left; font-weight: 500; font-size: 11px; }
+    .tabla-masiva td { padding: 4px; border-bottom: 1px solid #f3f4f6; }
+    .tabla-masiva input, .tabla-masiva select { font-size: 12px; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 5px; background: #f9fafb; width: 100%; }
+    .tabla-masiva input:focus, .tabla-masiva select:focus { outline: none; border-color: #6b7280; }
+    .btn-add-row { font-size: 12px; color: #D85A30; background: none; border: 1px dashed #D85A30; border-radius: 7px; padding: 7px 16px; cursor: pointer; margin-top: 10px; width: 100%; }
+    .btn-add-row:hover { background: #fff5f0; }
+    .btn-del-row { font-size: 11px; color: #ef4444; background: none; border: none; cursor: pointer; padding: 2px 6px; }
+
+    /* SUBMIT */
     .submit-row { display: flex; align-items: center; justify-content: space-between; margin-top: 1.25rem; }
     .legend { font-size: 11px; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
     .legend .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; }
     .btn-submit { background: #1a1a1a; color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
     .btn-submit:hover { opacity: 0.82; }
     .btn-submit:disabled { opacity: 0.45; cursor: default; }
+    .btn-nueva { background: #D85A30; color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 1rem; width: 100%; display: none; }
+    .btn-nueva:hover { opacity: 0.85; }
 
     .banner { display: none; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 1rem; }
     .banner.success { background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; }
@@ -64,230 +106,427 @@
     .spinner { display: none; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #1a1a1a; border-radius: 50%; animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    @media (max-width: 520px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } .header img { height: 26px; } }
+    @media (max-width: 520px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } .header-left img { height: 26px; } }
   </style>
 </head>
 <body>
+
+<!-- ═══ PANTALLA LOGIN ═══════════════════════════════════════════════════════ -->
+<div id="screen-login">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="logo.png" alt="Explora" /></div>
+    <div class="auth-title">Ingresá a tu cuenta</div>
+    <div class="auth-sub">Sistema de nóminas de operación</div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="tu@empresa.com" />
+    </div>
+    <div class="auth-field">
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" placeholder="••••••••" />
+    </div>
+    <button class="auth-btn" onclick="doLogin()">Ingresar</button>
+    <div class="auth-error" id="login-error"></div>
+    <div class="auth-link">
+      <a onclick="showScreen('screen-recover')">Olvidé mi contraseña</a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PANTALLA REGISTRO ════════════════════════════════════════════════════ -->
+<div id="screen-registro" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="logo.png" alt="Explora" /></div>
+    <div class="auth-title">Crear cuenta</div>
+    <div class="auth-sub">Completá tus datos para registrarte</div>
+    <div class="auth-field">
+      <label>Nombre completo</label>
+      <input type="text" id="reg-nombre" placeholder="Nombre y apellido" />
+    </div>
+    <div class="auth-field">
+      <label>Empresa</label>
+      <input type="text" id="reg-empresa" placeholder="Razón social" />
+    </div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="reg-email" placeholder="tu@empresa.com" />
+    </div>
+    <div class="auth-field">
+      <label>Contraseña</label>
+      <input type="password" id="reg-pass" placeholder="Mínimo 8 caracteres" />
+    </div>
+    <div class="auth-field">
+      <label>Repetir contraseña</label>
+      <input type="password" id="reg-pass2" placeholder="••••••••" />
+    </div>
+    <button class="auth-btn" onclick="doRegistro()">Crear cuenta</button>
+    <div class="auth-error" id="reg-error"></div>
+    <div class="auth-link">¿Ya tenés cuenta? <a onclick="showScreen('screen-login')">Ingresá</a></div>
+  </div>
+</div>
+
+<!-- ═══ PANTALLA RECUPERAR CONTRASEÑA ════════════════════════════════════════ -->
+<div id="screen-recover" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="logo.png" alt="Explora" /></div>
+    <div class="auth-title">Recuperar contraseña</div>
+    <div class="auth-sub">Te enviamos un link para restablecer tu contraseña</div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="recover-email" placeholder="tu@empresa.com" />
+    </div>
+    <button class="auth-btn" onclick="doRecover()">Enviar link</button>
+    <div class="auth-error"   id="recover-error"></div>
+    <div class="auth-success" id="recover-ok"></div>
+    <div class="auth-link"><a onclick="showScreen('screen-login')">← Volver al login</a></div>
+  </div>
+</div>
+
+<!-- ═══ PANTALLA FORMULARIO ══════════════════════════════════════════════════ -->
+<div id="screen-form" style="display:none">
 <div class="container">
 
-  <!-- HEADER -->
   <div class="header">
-    <div class="header-text">
-      <h1>Nómina de operación</h1>
-      <p>Complete los campos y envíe. Los datos se registran automáticamente.</p>
-    </div>
-    <img src="logo.png" alt="Explora" />
-  </div>
-
-  <!-- OPERACIÓN -->
-  <div class="section">
-    <div class="section-title">Operación</div>
-    <div class="grid-2">
-      <div class="field">
-        <label>Cliente / Proveedor <span class="req"></span></label>
-        <input type="text" id="f-cliente" placeholder="Razón social" />
-      </div>
-      <div class="field">
-        <label>Tipo de operación <span class="req"></span></label>
-        <select id="f-tipo-op" onchange="updateTipo()">
-          <option value="">Seleccionar...</option>
-          <option value="Carga">Carga</option>
-          <option value="Descarga">Descarga</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>N° de Orden de Compra o Venta</label>
-        <input type="text" id="f-orden" placeholder="Número de orden (opcional)" />
-      </div>
-      <div class="field">
-        <label>Producto <span class="req"></span></label>
-        <select id="f-producto" onchange="updateProducto()">
-          <option value="">Seleccionar tipo primero</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Fecha <span class="req"></span></label>
-        <input type="date" id="f-fecha" />
+    <div class="header-left">
+      <img src="logo.png" alt="Explora" />
+      <div class="header-text">
+        <h1>Nómina de operación</h1>
+        <p>Complete los campos y envíe.</p>
       </div>
     </div>
-
-    <!-- Proveedor y Origen — solo Descarga -->
-    <div class="grid-2 mt-10" id="field-descarga-wrap" style="display:none">
-      <div class="field">
-        <label>Proveedor</label>
-        <input type="text" id="f-proveedor" placeholder="Nombre del proveedor" />
-      </div>
-      <div class="field">
-        <label>Origen (Localidad / Provincia)</label>
-        <input type="text" id="f-origen" placeholder="Ej: Rosario, Santa Fe" />
-      </div>
+    <div class="header-user">
+      <span id="user-email-display"></span>
+      <button class="btn-logout" onclick="doLogout()">Salir</button>
     </div>
   </div>
 
-  <!-- CISTERNAS — solo Carga -->
-  <div class="section" id="sec-cisternas" style="display:none">
-    <div class="section-title">Cisternas</div>
-    <div class="grid-2">
-      <div class="field">
-        <label>Cantidad de cisternas <span class="req"></span>
-          <span class="tip-wrap">
-            <span class="tip-icon">?</span>
-            <span class="tip-box">Máximo 7 cisternas. Se generarán campos para completar los m³ de cada una.</span>
-          </span>
-        </label>
-        <select id="f-cant-cisternas" onchange="updateCisternas()">
-          <option value="">Seleccionar...</option>
-          <option>1</option><option>2</option><option>3</option>
-          <option>4</option><option>5</option><option>6</option><option>7</option>
-        </select>
-      </div>
-    </div>
-    <div class="cisternas-grid" id="cisternas-campos"></div>
+  <!-- SELECTOR DE MODO -->
+  <div class="mode-selector">
+    <button class="mode-btn active" id="btn-modo-individual" onclick="setModo('individual')">Carga individual</button>
+    <button class="mode-btn" id="btn-modo-masiva" onclick="setModo('masiva')">Carga masiva</button>
   </div>
 
-  <!-- TRANSPORTE -->
-  <div class="section">
-    <div class="section-title">Transporte</div>
-    <div class="grid-3">
-      <div class="field">
-        <label>Patente camión <span class="req"></span></label>
-        <input type="text" id="f-camion" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="7" />
-        <span class="field-hint">Sin espacios. Formato: AA333DD</span>
-      </div>
-      <div class="field">
-        <label>Patente acoplado</label>
-        <input type="text" id="f-acoplado" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="7" />
-        <span class="field-hint">Sin espacios. Formato: AA333DD</span>
-      </div>
-      <div class="field">
-        <label>Empresa transportista <span class="req"></span></label>
-        <input type="text" id="f-empresa" placeholder="Nombre empresa" />
-      </div>
-    </div>
-    <div class="grid-3 mt-10">
-      <div class="field">
-        <label>CUIT transportista <span class="req"></span></label>
-        <input type="text" id="f-cuit" placeholder="30-00000000-0" />
-      </div>
-      <div class="field">
-        <label>DNI chofer <span class="req"></span></label>
-        <input type="text" id="f-dni" placeholder="Nro. de DNI" />
-      </div>
-      <div class="field">
-        <label>Nombre chofer <span class="req"></span></label>
-        <input type="text" id="f-chofer" placeholder="Apellido, Nombre" />
-      </div>
-    </div>
+  <!-- ── MODO INDIVIDUAL ─────────────────────────────────────────────────── -->
+  <div id="modo-individual">
 
-    <!-- PAGER — deshabilitado en esta versión -->
-    <div class="subsection">
-      <div class="section-title">Pager / Llamador</div>
+    <div class="section">
+      <div class="section-title">Operación</div>
       <div class="grid-2">
         <div class="field">
-          <label>N° de Pager</label>
-          <input type="text" id="f-pager" placeholder="Asignado en portería" disabled />
-          <span class="pager-note">Se asigna al momento del ingreso a planta</span>
+          <label>Cliente / Proveedor <span class="req"></span></label>
+          <input type="text" id="f-cliente" placeholder="Razón social" />
+        </div>
+        <div class="field">
+          <label>Tipo de operación <span class="req"></span></label>
+          <select id="f-tipo-op" onchange="updateTipo()">
+            <option value="">Seleccionar...</option>
+            <option value="Carga">Carga</option>
+            <option value="Descarga">Descarga</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>N° de Orden de Compra o Venta <span class="req"></span></label>
+          <input type="text" id="f-orden" placeholder="Número de orden" />
+        </div>
+        <div class="field">
+          <label>Producto <span class="req"></span></label>
+          <select id="f-producto" onchange="updateProducto()">
+            <option value="">Seleccionar tipo primero</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Fecha <span class="req"></span></label>
+          <input type="date" id="f-fecha" />
+        </div>
+      </div>
+      <div class="grid-2 mt-10" id="field-descarga-wrap" style="display:none">
+        <div class="field">
+          <label>Proveedor</label>
+          <input type="text" id="f-proveedor" placeholder="Nombre del proveedor" />
+        </div>
+        <div class="field">
+          <label>Origen (Localidad / Provincia)</label>
+          <input type="text" id="f-origen" placeholder="Ej: Rosario, Santa Fe" />
         </div>
       </div>
     </div>
 
-    <!-- EXPORTACIÓN GLICERINA — solo Carga + Glicerina -->
-    <div id="subsec-export" style="display:none">
+    <div class="section" id="sec-cisternas" style="display:none">
+      <div class="section-title">Cisternas</div>
+      <div class="grid-2">
+        <div class="field">
+          <label>Cantidad de cisternas <span class="req"></span></label>
+          <select id="f-cant-cisternas" onchange="updateCisternas()">
+            <option value="">Seleccionar...</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option><option>7</option>
+          </select>
+        </div>
+      </div>
+      <div class="cisternas-grid" id="cisternas-campos"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Transporte</div>
+      <div class="grid-3">
+        <div class="field">
+          <label>Patente camión <span class="req"></span></label>
+          <input type="text" id="f-camion" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="8" />
+          <span class="field-hint">Sin espacios. Ej: AA333DD</span>
+        </div>
+        <div class="field">
+          <label>Patente acoplado</label>
+          <input type="text" id="f-acoplado" placeholder="Ej: AA333DD" oninput="this.value=this.value.toUpperCase()" maxlength="8" />
+          <span class="field-hint">Sin espacios. Ej: AA333DD</span>
+        </div>
+        <div class="field">
+          <label>Empresa transportista <span class="req"></span></label>
+          <input type="text" id="f-empresa" placeholder="Nombre empresa" />
+        </div>
+      </div>
+      <div class="grid-3 mt-10">
+        <div class="field">
+          <label>CUIT transportista <span class="req"></span></label>
+          <input type="text" id="f-cuit" placeholder="30-00000000-0" />
+        </div>
+        <div class="field">
+          <label>DNI chofer <span class="req"></span></label>
+          <input type="text" id="f-dni" placeholder="Nro. de DNI" />
+        </div>
+        <div class="field">
+          <label>Nombre chofer <span class="req"></span></label>
+          <input type="text" id="f-chofer" placeholder="Apellido, Nombre" />
+        </div>
+      </div>
       <div class="subsection">
-        <div class="toggle-row" onclick="toggleExport()">
-          <div class="toggle" id="toggle-export"></div>
-          <span class="toggle-label">Exportación de glicerina</span>
-        </div>
-        <div id="export-fields" style="display:none">
-          <div class="grid-2">
-            <div class="field">
-              <label>Nacionalidad</label>
-              <input type="text" id="f-nac" placeholder="País de destino" />
-            </div>
-            <div class="field">
-              <label>Tipo de contenedor</label>
-              <select id="f-cont-tipo">
-                <option value="">Seleccionar...</option>
-                <option>20 pies estándar</option>
-                <option>40 pies estándar</option>
-                <option>40 pies high cube</option>
-                <option>Flexi-tank</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Permiso de embarque
-                <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Número de permiso emitido por la Aduana argentina (PE).</span></span>
-              </label>
-              <input type="text" id="f-permiso" placeholder="Nro. permiso" />
-            </div>
-            <div class="field">
-              <label>N° contenedor
-                <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Código ISO: 4 letras + 7 dígitos. Ej: MSCU1234567.</span></span>
-              </label>
-              <input type="text" id="f-nro-cont" placeholder="XXXX0000000" />
-            </div>
-          </div>
-          <div class="grid-3 mt-10">
-            <div class="field">
-              <label>TARA contenedor (kg)</label>
-              <input type="number" id="f-tara-cont" placeholder="0" />
-            </div>
-            <div class="field">
-              <label>TARA flexi (kg)</label>
-              <input type="number" id="f-tara-flexi" placeholder="0" />
-            </div>
+        <div class="section-title">Pager / Llamador</div>
+        <div class="grid-2">
+          <div class="field">
+            <label>N° de Pager</label>
+            <input type="text" id="f-pager" placeholder="Asignado en portería" disabled />
+            <span class="pager-note">Se asigna al momento del ingreso a planta</span>
           </div>
         </div>
       </div>
+      <div id="subsec-export" style="display:none">
+        <div class="subsection">
+          <div class="toggle-row" onclick="toggleExport()">
+            <div class="toggle" id="toggle-export"></div>
+            <span class="toggle-label">Exportación de glicerina</span>
+          </div>
+          <div id="export-fields" style="display:none">
+            <div class="grid-2">
+              <div class="field">
+                <label>Nacionalidad</label>
+                <input type="text" id="f-nac" placeholder="País de destino" />
+              </div>
+              <div class="field">
+                <label>Tipo de contenedor</label>
+                <select id="f-cont-tipo">
+                  <option value="">Seleccionar...</option>
+                  <option>20 pies estándar</option>
+                  <option>40 pies estándar</option>
+                  <option>40 pies high cube</option>
+                  <option>Flexi-tank</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Permiso de embarque</label>
+                <input type="text" id="f-permiso" placeholder="Nro. permiso" />
+              </div>
+              <div class="field">
+                <label>N° contenedor</label>
+                <input type="text" id="f-nro-cont" placeholder="XXXX0000000" />
+              </div>
+            </div>
+            <div class="grid-3 mt-10">
+              <div class="field">
+                <label>TARA contenedor (kg)</label>
+                <input type="number" id="f-tara-cont" placeholder="0" />
+              </div>
+              <div class="field">
+                <label>TARA flexi (kg)</label>
+                <input type="number" id="f-tara-flexi" placeholder="0" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- DESTINO -->
-  <div class="section">
-    <div class="section-title">Destino</div>
-    <div class="grid-1">
-      <div class="field">
-        <label>Destino / Terminal <span class="req"></span>
-          <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Nombre comercial del punto de descarga. Ej: "Terminal Montecristo", "Puerto Rosario".</span></span>
-        </label>
-        <input type="text" id="f-destino" placeholder="Nombre del punto de descarga" />
-        <span class="field-hint">Indique el nombre exacto de la terminal o planta receptora.</span>
+    <div class="section">
+      <div class="section-title">Destino</div>
+      <div class="grid-1">
+        <div class="field">
+          <label>Destino / Terminal <span class="req"></span></label>
+          <input type="text" id="f-destino" placeholder="Nombre del punto de descarga" />
+          <span class="field-hint">Indique el nombre exacto de la terminal o planta receptora.</span>
+        </div>
+      </div>
+      <div class="grid-2 mt-10">
+        <div class="field">
+          <label>Dirección / Ruta</label>
+          <input type="text" id="f-dir" placeholder="Ruta o calle y número" />
+        </div>
+        <div class="field">
+          <label>Localidad</label>
+          <input type="text" id="f-localidad" placeholder="Ej: Montecristo" />
+        </div>
+        <div class="field">
+          <label>Provincia</label>
+          <input type="text" id="f-provincia" placeholder="Ej: Córdoba" />
+        </div>
+        <div class="field">
+          <label>Código postal</label>
+          <input type="text" id="f-cp" placeholder="Ej: 5025" />
+        </div>
       </div>
     </div>
-    <div class="grid-2 mt-10">
-      <div class="field">
-        <label>Dirección / Ruta
-          <span class="tip-wrap"><span class="tip-icon">?</span><span class="tip-box">Calle, ruta y número. Ej: Ruta Nacional 19, Km 3, S/N.</span></span>
-        </label>
-        <input type="text" id="f-dir" placeholder="Ruta o calle y número" />
-      </div>
-      <div class="field">
-        <label>Localidad</label>
-        <input type="text" id="f-localidad" placeholder="Ej: Montecristo" />
-      </div>
-      <div class="field">
-        <label>Provincia</label>
-        <input type="text" id="f-provincia" placeholder="Ej: Córdoba" />
-      </div>
-      <div class="field">
-        <label>Código postal</label>
-        <input type="text" id="f-cp" placeholder="Ej: 5025" />
-      </div>
-    </div>
-  </div>
 
-  <!-- SUBMIT -->
-  <div class="submit-row">
-    <span class="legend"><span class="dot"></span> Campo obligatorio</span>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div class="spinner" id="spinner"></div>
-      <button class="btn-submit" id="btn-submit" onclick="handleSubmit()">Enviar nómina</button>
+    <div class="submit-row">
+      <span class="legend"><span class="dot"></span> Campo obligatorio</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="spinner" id="spinner"></div>
+        <button class="btn-submit" id="btn-submit" onclick="handleSubmit()">Enviar nómina</button>
+      </div>
     </div>
-  </div>
-  <div class="banner success" id="banner-ok">✓ Nómina enviada correctamente. El equipo de operaciones de Explora fue notificado.</div>
-  <div class="banner error"   id="banner-err">✗ Hubo un error al enviar. Por favor intentá de nuevo o contactá a operaciones.</div>
+    <div class="banner success" id="banner-ok"></div>
+    <div class="banner error"   id="banner-err">✗ Hubo un error al enviar. Por favor intentá de nuevo.</div>
+    <button class="btn-nueva" id="btn-nueva" onclick="nuevaNomina()">+ Cargar nueva nómina</button>
+
+  </div><!-- fin modo-individual -->
+
+  <!-- ── MODO MASIVA ──────────────────────────────────────────────────────── -->
+  <div id="modo-masiva" style="display:none">
+    <div class="section">
+      <div class="section-title">Carga masiva de nóminas</div>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:14px;">Completá la tabla con todas las nóminas a enviar. Cada fila es una operación.</p>
+      <div style="overflow-x:auto;">
+        <table class="tabla-masiva" id="tabla-masiva">
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Cliente/Prov.</th>
+              <th>N° Orden</th>
+              <th>Producto</th>
+              <th>Fecha</th>
+              <th>Patente</th>
+              <th>Chofer</th>
+              <th>Empresa</th>
+              <th>Destino</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tabla-masiva-body"></tbody>
+        </table>
+      </div>
+      <button class="btn-add-row" onclick="addRowMasiva()">+ Agregar fila</button>
+    </div>
+    <div class="submit-row">
+      <span class="legend"><span class="dot"></span> Todos los campos son obligatorios</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="spinner" id="spinner-masiva"></div>
+        <button class="btn-submit" id="btn-submit-masiva" onclick="handleSubmitMasiva()">Enviar todas</button>
+      </div>
+    </div>
+    <div class="banner success" id="banner-ok-masiva"></div>
+    <div class="banner error"   id="banner-err-masiva">✗ Hubo un error. Revisá los datos e intentá de nuevo.</div>
+  </div><!-- fin modo-masiva -->
 
 </div>
+</div><!-- fin screen-form -->
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+  const firebaseConfig = {
+    apiKey:            'AIzaSyAVtMwe5EQRXOQK5FKycIu1ejkGCDUbPWg',
+    authDomain:        'explora-nominas.firebaseapp.com',
+    projectId:         'explora-nominas',
+    storageBucket:     'explora-nominas.firebasestorage.app',
+    messagingSenderId: '1095463640333',
+    appId:             '1:1095463640333:web:feda27e15f2e0354bb6444',
+  };
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  // Estado del usuario actual
+  window._userEmail = '';
+  window._userName  = '';
+
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      window._userEmail = user.email;
+      window._userName  = user.displayName || user.email;
+      document.getElementById('user-email-display').textContent = window._userName;
+      showScreen('screen-form');
+    } else {
+      showScreen('screen-login');
+    }
+  });
+
+  window.doLogin = async () => {
+    const email = document.getElementById('login-email').value.trim();
+    const pass  = document.getElementById('login-pass').value;
+    document.getElementById('login-error').textContent = '';
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch(e) {
+      document.getElementById('login-error').textContent = traducirError(e.code);
+    }
+  };
+
+  window.doRegistro = async () => {
+    const nombre  = document.getElementById('reg-nombre').value.trim();
+    const empresa = document.getElementById('reg-empresa').value.trim();
+    const email   = document.getElementById('reg-email').value.trim();
+    const pass    = document.getElementById('reg-pass').value;
+    const pass2   = document.getElementById('reg-pass2').value;
+    document.getElementById('reg-error').textContent = '';
+    if (!nombre || !empresa || !email || !pass) { document.getElementById('reg-error').textContent = 'Completá todos los campos.'; return; }
+    if (pass !== pass2) { document.getElementById('reg-error').textContent = 'Las contraseñas no coinciden.'; return; }
+    if (pass.length < 8) { document.getElementById('reg-error').textContent = 'La contraseña debe tener al menos 8 caracteres.'; return; }
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(cred.user, { displayName: nombre + ' — ' + empresa });
+    } catch(e) {
+      document.getElementById('reg-error').textContent = traducirError(e.code);
+    }
+  };
+
+  window.doRecover = async () => {
+    const email = document.getElementById('recover-email').value.trim();
+    document.getElementById('recover-error').textContent  = '';
+    document.getElementById('recover-ok').textContent     = '';
+    if (!email) { document.getElementById('recover-error').textContent = 'Ingresá tu email.'; return; }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      document.getElementById('recover-ok').textContent = 'Te enviamos el link. Revisá tu casilla.';
+    } catch(e) {
+      document.getElementById('recover-error').textContent = traducirError(e.code);
+    }
+  };
+
+  window.doLogout = async () => {
+    await signOut(auth);
+  };
+
+  function traducirError(code) {
+    const errores = {
+      'auth/invalid-email':           'Email inválido.',
+      'auth/user-not-found':          'No existe una cuenta con ese email.',
+      'auth/wrong-password':          'Contraseña incorrecta.',
+      'auth/email-already-in-use':    'Ya existe una cuenta con ese email.',
+      'auth/weak-password':           'La contraseña es muy débil.',
+      'auth/invalid-credential':      'Email o contraseña incorrectos.',
+      'auth/too-many-requests':       'Demasiados intentos. Intentá más tarde.',
+    };
+    return errores[code] || 'Error inesperado. Intentá de nuevo.';
+  }
+</script>
 <script src="app.js"></script>
 </body>
 </html>
