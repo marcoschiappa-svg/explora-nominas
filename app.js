@@ -1,5 +1,5 @@
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyMKtE56JvOgsaXvZysn5SFkwswzIW_MAmy48XwEubAAWZttDYvwTvR7GZTjwAWismx/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwLOgyv1X0pTlfq3CcD5nQybQau1DelwosukZiR414O73YjvXT1gk7c94VOg3SfKADo/exec';
 
 const PRODUCTOS = {
   'Carga':    ['Biodiesel', 'EMAG', 'Glicerina', 'Otros'],
