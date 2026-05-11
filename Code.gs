@@ -2,12 +2,23 @@ const SHEET_ID   = '1BRKhbZ7wsJ8m8Xi_9mhl5CEl6dDVfJW_XKekjiL7dX0';
 const SHEET_NAME = 'Mov Vehículos Carga y Desc';
 const EMAIL_DEST = 'marcos.chiappa@explora.com.ar';
 
-function doGet(e)  { return handleRequest(e); }
-function doPost(e) { return handleRequest(e); }
+function doGet(e) {
+  if (!e || !e.parameter) {
+    return ContentService.createTextOutput(JSON.stringify({status:'error',message:'No params'})).setMimeType(ContentService.MimeType.JSON);
+  }
+  return handleRequest(e.parameter);
+}
 
-function handleRequest(e) {
+function doPost(e) {
+  if (!e) {
+    return ContentService.createTextOutput(JSON.stringify({status:'error',message:'No data'})).setMimeType(ContentService.MimeType.JSON);
+  }
+  const data = (e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : e.parameter;
+  return handleRequest(data);
+}
+
+function handleRequest(data) {
   try {
-    let data = (e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : e.parameter;
     escribirEnSheet(data);
     enviarEmail(data);
     return ContentService.createTextOutput(JSON.stringify({status:'ok'})).setMimeType(ContentService.MimeType.JSON);
@@ -17,35 +28,32 @@ function handleRequest(e) {
 }
 
 function escribirEnSheet(data) {
-  const ss    = SpreadsheetApp.openById(SHEET_ID);
-  const sheet = ss.getSheetByName(SHEET_NAME);
-  const ts    = new Date().toLocaleString('es-AR', {timeZone:'America/Argentina/Cordoba'});
+  const ss      = SpreadsheetApp.openById(SHEET_ID);
+  const sheet   = ss.getSheetByName(SHEET_NAME);
   const nextRow = Math.max(sheet.getLastRow() + 1, 3);
+  const ts      = new Date().toLocaleString('es-AR', {timeZone:'America/Argentina/Cordoba'});
 
-  // Columnas: A=LL, B=E, C=S, D=TipoOp, E=Vehículo, F=Acoplado, G=Conductor,
-  // H=DNI, I=Empresa, J=CUIT, K=Producto, L=Cisternas, M=Aprobó,
-  // N=Procedencia, O=Proveedor, P=Origen, Q=Destino, R=NOrden, S=Detalle, T=Pager
   const row = [
-    '',                                            // A — LL
-    '',                                            // B — E
-    '',                                            // C — S
-    data.tipo_op      || '',                       // D — Tipo Op.
-    data.patente      || '',                       // E — Vehículo
-    data.acoplado     || '',                       // F — Acoplado
-    data.chofer       || '',                       // G — Conductor
-    data.dni          || '',                       // H — DNI
-    data.empresa      || '',                       // I — Empresa
-    data.cuit         || '',                       // J — CUIT
-    data.producto     || '',                       // K — Producto
-    data.cisternas    || '',                       // L — Cisternas
-    'Pendiente',                                   // M — Aprobó formulario
-    data.cliente      || '',                       // N — Procedencia
-    data.proveedor    || '',                       // O — Proveedor
-    data.origen       || '',                       // P — Origen
-    data.destino      || '',                       // Q — Destino
-    data.orden        || '',                       // R — N° Orden
-    (data.producto||'') + (data.fecha_carga ? ' — ' + data.fecha_carga : ''), // S — Detalle
-    '',                                            // T — Pager
+    '',                    // A — LL
+    '',                    // B — E
+    '',                    // C — S
+    data.tipo_op      || '', // D — Tipo Op.
+    data.patente      || '', // E — Vehículo
+    data.acoplado     || '', // F — Acoplado
+    data.chofer       || '', // G — Conductor
+    data.dni          || '', // H — DNI
+    data.empresa      || '', // I — Empresa
+    data.cuit         || '', // J — CUIT
+    data.producto     || '', // K — Producto
+    data.cisternas    || '', // L — Cisternas
+    'Pendiente',             // M — Aprobó formulario
+    data.cliente      || '', // N — Procedencia
+    data.proveedor    || '', // O — Proveedor
+    data.origen       || '', // P — Origen
+    data.destino      || '', // Q — Destino
+    data.orden        || '', // R — N° Orden
+    (data.producto || '') + (data.fecha_carga ? ' — ' + data.fecha_carga : ''), // S — Detalle
+    '',                      // T — Pager
   ];
   sheet.getRange(nextRow, 1, 1, row.length).setValues([row]);
 }
@@ -88,5 +96,10 @@ function enviarEmail(data) {
     + '<tr><td style="color:#6b7280;padding:4px 0;">Provincia</td><td>' + (data.provincia||'—') + '</td></tr>'
     + '</table></div>';
 
-  GmailApp.sendEmail(EMAIL_DEST, 'Nueva nómina — ' + (data.cliente||'') + ' · ' + (data.tipo_op||'') + ' · ' + (data.fecha_carga||''), '', {htmlBody:html});
+  GmailApp.sendEmail(
+    EMAIL_DEST,
+    'Nueva nómina — ' + (data.cliente||'') + ' · ' + (data.tipo_op||'') + ' · ' + (data.fecha_carga||''),
+    '',
+    {htmlBody: html}
+  );
 }
