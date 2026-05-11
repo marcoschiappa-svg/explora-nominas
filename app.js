@@ -1,5 +1,5 @@
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
-const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/explora.com.ar/s/AKfycbzYHIm1IvmRaTlQsxwywkzX6VtdONqq1yrBK6qyiTitwhKwjwXsICGxFnX8PsIB-GBP/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyMKtE56JvOgsaXvZysn5SFkwswzIW_MAmy48XwEubAAWZttDYvwTvR7GZTjwAWismx/exec';
 
 // ─── PRODUCTOS POR TIPO ───────────────────────────────────────────────────────
 const PRODUCTOS = {
