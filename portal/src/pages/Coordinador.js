@@ -1,0 +1,308 @@
+import React, { useState } from 'react';
+
+function Coordinador({ usuario, onVolver }) {
+  const [pedidos, setPedidos] = useState([
+    {
+      id: 'PED-260520-241',
+      estado: 'pendiente',
+      tipo: 'Entrega al cliente',
+      producto: 'Biodiesel',
+      volumen: 120,
+      cliente: 'SINER',
+      ov: 'OV 2630',
+      telefono: '+54 341 555-1234',
+      fecha_entrega: '2026-05-24',
+      lugar: 'Ruta Nac. 9 km 1307,5 — Tucumán',
+      recipiente: 'Granel',
+      obs: 'Requiere escolta.',
+      creado_por: 'María Fernández',
+      creado_en: '20/05/2026 09:14',
+      editado_en: null,
+      despachos: [],
+    },
+    {
+      id: 'PED-260519-087',
+      estado: 'prog-parcial',
+      tipo: 'Entrega al cliente',
+      producto: 'EMAG',
+      volumen: 90,
+      cliente: 'FENDER',
+      ov: 'OV 2623',
+      telefono: '+54 11 4444-5678',
+      fecha_entrega: '2026-05-23',
+      lugar: 'Gral. Rodríguez, Buenos Aires',
+      recipiente: 'Granel',
+      obs: '',
+      creado_por: 'Juan Pérez',
+      creado_en: '19/05/2026 16:42',
+      editado_en: null,
+      despachos: [
+        { id: 'D1', volumen: 60, fecha_carga: '2026-05-21', transporte: 'Transportes del Norte SA', estado: 'programado', programado_por: 'Carlos López', programado_en: '20/05/2026 10:30' }
+      ],
+    },
+  ]);
+
+  const [filtro, setFiltro] = useState('todos');
+  const [expandido, setExpandido] = useState(null);
+  const [nuevoDespacho, setNuevoDespacho] = useState({});
+
+  const pillColors = {
+    'pendiente':     { bg: '#EEEDFE', color: '#3C3489' },
+    'prog-parcial':  { bg: '#FAEEDA', color: '#633806' },
+    'programado':    { bg: '#E1F5EE', color: '#085041' },
+    'nominado':      { bg: '#EEEDFE', color: '#3C3489' },
+    'suspendido':    { bg: '#FCEBEB', color: '#791F1F' },
+  };
+
+  const pillLabel = {
+    'pendiente':    'Pendiente',
+    'prog-parcial': 'Prog. parcial',
+    'programado':   'Programado',
+    'nominado':     'Nominado',
+    'suspendido':   'Suspendido',
+  };
+
+  function volAsignado(p) {
+    return p.despachos.reduce((s, d) => s + Number(d.volumen), 0);
+  }
+
+  function saldo(p) {
+    return p.volumen - volAsignado(p);
+  }
+
+  function pct(p) {
+    return Math.min(100, Math.round(volAsignado(p) / p.volumen * 100));
+  }
+
+  function confirmarDespacho(pedidoId) {
+    const nd = nuevoDespacho[pedidoId] || {};
+    if (!nd.volumen || !nd.fecha_carga || !nd.transporte) {
+      alert('Completá volumen, fecha de carga y transportista.');
+      return;
+    }
+    const p = pedidos.find(x => x.id === pedidoId);
+    const sal = saldo(p);
+    if (Number(nd.volumen) > sal) {
+      alert(`El volumen (${nd.volumen} tn) supera el saldo disponible (${sal} tn).`);
+      return;
+    }
+    const now = new Date().toLocaleString('es-AR');
+    const despacho = {
+      id: `D${p.despachos.length + 1}`,
+      volumen: Number(nd.volumen),
+      fecha_carga: nd.fecha_carga,
+      transporte: nd.transporte,
+      estado: 'programado',
+      programado_por: usuario?.nombre || 'Coordinador',
+      programado_en: now,
+    };
+    setPedidos(pedidos.map(x => {
+      if (x.id !== pedidoId) return x;
+      const nuevosDespachos = [...x.despachos, despacho];
+      const nuevoSaldo = x.volumen - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+      return { ...x, despachos: nuevosDespachos, estado: nuevoSaldo === 0 ? 'programado' : 'prog-parcial' };
+    }));
+    setNuevoDespacho({ ...nuevoDespacho, [pedidoId]: {} });
+    alert(`✓ Despacho confirmado. Se notificó al transportista.`);
+  }
+
+  function suspender(id) {
+    const motivo = prompt('Motivo de la suspensión (requerido):');
+    if (!motivo) return;
+    setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'suspendido' } : p));
+  }
+
+  const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
+
+  return (
+    <div style={styles.wrap}>
+      <div style={styles.topbar}>
+        <div style={styles.logoArea}>
+          <div style={styles.logoCircle}>e</div>
+          <span style={styles.logoText}>XPLORA</span>
+          <span style={styles.portalText}>Coordinador</span>
+        </div>
+        <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
+      </div>
+
+      <div style={styles.metrics}>
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Pendientes</div>
+          <div style={{ ...styles.metricValue, color: '#534AB7' }}>{pedidos.filter(p => p.estado === 'pendiente').length}</div>
+        </div>
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Prog. parcial</div>
+          <div style={{ ...styles.metricValue, color: '#BA7517' }}>{pedidos.filter(p => p.estado === 'prog-parcial').length}</div>
+        </div>
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Programados</div>
+          <div style={{ ...styles.metricValue, color: '#0F6E56' }}>{pedidos.filter(p => p.estado === 'programado').length}</div>
+        </div>
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Suspendidos</div>
+          <div style={{ ...styles.metricValue, color: '#A32D2D' }}>{pedidos.filter(p => p.estado === 'suspendido').length}</div>
+        </div>
+      </div>
+
+      <div style={styles.filtros}>
+        {['todos','pendiente','prog-parcial','programado','suspendido'].map(f => (
+          <button key={f} style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }} onClick={() => setFiltro(f)}>
+            {f === 'todos' ? 'Todos' : pillLabel[f]}
+          </button>
+        ))}
+      </div>
+
+      {filtrados.length === 0 && <div style={styles.empty}>Sin pedidos para mostrar.</div>}
+
+      {filtrados.map(p => (
+        <div key={p.id} style={styles.card}>
+          <div style={styles.cardHeader} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
+            <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>
+              {pillLabel[p.estado]}
+            </span>
+            <span style={styles.cardNro}>{p.id}</span>
+            <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
+            <span style={styles.cardFecha}>{p.editado_en ? `Editado ${p.editado_en}` : `Creado ${p.creado_en}`}</span>
+            <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
+          </div>
+
+          {expandido === p.id && (
+            <div style={styles.cardBody}>
+              <div style={styles.origen}>
+                Pedido creado por <strong>{p.creado_por}</strong> · {p.creado_en}
+              </div>
+
+              <div style={styles.detailGrid}>
+                <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
+                <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
+                <div style={styles.field}><span style={styles.label}>Volumen total</span><span>{p.volumen} tn</span></div>
+                <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
+                <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
+                <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
+                <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono}</span></div>
+                <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
+                <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}</span></div>
+                {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
+              </div>
+
+              <div style={styles.volBar}>
+                <div style={styles.volBarLabels}>
+                  <span>Asignado: <strong>{volAsignado(p)} tn</strong> de {p.volumen} tn</span>
+                  <span>{pct(p)}%</span>
+                </div>
+                <div style={styles.barTrack}>
+                  <div style={{ ...styles.barFill, width: `${pct(p)}%`, background: pct(p) < 100 ? '#EF9F27' : '#0F6E56' }} />
+                </div>
+                <div style={{ fontSize: 11, color: saldo(p) === 0 ? '#0F6E56' : '#BA7517', marginTop: 4 }}>
+                  {saldo(p) === 0 ? '✓ Volumen completo' : `Saldo pendiente: ${saldo(p)} tn`}
+                </div>
+              </div>
+
+              <div style={styles.despachosSection}>
+                <div style={styles.despachosTitle}>Despachos</div>
+
+                {p.despachos.map((d, i) => (
+                  <div key={i} style={styles.despachoItem}>
+                    <div style={styles.despachoHeader}>
+                      <span style={styles.despachoNro}>Despacho {i + 1}</span>
+                      <span style={{ ...styles.pill, background: '#E1F5EE', color: '#085041', fontSize: 10 }}>Programado</span>
+                      <span style={styles.despachoPor}>por {d.programado_por} · {d.programado_en}</span>
+                    </div>
+                    <div style={styles.despachoGrid}>
+                      <div style={styles.field}><span style={styles.label}>Volumen</span><span>{d.volumen} tn</span></div>
+                      <div style={styles.field}><span style={styles.label}>Fecha de carga</span><span>{d.fecha_carga}</span></div>
+                      <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Transportista</span><span>{d.transporte}</span></div>
+                    </div>
+                  </div>
+                ))}
+
+                {saldo(p) > 0 && p.estado !== 'suspendido' && (
+                  <div style={styles.nuevoDespacho}>
+                    <div style={styles.despachosTitle}>Nuevo despacho</div>
+                    <div style={styles.despachoGrid}>
+                      <div style={styles.formField}>
+                        <label style={styles.formLabel}>Volumen (tn) — saldo: {saldo(p)} tn</label>
+                        <input style={styles.input} type="number" placeholder={saldo(p)}
+                          value={nuevoDespacho[p.id]?.volumen || ''}
+                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], volumen: e.target.value } })} />
+                      </div>
+                      <div style={styles.formField}>
+                        <label style={styles.formLabel}>Fecha de carga</label>
+                        <input style={styles.input} type="date"
+                          value={nuevoDespacho[p.id]?.fecha_carga || ''}
+                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], fecha_carga: e.target.value } })} />
+                      </div>
+                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
+                        <label style={styles.formLabel}>Empresa transportista</label>
+                        <input style={styles.input} type="text" placeholder="Nombre del transportista"
+                          value={nuevoDespacho[p.id]?.transporte || ''}
+                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], transporte: e.target.value } })} />
+                      </div>
+                    </div>
+                    <button style={styles.btnConfirmar} onClick={() => confirmarDespacho(p.id)}>
+                      ✓ Confirmar despacho
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.cardActions}>
+                <button style={styles.btnSuspender} onClick={() => suspender(p.id)}>Suspender</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const styles = {
+  wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
+  topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
+  logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
+  logoCircle: { width: 32, height: 32, borderRadius: '50%', background: '#D63B1F', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800 },
+  logoText: { fontSize: 15, fontWeight: 500, color: '#111827' },
+  portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
+  btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
+  metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: '1.5rem' },
+  metric: { background: '#F9FAFB', borderRadius: 8, padding: '12px 14px' },
+  metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
+  metricValue: { fontSize: 20, fontWeight: 500 },
+  filtros: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' },
+  filtroBtnBase: { padding: '6px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
+  filtroBtnActive: { background: '#EEEDFE', borderColor: '#534AB7', color: '#3C3489', fontWeight: 500 },
+  empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
+  card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
+  cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
+  pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
+  cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
+  cardFecha: { fontSize: 11, color: '#9CA3AF' },
+  chevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0 },
+  cardBody: { padding: '12px 14px' },
+  origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 12 },
+  detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 12 },
+  field: { display: 'flex', flexDirection: 'column', gap: 3 },
+  label: { fontSize: 11, color: '#9CA3AF' },
+  volBar: { padding: '10px 12px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', marginBottom: 12 },
+  volBarLabels: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280', marginBottom: 6 },
+  barTrack: { height: 8, borderRadius: 4, background: '#E5E7EB', overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 4, transition: 'width 0.3s' },
+  despachosSection: { marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #E5E7EB' },
+  despachosTitle: { fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 },
+  despachoItem: { border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: '#F9FAFB' },
+  despachoHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+  despachoNro: { fontSize: 11, fontWeight: 500, color: '#6B7280' },
+  despachoPor: { fontSize: 11, color: '#9CA3AF' },
+  despachoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 },
+  nuevoDespacho: { border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: '#fff' },
+  formField: { display: 'flex', flexDirection: 'column', gap: 4 },
+  formLabel: { fontSize: 11, color: '#6B7280' },
+  input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  btnConfirmar: { marginTop: 10, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  cardActions: { display: 'flex', gap: 8, marginTop: 12 },
+  btnSuspender: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
+};
+
+export default Coordinador;

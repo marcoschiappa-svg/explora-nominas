@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Pedidos from './pages/Pedidos';
+import Coordinador from './pages/Coordinador';
+import Transportista from './pages/Transportista';
 
 function App() {
   const [pantalla, setPantalla] = useState('login');
@@ -16,13 +18,10 @@ function App() {
     setPantalla(id);
   }
 
-  if (pantalla === 'pedidos') {
-    return <Pedidos usuario={usuario} onVolver={() => setPantalla('home')} />;
-  }
-
-  if (pantalla === 'home') {
-    return <Home usuario={usuario} onModulo={handleModulo} />;
-  }
+  if (pantalla === 'pedidos') return <Pedidos usuario={usuario} onVolver={() => setPantalla('home')} />;
+  if (pantalla === 'coordinador') return <Coordinador usuario={usuario} onVolver={() => setPantalla('home')} />;
+  if (pantalla === 'transportista') return <Transportista usuario={usuario} onVolver={() => setPantalla('home')} />;
+  if (pantalla === 'home') return <Home usuario={usuario} onModulo={handleModulo} />;
 
   return <Login onLogin={handleLogin} />;
 }

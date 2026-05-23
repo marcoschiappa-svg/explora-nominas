@@ -12,6 +12,15 @@ function Home({ usuario, onModulo }) {
       badgeText: '#3C3489',
     },
     {
+      id: 'coordinador',
+      icono: '⚙️',
+      titulo: 'Programación',
+      desc: 'Programá despachos y asigná transportes.',
+      badge: 'Nuevo',
+      badgeColor: '#E1F5EE',
+      badgeText: '#085041',
+    },
+    {
       id: 'nominaciones',
       icono: '🚛',
       titulo: 'Nominaciones',
@@ -19,8 +28,15 @@ function Home({ usuario, onModulo }) {
       badge: 'En producción',
       badgeColor: '#E1F5EE',
       badgeText: '#085041',
-    },
-    {
+    },{
+  id: 'transportista',
+  icono: '🚛',
+  titulo: 'Transportista',
+  desc: 'Aceptá despachos y nominá tu unidad.',
+  badge: 'Nuevo',
+  badgeColor: '#EEEDFE',
+  badgeText: '#3C3489',
+},{
       id: 'acreditacion',
       icono: '📋',
       titulo: 'Acreditación',
