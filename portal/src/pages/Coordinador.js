@@ -1,80 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+
+const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/explora.com.ar/s/AKfycbw3L6ntUS3N2rjmrgw9BCsIRH96qnFlbUMKhworJw5_oB9JWYvrFYNLl4oH-T2bIayMWA/exec';
 
 function Coordinador({ usuario, onVolver }) {
-  const [pedidos, setPedidos] = useState([
-    {
-      id: 'PED-260520-241',
-      estado: 'pendiente',
-      tipo: 'Entrega al cliente',
-      producto: 'Biodiesel',
-      volumen: 120,
-      cliente: 'SINER',
-      ov: 'OV 2630',
-      telefono: '+54 341 555-1234',
-      fecha_entrega: '2026-05-24',
-      lugar: 'Ruta Nac. 9 km 1307,5 — Tucumán',
-      recipiente: 'Granel',
-      obs: 'Requiere escolta.',
-      creado_por: 'María Fernández',
-      creado_en: '20/05/2026 09:14',
-      editado_en: null,
-      despachos: [],
-    },
-    {
-      id: 'PED-260519-087',
-      estado: 'prog-parcial',
-      tipo: 'Entrega al cliente',
-      producto: 'EMAG',
-      volumen: 90,
-      cliente: 'FENDER',
-      ov: 'OV 2623',
-      telefono: '+54 11 4444-5678',
-      fecha_entrega: '2026-05-23',
-      lugar: 'Gral. Rodríguez, Buenos Aires',
-      recipiente: 'Granel',
-      obs: '',
-      creado_por: 'Juan Pérez',
-      creado_en: '19/05/2026 16:42',
-      editado_en: null,
-      despachos: [
-        { id: 'D1', volumen: 60, fecha_carga: '2026-05-21', transporte: 'Transportes del Norte SA', estado: 'programado', programado_por: 'Carlos López', programado_en: '20/05/2026 10:30' }
-      ],
-    },
-  ]);
-
+  const [pedidos, setPedidos] = useState([]);
+  const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState('todos');
   const [expandido, setExpandido] = useState(null);
   const [nuevoDespacho, setNuevoDespacho] = useState({});
+  const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
+      const data = snap.docs.map(d => ({
+        docId: d.id,
+        ...d.data(),
+        despachos: d.data().despachos || [],
+      }));
+      data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setPedidos(data);
+      setCargando(false);
+    });
+    return () => unsub();
+  }, []);
 
   const pillColors = {
-    'pendiente':     { bg: '#EEEDFE', color: '#3C3489' },
-    'prog-parcial':  { bg: '#FAEEDA', color: '#633806' },
-    'programado':    { bg: '#E1F5EE', color: '#085041' },
-    'nominado':      { bg: '#EEEDFE', color: '#3C3489' },
-    'suspendido':    { bg: '#FCEBEB', color: '#791F1F' },
+    'Pendiente':    { bg: '#EEEDFE', color: '#3C3489' },
+    'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
+    'Programado':   { bg: '#E1F5EE', color: '#085041' },
+    'Nominado':     { bg: '#EEEDFE', color: '#3C3489' },
+    'Suspendido':   { bg: '#FCEBEB', color: '#791F1F' },
   };
 
   const pillLabel = {
-    'pendiente':    'Pendiente',
+    'Pendiente':    'Pendiente',
     'prog-parcial': 'Prog. parcial',
-    'programado':   'Programado',
-    'nominado':     'Nominado',
-    'suspendido':   'Suspendido',
+    'Programado':   'Programado',
+    'Nominado':     'Nominado',
+    'Suspendido':   'Suspendido',
   };
 
   function volAsignado(p) {
-    return p.despachos.reduce((s, d) => s + Number(d.volumen), 0);
+    return (p.despachos || []).reduce((s, d) => s + Number(d.volumen), 0);
   }
 
   function saldo(p) {
-    return p.volumen - volAsignado(p);
+    return Number(p.volumen) - volAsignado(p);
   }
 
   function pct(p) {
-    return Math.min(100, Math.round(volAsignado(p) / p.volumen * 100));
+    return Math.min(100, Math.round(volAsignado(p) / Number(p.volumen) * 100));
   }
 
-  function confirmarDespacho(pedidoId) {
+  async function confirmarDespacho(pedidoId) {
     const nd = nuevoDespacho[pedidoId] || {};
     if (!nd.volumen || !nd.fecha_carga || !nd.transporte) {
       alert('Completá volumen, fecha de carga y transportista.');
@@ -86,33 +66,71 @@ function Coordinador({ usuario, onVolver }) {
       alert(`El volumen (${nd.volumen} tn) supera el saldo disponible (${sal} tn).`);
       return;
     }
+
     const now = new Date().toLocaleString('es-AR');
     const despacho = {
-      id: `D${p.despachos.length + 1}`,
+      id: 'D' + ((p.despachos || []).length + 1),
       volumen: Number(nd.volumen),
       fecha_carga: nd.fecha_carga,
       transporte: nd.transporte,
-      estado: 'programado',
+      email_transportista: nd.email_transportista || '',
+      estado: 'Programado',
       programado_por: usuario?.nombre || 'Coordinador',
       programado_en: now,
     };
-    setPedidos(pedidos.map(x => {
-      if (x.id !== pedidoId) return x;
-      const nuevosDespachos = [...x.despachos, despacho];
-      const nuevoSaldo = x.volumen - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
-      return { ...x, despachos: nuevosDespachos, estado: nuevoSaldo === 0 ? 'programado' : 'prog-parcial' };
-    }));
-    setNuevoDespacho({ ...nuevoDespacho, [pedidoId]: {} });
-    alert(`✓ Despacho confirmado. Se notificó al transportista.`);
+
+    const nuevosDespachos = [...(p.despachos || []), despacho];
+    const nuevoSaldo = Number(p.volumen) - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+    const nuevoEstado = nuevoSaldo === 0 ? 'Programado' : 'prog-parcial';
+
+    setEnviando(true);
+    try {
+      // 1 — Actualizar Firestore
+      await updateDoc(doc(db, 'pedidos_portal', p.docId), {
+        despachos: nuevosDespachos,
+        estado: nuevoEstado,
+      });
+
+      // 2 — Llamar al Apps Script para escribir en Plan de Producción CI PGSM
+      const payload = {
+        accion: 'programar_despacho',
+        pedido_id: p.id,
+        programado_por: usuario?.nombre || 'Coordinador',
+        fecha_carga: nd.fecha_carga,
+        transporte: nd.transporte,
+        email_transportista: nd.email_transportista || '',
+        tipo: p.tipo,
+        producto: p.producto,
+        volumen: Number(nd.volumen),
+        cliente: p.cliente,
+        ov: p.ov,
+        lugar: p.lugar,
+        fecha_entrega: p.fecha_entrega,
+        obs: p.obs || '',
+      };
+
+      const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+      await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+
+      setNuevoDespacho({ ...nuevoDespacho, [pedidoId]: {} });
+      alert(`✓ Despacho confirmado. Se escribió en el Plan de Producción CI PGSM y se notificó al transportista.`);
+    } catch (err) {
+      console.error(err);
+      alert('Error al confirmar el despacho: ' + err.message);
+    } finally {
+      setEnviando(false);
+    }
   }
 
-  function suspender(id) {
+  async function suspender(p) {
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
-    setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'suspendido' } : p));
+    await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
   }
 
-  const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
+  const filtrados = pedidos.filter(p =>
+    filtro === 'todos' || p.estado === filtro
+  );
 
   return (
     <div style={styles.wrap}>
@@ -120,7 +138,7 @@ function Coordinador({ usuario, onVolver }) {
         <div style={styles.logoArea}>
           <div style={styles.logoCircle}>e</div>
           <span style={styles.logoText}>XPLORA</span>
-          <span style={styles.portalText}>Coordinador</span>
+          <span style={styles.portalText}>Programación</span>
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
@@ -128,41 +146,55 @@ function Coordinador({ usuario, onVolver }) {
       <div style={styles.metrics}>
         <div style={styles.metric}>
           <div style={styles.metricLabel}>Pendientes</div>
-          <div style={{ ...styles.metricValue, color: '#534AB7' }}>{pedidos.filter(p => p.estado === 'pendiente').length}</div>
+          <div style={{ ...styles.metricValue, color: '#534AB7' }}>
+            {pedidos.filter(p => p.estado === 'Pendiente').length}
+          </div>
         </div>
         <div style={styles.metric}>
           <div style={styles.metricLabel}>Prog. parcial</div>
-          <div style={{ ...styles.metricValue, color: '#BA7517' }}>{pedidos.filter(p => p.estado === 'prog-parcial').length}</div>
+          <div style={{ ...styles.metricValue, color: '#BA7517' }}>
+            {pedidos.filter(p => p.estado === 'prog-parcial').length}
+          </div>
         </div>
         <div style={styles.metric}>
           <div style={styles.metricLabel}>Programados</div>
-          <div style={{ ...styles.metricValue, color: '#0F6E56' }}>{pedidos.filter(p => p.estado === 'programado').length}</div>
+          <div style={{ ...styles.metricValue, color: '#0F6E56' }}>
+            {pedidos.filter(p => p.estado === 'Programado').length}
+          </div>
         </div>
         <div style={styles.metric}>
           <div style={styles.metricLabel}>Suspendidos</div>
-          <div style={{ ...styles.metricValue, color: '#A32D2D' }}>{pedidos.filter(p => p.estado === 'suspendido').length}</div>
+          <div style={{ ...styles.metricValue, color: '#A32D2D' }}>
+            {pedidos.filter(p => p.estado === 'Suspendido').length}
+          </div>
         </div>
       </div>
 
       <div style={styles.filtros}>
-        {['todos','pendiente','prog-parcial','programado','suspendido'].map(f => (
-          <button key={f} style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }} onClick={() => setFiltro(f)}>
-            {f === 'todos' ? 'Todos' : pillLabel[f]}
+        {['todos', 'Pendiente', 'prog-parcial', 'Programado', 'Suspendido'].map(f => (
+          <button key={f}
+            style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }}
+            onClick={() => setFiltro(f)}>
+            {f === 'todos' ? 'Todos' : pillLabel[f] || f}
           </button>
         ))}
       </div>
 
-      {filtrados.length === 0 && <div style={styles.empty}>Sin pedidos para mostrar.</div>}
+      {cargando && <div style={styles.empty}>Cargando pedidos...</div>}
 
-      {filtrados.map(p => (
+      {!cargando && filtrados.length === 0 && (
+        <div style={styles.empty}>Sin pedidos para mostrar.</div>
+      )}
+
+      {!cargando && filtrados.map(p => (
         <div key={p.id} style={styles.card}>
           <div style={styles.cardHeader} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
             <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>
-              {pillLabel[p.estado]}
+              {pillLabel[p.estado] || p.estado}
             </span>
             <span style={styles.cardNro}>{p.id}</span>
             <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
-            <span style={styles.cardFecha}>{p.editado_en ? `Editado ${p.editado_en}` : `Creado ${p.creado_en}`}</span>
+            <span style={styles.cardFecha}>Creado {p.creado_en}</span>
             <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
           </div>
 
@@ -179,10 +211,16 @@ function Coordinador({ usuario, onVolver }) {
                 <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
                 <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
-                <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono}</span></div>
+                <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono || '—'}</span></div>
                 <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
-                <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}</span></div>
-                {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
+                <div style={{ ...styles.field, gridColumn: '1/-1' }}>
+                  <span style={styles.label}>Lugar</span><span>{p.lugar}</span>
+                </div>
+                {p.obs && (
+                  <div style={{ ...styles.field, gridColumn: '1/-1' }}>
+                    <span style={styles.label}>Observaciones</span><span>{p.obs}</span>
+                  </div>
+                )}
               </div>
 
               <div style={styles.volBar}>
@@ -201,7 +239,7 @@ function Coordinador({ usuario, onVolver }) {
               <div style={styles.despachosSection}>
                 <div style={styles.despachosTitle}>Despachos</div>
 
-                {p.despachos.map((d, i) => (
+                {(p.despachos || []).map((d, i) => (
                   <div key={i} style={styles.despachoItem}>
                     <div style={styles.despachoHeader}>
                       <span style={styles.despachoNro}>Despacho {i + 1}</span>
@@ -216,7 +254,7 @@ function Coordinador({ usuario, onVolver }) {
                   </div>
                 ))}
 
-                {saldo(p) > 0 && p.estado !== 'suspendido' && (
+                {saldo(p) > 0 && p.estado !== 'Suspendido' && (
                   <div style={styles.nuevoDespacho}>
                     <div style={styles.despachosTitle}>Nuevo despacho</div>
                     <div style={styles.despachoGrid}>
@@ -238,16 +276,24 @@ function Coordinador({ usuario, onVolver }) {
                           value={nuevoDespacho[p.id]?.transporte || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], transporte: e.target.value } })} />
                       </div>
+                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
+                        <label style={styles.formLabel}>Email del transportista</label>
+                        <input style={styles.input} type="email" placeholder="transportista@empresa.com"
+                          value={nuevoDespacho[p.id]?.email_transportista || ''}
+                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], email_transportista: e.target.value } })} />
+                      </div>
                     </div>
-                    <button style={styles.btnConfirmar} onClick={() => confirmarDespacho(p.id)}>
-                      ✓ Confirmar despacho
+                    <button style={{ ...styles.btnConfirmar, opacity: enviando ? 0.7 : 1 }}
+                      disabled={enviando}
+                      onClick={() => confirmarDespacho(p.id)}>
+                      {enviando ? 'Enviando...' : '✓ Confirmar despacho'}
                     </button>
                   </div>
                 )}
               </div>
 
               <div style={styles.cardActions}>
-                <button style={styles.btnSuspender} onClick={() => suspender(p.id)}>Suspender</button>
+                <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
               </div>
             </div>
           )}

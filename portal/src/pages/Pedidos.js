@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-
-const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/explora.com.ar/s/AKfycbw3L6ntUS3N2rjmrgw9BCsIRH96qnFlbUMKhworJw5_oB9JWYvrFYNLl4oH-T2bIayMWA/exec';
+import { db } from '../firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
@@ -62,9 +62,9 @@ function Pedidos({ usuario, onVolver }) {
     const id = genNro();
     const ahora = new Date().toLocaleString('es-AR');
 
-    const payload = {
-      accion: 'nuevo_pedido',
+    const pedido = {
       id,
+      estado: 'Pendiente',
       creado_por: usuario?.nombre || 'Usuario',
       creado_en: ahora,
       tipo: form.tipo,
@@ -73,24 +73,21 @@ function Pedidos({ usuario, onVolver }) {
       recipiente: form.recipiente,
       cliente: form.cliente,
       ov: form.ov,
-      telefono: form.telefono,
+      telefono: form.telefono || '',
       fecha_entrega: form.fecha_entrega,
       lugar: form.lugar,
       mapsLink: form.mapsLink || '',
       obs: form.obs || '',
+      adjuntos: form.adjuntos,
+      editado_en: null,
+      timestamp: new Date().toISOString(),
     };
 
     setEnviando(true);
     try {
-      await fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await addDoc(collection(db, 'pedidos_portal'), pedido);
 
-      const nuevo = { ...payload, estado: 'pendiente', editado_en: null, adjuntos: form.adjuntos };
-      setPedidos([nuevo, ...pedidos]);
+      setPedidos([pedido, ...pedidos]);
       setVista('panel');
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
@@ -100,7 +97,7 @@ function Pedidos({ usuario, onVolver }) {
       alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
     } catch (err) {
       console.error(err);
-      alert('Error al enviar. Revisá la conexión.');
+      alert('Error al registrar el pedido: ' + err.message);
     } finally {
       setEnviando(false);
     }
@@ -109,20 +106,20 @@ function Pedidos({ usuario, onVolver }) {
   function suspender(id) {
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
-    setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'suspendido' } : p));
+    setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'Suspendido' } : p));
   }
 
   const pillColors = {
-    pendiente:  { bg: '#EEEDFE', color: '#3C3489' },
-    programado: { bg: '#E1F5EE', color: '#085041' },
-    nominado:   { bg: '#EEEDFE', color: '#3C3489' },
-    cumplido:   { bg: '#E1F5EE', color: '#085041' },
-    suspendido: { bg: '#FCEBEB', color: '#791F1F' },
+    Pendiente:  { bg: '#EEEDFE', color: '#3C3489' },
+    Programado: { bg: '#E1F5EE', color: '#085041' },
+    Nominado:   { bg: '#EEEDFE', color: '#3C3489' },
+    Cumplido:   { bg: '#E1F5EE', color: '#085041' },
+    Suspendido: { bg: '#FCEBEB', color: '#791F1F' },
   };
 
   const pillLabel = {
-    pendiente: 'Pendiente', programado: 'Programado', nominado: 'Nominado',
-    cumplido: 'Cumplido', suspendido: 'Suspendido',
+    Pendiente: 'Pendiente', Programado: 'Programado', Nominado: 'Nominado',
+    Cumplido: 'Cumplido', Suspendido: 'Suspendido',
   };
 
   return (
@@ -190,7 +187,7 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.origen}>
                   Creado por <strong>{p.creado_por}</strong> · {p.creado_en}
                 </div>
-                {p.estado !== 'cumplido' && p.estado !== 'suspendido' && (
+                {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                   <div style={styles.cardActions}>
                     <button style={styles.btnSuspender} onClick={() => suspender(p.id)}>Suspender</button>
                   </div>
