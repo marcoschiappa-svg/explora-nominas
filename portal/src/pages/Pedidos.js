@@ -85,7 +85,7 @@ function Pedidos({ usuario, onVolver }) {
     }
 
     if (!validarOV(form.ov)) {
-      alert('El formato de OV/OC debe ser: MAY XX-XXXXX (ej: OV 02-12345)');
+      alert('El formato de OV/OC debe ser: XX-11111 (ej: OV-12345)');
       return;
     }
 
