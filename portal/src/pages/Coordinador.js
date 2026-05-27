@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
-const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/explora.com.ar/s/AKfycbw3L6ntUS3N2rjmrgw9BCsIRH96qnFlbUMKhworJw5_oB9JWYvrFYNLl4oH-T2bIayMWA/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 function Coordinador({ usuario, onVolver }) {
   const [pedidos, setPedidos] = useState([]);
