@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
+const COLOR_PRIMARY = '#C8102E';
+
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
@@ -13,10 +15,14 @@ function Pedidos({ usuario, onVolver }) {
     volumen: '',
     recipiente: 'Granel',
     cliente: '',
-    telefono: '',
+    telefono_prefijo: '',
+    telefono_numero: '',
     ov: '',
     fecha_entrega: '',
-    lugar: '',
+    calle: '',
+    numero: '',
+    ciudad: '',
+    provincia: '',
     mapsLink: '',
     obs: '',
     adjuntos: [],
@@ -48,19 +54,46 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   function abrirMaps() {
-    const query = form.lugar || 'Puerto General San Martín, Santa Fe';
+    const query = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ') || 'Puerto General San Martín, Santa Fe';
     window.open('https://maps.google.com?q=' + encodeURIComponent(query), '_blank');
+  }
+
+  function validarOV(valor) {
+    // Formato: MAY XX-XXXXX (ej: OV 26-12345 o OC 26-12345)
+    return /^[A-Z]{2,3}\s\d{2}-\d{4,6}$/.test(valor.trim());
+  }
+
+  function validarFecha(fecha) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const sel = new Date(fecha + 'T00:00:00');
+    return sel > hoy;
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.producto || !form.volumen || !form.cliente || !form.ov || !form.fecha_entrega || !form.lugar) {
+
+    if (!form.producto || !form.volumen || !form.cliente || !form.ov || !form.fecha_entrega || !form.calle || !form.ciudad || !form.provincia) {
       alert('Completá todos los campos obligatorios');
+      return;
+    }
+
+    if (!validarOV(form.ov)) {
+      alert('El formato de OV/OC debe ser: MAY XX-XXXXX (ej: OV 26-12345)');
+      return;
+    }
+
+    if (!validarFecha(form.fecha_entrega)) {
+      alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.');
       return;
     }
 
     const id = genNro();
     const ahora = new Date().toLocaleString('es-AR');
+    const lugar = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ');
+    const telefono = form.telefono_prefijo && form.telefono_numero
+      ? `(${form.telefono_prefijo}) ${form.telefono_numero}`
+      : '';
 
     const pedido = {
       id,
@@ -73,9 +106,15 @@ function Pedidos({ usuario, onVolver }) {
       recipiente: form.recipiente,
       cliente: form.cliente,
       ov: form.ov,
-      telefono: form.telefono || '',
+      telefono,
+      telefono_prefijo: form.telefono_prefijo,
+      telefono_numero: form.telefono_numero,
       fecha_entrega: form.fecha_entrega,
-      lugar: form.lugar,
+      lugar,
+      calle: form.calle,
+      numero: form.numero,
+      ciudad: form.ciudad,
+      provincia: form.provincia,
       mapsLink: form.mapsLink || '',
       obs: form.obs || '',
       adjuntos: form.adjuntos,
@@ -86,12 +125,12 @@ function Pedidos({ usuario, onVolver }) {
     setEnviando(true);
     try {
       await addDoc(collection(db, 'pedidos_portal'), pedido);
-
       setPedidos([pedido, ...pedidos]);
       setVista('panel');
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
-        cliente: '', telefono: '', ov: '', fecha_entrega: '', lugar: '',
+        cliente: '', telefono_prefijo: '', telefono_numero: '', ov: '',
+        fecha_entrega: '', calle: '', numero: '', ciudad: '', provincia: '',
         mapsLink: '', obs: '', adjuntos: [],
       });
       alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
@@ -107,6 +146,7 @@ function Pedidos({ usuario, onVolver }) {
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
     setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'Suspendido' } : p));
+    alert('Suspensión registrada. Se notificó al coordinador.');
   }
 
   const pillColors = {
@@ -126,9 +166,7 @@ function Pedidos({ usuario, onVolver }) {
     <div style={styles.wrap}>
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
-          <div style={styles.logoCircle}>e</div>
-          <span style={styles.logoText}>XPLORA</span>
-          <span style={styles.portalText}>Pedidos</span>
+          <img src="/logo.png" alt="Explora" style={styles.logoImg} />
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
@@ -137,7 +175,7 @@ function Pedidos({ usuario, onVolver }) {
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Mis pedidos</h2>
-            <button style={styles.btnNuevo} onClick={() => setVista('nuevo')}>+ Nuevo pedido</button>
+            <button style={{ ...styles.btnPrimary }} onClick={() => setVista('nuevo')}>+ Nuevo pedido</button>
           </div>
           {pedidos.length === 0 && (
             <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>
@@ -150,9 +188,7 @@ function Pedidos({ usuario, onVolver }) {
                 </span>
                 <span style={styles.cardNro}>{p.id}</span>
                 <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
-                <span style={styles.cardFecha}>
-                  {p.editado_en ? `Editado ${p.editado_en}` : `Creado ${p.creado_en}`}
-                </span>
+                <span style={styles.cardFecha}>Creado {p.creado_en}</span>
               </div>
               <div style={styles.cardBody}>
                 <div style={styles.detailGrid}>
@@ -168,25 +204,17 @@ function Pedidos({ usuario, onVolver }) {
                     <span style={styles.label}>Lugar</span>
                     <span>
                       {p.lugar}
-                      {p.mapsLink && (
-                        <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>
-                      )}
+                      {p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}
                     </span>
                   </div>
-                  {p.obs && (
-                    <div style={{ ...styles.field, gridColumn: '1/-1' }}>
-                      <span style={styles.label}>Observaciones</span><span>{p.obs}</span>
-                    </div>
-                  )}
+                  {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
                 </div>
                 {p.adjuntos?.length > 0 && (
                   <div style={styles.adjuntosRow}>
                     {p.adjuntos.map(a => <span key={a} style={styles.adjuntoChip}>📎 {a}</span>)}
                   </div>
                 )}
-                <div style={styles.origen}>
-                  Creado por <strong>{p.creado_por}</strong> · {p.creado_en}
-                </div>
+                <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}</div>
                 {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                   <div style={styles.cardActions}>
                     <button style={styles.btnSuspender} onClick={() => suspender(p.id)}>Suspender</button>
@@ -266,16 +294,31 @@ function Pedidos({ usuario, onVolver }) {
                     value={form.cliente} onChange={e => setForm({ ...form, cliente: e.target.value })} />
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC *</label>
-                  <input style={styles.input} type="text" placeholder="Ej: OV 2630"
-                    value={form.ov} onChange={e => setForm({ ...form, ov: e.target.value })} />
+                  <label style={styles.formLabel}>OV / OC * (formato: OV 26-12345)</label>
+                  <input style={styles.input} type="text" placeholder="Ej: OV 26-12345"
+                    value={form.ov}
+                    onChange={e => setForm({ ...form, ov: e.target.value.toUpperCase() })} />
+                  {form.ov && !validarOV(form.ov) && (
+                    <span style={styles.fieldError}>Formato requerido: MAY XX-XXXXX (ej: OV 26-12345)</span>
+                  )}
                 </div>
               </div>
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Teléfono de contacto</label>
-                <input style={{ ...styles.input, maxWidth: 280 }} type="tel"
-                  placeholder="+54 341 555-0000" value={form.telefono}
-                  onChange={e => setForm({ ...form, telefono: e.target.value })} />
+                <div style={styles.telRow}>
+                  <div style={{ ...styles.formField, flex: '0 0 100px' }}>
+                    <input style={styles.input} type="text" placeholder="Prefijo"
+                      value={form.telefono_prefijo}
+                      onChange={e => setForm({ ...form, telefono_prefijo: e.target.value })} />
+                    <span style={styles.telHint}>sin 0</span>
+                  </div>
+                  <div style={{ ...styles.formField, flex: 1 }}>
+                    <input style={styles.input} type="text" placeholder="Número"
+                      value={form.telefono_numero}
+                      onChange={e => setForm({ ...form, telefono_numero: e.target.value })} />
+                    <span style={styles.telHint}>sin 15</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -284,12 +327,37 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Fecha de entrega comprometida *</label>
                 <input style={{ ...styles.input, maxWidth: 220 }} type="date"
-                  value={form.fecha_entrega} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                  value={form.fecha_entrega}
+                  min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                  onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                {form.fecha_entrega && !validarFecha(form.fecha_entrega) && (
+                  <span style={styles.fieldError}>La fecha debe ser posterior a hoy</span>
+                )}
               </div>
               <div style={{ ...styles.formField, marginTop: 12 }}>
                 <label style={styles.formLabel}>Lugar de entrega / origen *</label>
-                <input style={styles.input} type="text" placeholder="Escribir dirección..."
-                  value={form.lugar} onChange={e => setForm({ ...form, lugar: e.target.value })} />
+                <div style={styles.grid2}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Calle *</label>
+                    <input style={styles.input} type="text" placeholder="Nombre de la calle"
+                      value={form.calle} onChange={e => setForm({ ...form, calle: e.target.value })} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Nº</label>
+                    <input style={styles.input} type="text" placeholder="Número"
+                      value={form.numero} onChange={e => setForm({ ...form, numero: e.target.value })} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Ciudad *</label>
+                    <input style={styles.input} type="text" placeholder="Ciudad"
+                      value={form.ciudad} onChange={e => setForm({ ...form, ciudad: e.target.value })} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Provincia *</label>
+                    <input style={styles.input} type="text" placeholder="Provincia"
+                      value={form.provincia} onChange={e => setForm({ ...form, provincia: e.target.value })} />
+                  </div>
+                </div>
                 <div style={styles.mapsRow}>
                   <input style={{ ...styles.input, flex: 1 }} type="text"
                     placeholder="O pegar enlace de Google Maps..."
@@ -297,7 +365,6 @@ function Pedidos({ usuario, onVolver }) {
                     onChange={e => setForm({ ...form, mapsLink: e.target.value })} />
                   <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
                 </div>
-                <div style={styles.mapsHint}>Escribí la dirección arriba, o pegá un link de Google Maps</div>
                 {checkMapsLink(form.mapsLink) && (
                   <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>
                 )}
@@ -326,13 +393,10 @@ function Pedidos({ usuario, onVolver }) {
                   ))}
                 </div>
               )}
-              <div style={styles.adjuntosHint}>PDF, imágenes o documentos. Los adjuntos acompañan el pedido en todo el circuito.</div>
             </div>
 
             <div style={styles.formActions}>
-              <button type="submit"
-                style={{ ...styles.btnConfirmar, opacity: enviando ? 0.7 : 1 }}
-                disabled={enviando}>
+              <button type="submit" style={{ ...styles.btnPrimary, opacity: enviando ? 0.7 : 1 }} disabled={enviando}>
                 {enviando ? 'Enviando...' : 'Confirmar pedido'}
               </button>
               <button type="button" style={styles.btnCancelar} onClick={() => setVista('panel')}>Cancelar</button>
@@ -347,14 +411,12 @@ function Pedidos({ usuario, onVolver }) {
 const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
-  logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
-  logoCircle: { width: 32, height: 32, borderRadius: '50%', background: '#D63B1F', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800 },
-  logoText: { fontSize: 15, fontWeight: 500, color: '#111827' },
-  portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
+  logoArea: { display: 'flex', alignItems: 'center' },
+  logoImg: { height: 36, objectFit: 'contain' },
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' },
   titulo: { fontSize: 18, fontWeight: 500, color: '#111827' },
-  btnNuevo: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
@@ -366,7 +428,7 @@ const styles = {
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 },
   field: { display: 'flex', flexDirection: 'column', gap: 3 },
   label: { fontSize: 11, color: '#9CA3AF' },
-  mapsLink: { color: '#534AB7', textDecoration: 'none', marginLeft: 6, fontSize: 12 },
+  mapsLink: { color: '#C8102E', textDecoration: 'none', marginLeft: 6, fontSize: 12 },
   adjuntosRow: { display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0' },
   adjuntoChip: { display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB', fontSize: 11, color: '#6B7280' },
   adjuntoQuitar: { border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 11, padding: 0 },
@@ -383,16 +445,16 @@ const styles = {
   textarea: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', flex: 1, minHeight: 80, resize: 'vertical' },
   tipoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   tipoBtn: { padding: '10px 8px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
-  tipoBtnActive: { border: '1.5px solid #534AB7', background: '#EEEDFE', color: '#3C3489' },
+  tipoBtnActive: { border: '1.5px solid #C8102E', background: '#FDECEA', color: '#C8102E' },
+  telRow: { display: 'flex', gap: 10, alignItems: 'flex-start' },
+  telHint: { fontSize: 10, color: '#9CA3AF', marginTop: 2 },
+  fieldError: { fontSize: 11, color: '#C8102E', marginTop: 2 },
   mapsRow: { display: 'flex', gap: 8, marginTop: 8 },
   btnMaps: { display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 },
-  mapsHint: { fontSize: 11, color: '#9CA3AF', marginTop: 4 },
   mapsPreview: { fontSize: 12, color: '#085041', background: '#E1F5EE', border: '0.5px solid #5DCAA5', padding: '6px 10px', borderRadius: 8, marginTop: 6 },
   obsRow: { display: 'flex', gap: 8, alignItems: 'flex-start' },
   btnAdjuntar: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 20, cursor: 'pointer', flexShrink: 0, minWidth: 64, minHeight: 80 },
-  adjuntosHint: { fontSize: 11, color: '#9CA3AF', marginTop: 6 },
   formActions: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: '1.5rem' },
-  btnConfirmar: { padding: '11px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
   btnCancelar: { padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, cursor: 'pointer' },
 };
 
