@@ -62,14 +62,17 @@ function Coordinador({ usuario, onVolver }) {
     }
     const p = pedidos.find(x => x.id === pedidoId);
     const sal = saldo(p);
+
     if (Number(nd.volumen) > sal) {
       alert(`El volumen (${nd.volumen} tn) supera el saldo disponible (${sal} tn).`);
       return;
-      const fechaCarga = new Date(nd.fecha_carga + 'T00:00:00');
-const fechaEntrega = new Date(p.fecha_entrega + 'T00:00:00');
-if (fechaCarga > fechaEntrega) {
-  alert('La fecha de carga no puede ser posterior a la fecha de entrega comprometida (' + p.fecha_entrega + ').');
-  return;
+    }
+
+    const fechaCarga = new Date(nd.fecha_carga + 'T00:00:00');
+    const fechaEntrega = new Date(p.fecha_entrega + 'T00:00:00');
+    if (fechaCarga > fechaEntrega) {
+      alert('La fecha de carga no puede ser posterior a la fecha de entrega comprometida (' + p.fecha_entrega + ').');
+      return;
     }
 
     const now = new Date().toLocaleString('es-AR');
@@ -116,7 +119,7 @@ if (fechaCarga > fechaEntrega) {
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
 
       setNuevoDespacho({ ...nuevoDespacho, [pedidoId]: {} });
-      alert(`✓ Despacho confirmado. Se escribió en el Plan de Producción CI PGSM y se notificó al transportista.`);
+      alert('✓ Despacho confirmado. Se escribió en el Plan de Producción CI PGSM y se notificó al transportista.');
     } catch (err) {
       console.error(err);
       alert('Error al confirmar el despacho: ' + err.message);
@@ -267,8 +270,9 @@ if (fechaCarga > fechaEntrega) {
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], volumen: e.target.value } })} />
                       </div>
                       <div style={styles.formField}>
-                        <label style={styles.formLabel}>Fecha de carga</label>
+                        <label style={styles.formLabel}>Fecha de carga (≤ fecha entrega: {p.fecha_entrega})</label>
                         <input style={styles.input} type="date"
+                          max={p.fecha_entrega}
                           value={nuevoDespacho[p.id]?.fecha_carga || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], fecha_carga: e.target.value } })} />
                       </div>
@@ -317,7 +321,7 @@ const styles = {
   metricValue: { fontSize: 20, fontWeight: 500 },
   filtros: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' },
   filtroBtnBase: { padding: '6px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
-  filtroBtnActive: { background: '#EEEDFE', borderColor: '#C8102E', color: '#C8102E', fontWeight: 500 },
+  filtroBtnActive: { background: '#FDECEA', borderColor: '#C8102E', color: '#C8102E', fontWeight: 500 },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
