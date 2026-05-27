@@ -65,6 +65,11 @@ function Coordinador({ usuario, onVolver }) {
     if (Number(nd.volumen) > sal) {
       alert(`El volumen (${nd.volumen} tn) supera el saldo disponible (${sal} tn).`);
       return;
+      const fechaCarga = new Date(nd.fecha_carga + 'T00:00:00');
+const fechaEntrega = new Date(p.fecha_entrega + 'T00:00:00');
+if (fechaCarga > fechaEntrega) {
+  alert('La fecha de carga no puede ser posterior a la fecha de entrega comprometida (' + p.fecha_entrega + ').');
+  return;
     }
 
     const now = new Date().toLocaleString('es-AR');
