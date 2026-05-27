@@ -76,12 +76,12 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   function validarTelefono() {
-    const pre = form.telefono_prefijo.replace(/\D/g, '');
-    const num = form.telefono_numero.replace(/\D/g, '');
-    if (!pre && !num) return true;
-    if (pre.length === 3 && num.length === 7) return true;
-    if (pre.length === 6 && num.length === 6) return true;
-    return false;
+  const pre = form.telefono_prefijo.replace(/\D/g, '');
+  const num = form.telefono_numero.replace(/\D/g, '');
+  if (!pre && !num) return true;
+  if (pre.length === 3 && num.length === 7) return true;
+  if (pre.length === 4 && num.length === 6) return true;
+  return false;
   }
 
   function validarFecha(fecha) {
@@ -149,8 +149,7 @@ function Pedidos({ usuario, onVolver }) {
     }
 
     if (form.telefono_prefijo && !validarTelefono()) {
-      alert('Teléfono: prefijo 3 dígitos → número 7 dígitos. Prefijo 6 dígitos → número 6 dígitos.');
-      return;
+      alert('Teléfono: prefijo 3 dígitos → número 7 dígitos. Prefijo 4 dígitos → número 6 dígitos.');
     }
 
     const ahora = new Date().toLocaleString('es-AR');
@@ -510,8 +509,8 @@ function Pedidos({ usuario, onVolver }) {
                     <input style={styles.input} type="text" placeholder="Prefijo"
                       maxLength={6}
                       value={form.telefono_prefijo}
-                      onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
-                    <span style={styles.telHint}>Sin 0 · 3 o 6 dígitos</span>
+                      onChange={e => <span style={styles.telHint}setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
+                    <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                     <input style={styles.input} type="text" placeholder="Número"
