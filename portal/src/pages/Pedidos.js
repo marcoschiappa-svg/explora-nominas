@@ -56,9 +56,9 @@ function Pedidos({ usuario, onVolver }) {
     window.open('https://maps.google.com?q=' + encodeURIComponent(query), '_blank');
   }
 
-  function validarOV(valor) {
-    return /^[A-Z]{2,3}\s\d{2,}-\d{4,6}$/.test(valor.trim());
-  }
+ function validarOV(valor) {
+  return /^(OV|OC)-\d{5}$/.test(valor.trim());
+}
 
   function validarTelefono() {
     const pre = form.telefono_prefijo.replace(/\D/g, '');
@@ -305,8 +305,8 @@ function Pedidos({ usuario, onVolver }) {
                     value={form.cliente} onChange={e => setForm({ ...form, cliente: e.target.value })} />
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC * (ej: OV 02-12345)</label>
-                  <input style={styles.input} type="text" placeholder="OV 02-12345"
+                  <label style={styles.formLabel}>OV / OC * (ej: OV-12345)</label>
+                  <input style={styles.input} type="text" placeholder="OV-12345"
                     value={form.ov}
                     onChange={e => setForm({ ...form, ov: e.target.value.toUpperCase() })} />
                   {form.ov && !validarOV(form.ov) && (
