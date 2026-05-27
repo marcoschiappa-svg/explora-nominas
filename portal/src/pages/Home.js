@@ -51,8 +51,7 @@ function Home({ usuario, onModulo }) {
     <div style={styles.wrap}>
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
-          <div style={styles.logoCircle}>e</div>
-          <span style={styles.logoText}>XPLORA</span>
+         <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
           <span style={styles.portalText}>Portal operativo</span>
         </div>
         <div style={styles.userArea}>

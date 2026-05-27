@@ -1,1 +1,3 @@
 portal/node_modules
+.vercel
+.env*

@@ -2,8 +2,6 @@ import React, { useState, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
-const COLOR_PRIMARY = '#C8102E';
-
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
@@ -59,8 +57,16 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   function validarOV(valor) {
-    // Formato: MAY XX-XXXXX (ej: OV 26-12345 o OC 26-12345)
-    return /^[A-Z]{2,3}\s\d{2}-\d{4,6}$/.test(valor.trim());
+    return /^[A-Z]{2,3}\s\d{2,}-\d{4,6}$/.test(valor.trim());
+  }
+
+  function validarTelefono() {
+    const pre = form.telefono_prefijo.replace(/\D/g, '');
+    const num = form.telefono_numero.replace(/\D/g, '');
+    if (!pre && !num) return true;
+    if (pre.length === 3 && num.length === 7) return true;
+    if (pre.length === 6 && num.length === 6) return true;
+    return false;
   }
 
   function validarFecha(fecha) {
@@ -79,12 +85,17 @@ function Pedidos({ usuario, onVolver }) {
     }
 
     if (!validarOV(form.ov)) {
-      alert('El formato de OV/OC debe ser: MAY XX-XXXXX (ej: OV 26-12345)');
+      alert('El formato de OV/OC debe ser: MAY XX-XXXXX (ej: OV 02-12345)');
       return;
     }
 
     if (!validarFecha(form.fecha_entrega)) {
       alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.');
+      return;
+    }
+
+    if (form.telefono_prefijo && !validarTelefono()) {
+      alert('Teléfono: prefijo 3 dígitos → número 7 dígitos. Prefijo 6 dígitos → número 6 dígitos.');
       return;
     }
 
@@ -175,7 +186,7 @@ function Pedidos({ usuario, onVolver }) {
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Mis pedidos</h2>
-            <button style={{ ...styles.btnPrimary }} onClick={() => setVista('nuevo')}>+ Nuevo pedido</button>
+            <button style={styles.btnPrimary} onClick={() => setVista('nuevo')}>+ Nuevo pedido</button>
           </div>
           {pedidos.length === 0 && (
             <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>
@@ -294,31 +305,36 @@ function Pedidos({ usuario, onVolver }) {
                     value={form.cliente} onChange={e => setForm({ ...form, cliente: e.target.value })} />
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC * (formato: OV 26-12345)</label>
-                  <input style={styles.input} type="text" placeholder="Ej: OV 26-12345"
+                  <label style={styles.formLabel}>OV / OC * (ej: OV 02-12345)</label>
+                  <input style={styles.input} type="text" placeholder="OV 02-12345"
                     value={form.ov}
                     onChange={e => setForm({ ...form, ov: e.target.value.toUpperCase() })} />
                   {form.ov && !validarOV(form.ov) && (
-                    <span style={styles.fieldError}>Formato requerido: MAY XX-XXXXX (ej: OV 26-12345)</span>
+                    <span style={styles.fieldError}>Formato: MAY XX-XXXXX (ej: OV 02-12345)</span>
                   )}
                 </div>
               </div>
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Teléfono de contacto</label>
                 <div style={styles.telRow}>
-                  <div style={{ ...styles.formField, flex: '0 0 100px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
                     <input style={styles.input} type="text" placeholder="Prefijo"
+                      maxLength={6}
                       value={form.telefono_prefijo}
-                      onChange={e => setForm({ ...form, telefono_prefijo: e.target.value })} />
-                    <span style={styles.telHint}>sin 0</span>
+                      onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
+                    <span style={styles.telHint}>Sin 0 · 3 o 6 dígitos</span>
                   </div>
-                  <div style={{ ...styles.formField, flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                     <input style={styles.input} type="text" placeholder="Número"
+                      maxLength={7}
                       value={form.telefono_numero}
-                      onChange={e => setForm({ ...form, telefono_numero: e.target.value })} />
-                    <span style={styles.telHint}>sin 15</span>
+                      onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g, '') })} />
+                    <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
                   </div>
                 </div>
+                {form.telefono_prefijo && !validarTelefono() && (
+                  <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 dígitos · Prefijo 6 dígitos → número 6 dígitos</span>
+                )}
               </div>
             </div>
 
@@ -330,9 +346,6 @@ function Pedidos({ usuario, onVolver }) {
                   value={form.fecha_entrega}
                   min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
                   onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
-                {form.fecha_entrega && !validarFecha(form.fecha_entrega) && (
-                  <span style={styles.fieldError}>La fecha debe ser posterior a hoy</span>
-                )}
               </div>
               <div style={{ ...styles.formField, marginTop: 12 }}>
                 <label style={styles.formLabel}>Lugar de entrega / origen *</label>
@@ -396,7 +409,7 @@ function Pedidos({ usuario, onVolver }) {
             </div>
 
             <div style={styles.formActions}>
-              <button type="submit" style={{ ...styles.btnPrimary, opacity: enviando ? 0.7 : 1 }} disabled={enviando}>
+              <button type="submit" style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }} disabled={enviando}>
                 {enviando ? 'Enviando...' : 'Confirmar pedido'}
               </button>
               <button type="button" style={styles.btnCancelar} onClick={() => setVista('panel')}>Cancelar</button>

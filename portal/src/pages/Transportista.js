@@ -162,8 +162,7 @@ function Transportista({ usuario, onVolver }) {
     <div style={styles.wrap}>
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
-          <div style={styles.logoCircle}>e</div>
-          <span style={styles.logoText}>XPLORA</span>
+         <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
           <span style={styles.portalText}>Mis despachos</span>
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
