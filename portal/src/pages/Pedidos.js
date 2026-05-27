@@ -1,10 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firestore';
+
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
+  const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
 
   const [form, setForm] = useState({
@@ -27,6 +30,18 @@ function Pedidos({ usuario, onVolver }) {
   });
 
   const fileRef = useRef();
+
+  // Cargar pedidos del usuario desde Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
+      const data = snap.docs
+        .map(d => ({ docId: d.id, ...d.data() }))
+        .filter(p => p.creado_por_email === usuario?.email)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setPedidos(data);
+    });
+    return () => unsub();
+  }, [usuario]);
 
   function genNro() {
     const now = new Date();
@@ -56,9 +71,9 @@ function Pedidos({ usuario, onVolver }) {
     window.open('https://maps.google.com?q=' + encodeURIComponent(query), '_blank');
   }
 
- function validarOV(valor) {
-  return /^(OV|OC)-\d{5}$/.test(valor.trim());
-}
+  function validarOV(valor) {
+    return /^(OV|OC)-\d{5}$/.test(valor.trim());
+  }
 
   function validarTelefono() {
     const pre = form.telefono_prefijo.replace(/\D/g, '');
@@ -76,6 +91,45 @@ function Pedidos({ usuario, onVolver }) {
     return sel > hoy;
   }
 
+  function puedeEditar(p) {
+    if (p.estado === 'Suspendido' || p.estado === 'Cumplido') return false;
+    const despachos = p.despachos || [];
+    const nominados = despachos.filter(d => d.estado === 'Nominado');
+    if (nominados.length > 0) {
+      // Verificar si la fecha de carga ya pasó
+      const fechaCarga = nominados[0].fecha_carga;
+      if (fechaCarga) {
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        const fc = new Date(fechaCarga + 'T00:00:00');
+        if (fc < hoy) return false;
+      }
+    }
+    return true;
+  }
+
+  function abrirEditar(p) {
+    setPedidoEditando(p);
+    setForm({
+      tipo: p.tipo || 'Entrega al cliente',
+      producto: p.producto || '',
+      volumen: String(p.volumen || ''),
+      recipiente: p.recipiente || 'Granel',
+      cliente: p.cliente || '',
+      telefono_prefijo: p.telefono_prefijo || '',
+      telefono_numero: p.telefono_numero || '',
+      ov: p.ov || '',
+      fecha_entrega: p.fecha_entrega || '',
+      calle: p.calle || '',
+      numero: p.numero || '',
+      ciudad: p.ciudad || '',
+      provincia: p.provincia || '',
+      mapsLink: p.mapsLink || '',
+      obs: p.obs || '',
+      adjuntos: p.adjuntos || [],
+    });
+    setVista('nuevo');
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -85,7 +139,7 @@ function Pedidos({ usuario, onVolver }) {
     }
 
     if (!validarOV(form.ov)) {
-      alert('El formato de OV/OC debe ser: XX-11111 (ej: OV-12345)');
+      alert('El formato de OV/OC debe ser: OV-XXXXX o OC-XXXXX (ej: OV-12345)');
       return;
     }
 
@@ -99,44 +153,125 @@ function Pedidos({ usuario, onVolver }) {
       return;
     }
 
-    const id = genNro();
     const ahora = new Date().toLocaleString('es-AR');
     const lugar = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ');
     const telefono = form.telefono_prefijo && form.telefono_numero
       ? `(${form.telefono_prefijo}) ${form.telefono_numero}`
       : '';
 
-    const pedido = {
-      id,
-      estado: 'Pendiente',
-      creado_por: usuario?.nombre || 'Usuario',
-      creado_en: ahora,
-      tipo: form.tipo,
-      producto: form.producto,
-      volumen: parseFloat(form.volumen),
-      recipiente: form.recipiente,
-      cliente: form.cliente,
-      ov: form.ov,
-      telefono,
-      telefono_prefijo: form.telefono_prefijo,
-      telefono_numero: form.telefono_numero,
-      fecha_entrega: form.fecha_entrega,
-      lugar,
-      calle: form.calle,
-      numero: form.numero,
-      ciudad: form.ciudad,
-      provincia: form.provincia,
-      mapsLink: form.mapsLink || '',
-      obs: form.obs || '',
-      adjuntos: form.adjuntos,
-      editado_en: null,
-      timestamp: new Date().toISOString(),
-    };
-
     setEnviando(true);
     try {
-      await addDoc(collection(db, 'pedidos_portal'), pedido);
-      setPedidos([pedido, ...pedidos]);
+      if (pedidoEditando) {
+        // EDICIÓN
+        const estadoAnterior = pedidoEditando.estado;
+        const despachosAnteriores = pedidoEditando.despachos || [];
+        const teniaProgramacion = despachosAnteriores.length > 0;
+
+        // Marcar despachos anteriores como "En espera"
+        const despachosActualizados = despachosAnteriores.map(d => ({
+          ...d,
+          estado: 'En espera',
+        }));
+
+        await updateDoc(doc(db, 'pedidos_portal', pedidoEditando.docId), {
+          tipo: form.tipo,
+          producto: form.producto,
+          volumen: parseFloat(form.volumen),
+          recipiente: form.recipiente,
+          cliente: form.cliente,
+          ov: form.ov,
+          telefono,
+          telefono_prefijo: form.telefono_prefijo,
+          telefono_numero: form.telefono_numero,
+          fecha_entrega: form.fecha_entrega,
+          lugar,
+          calle: form.calle,
+          numero: form.numero,
+          ciudad: form.ciudad,
+          provincia: form.provincia,
+          mapsLink: form.mapsLink || '',
+          obs: form.obs || '',
+          adjuntos: form.adjuntos,
+          estado: 'Pendiente',
+          editado: true,
+          editado_en: ahora,
+          editado_por: usuario?.nombre || '',
+          despachos: despachosActualizados,
+        });
+
+        // Enviar emails según estado anterior
+        const payload = {
+          accion: 'editar_pedido',
+          id: pedidoEditando.id,
+          editado_por: usuario?.nombre || '',
+          editado_en: ahora,
+          estado_anterior: estadoAnterior,
+          tenia_programacion: teniaProgramacion,
+          tipo: form.tipo,
+          producto: form.producto,
+          volumen: parseFloat(form.volumen),
+          cliente: form.cliente,
+          ov: form.ov,
+          fecha_entrega: form.fecha_entrega,
+          lugar,
+          obs: form.obs || '',
+          email_transportista: despachosAnteriores[0]?.email_transportista || '',
+          transporte: despachosAnteriores[0]?.transporte || '',
+        };
+
+        const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+        await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+
+        alert(`✓ Pedido ${pedidoEditando.id} actualizado. Se notificó a los involucrados.`);
+        setPedidoEditando(null);
+
+      } else {
+        // NUEVO PEDIDO
+        const id = genNro();
+        const pedido = {
+          id,
+          estado: 'Pendiente',
+          editado: false,
+          creado_por: usuario?.nombre || 'Usuario',
+          creado_por_email: usuario?.email || '',
+          creado_en: ahora,
+          editado_en: null,
+          editado_por: null,
+          tipo: form.tipo,
+          producto: form.producto,
+          volumen: parseFloat(form.volumen),
+          recipiente: form.recipiente,
+          cliente: form.cliente,
+          ov: form.ov,
+          telefono,
+          telefono_prefijo: form.telefono_prefijo,
+          telefono_numero: form.telefono_numero,
+          fecha_entrega: form.fecha_entrega,
+          lugar,
+          calle: form.calle,
+          numero: form.numero,
+          ciudad: form.ciudad,
+          provincia: form.provincia,
+          mapsLink: form.mapsLink || '',
+          obs: form.obs || '',
+          adjuntos: form.adjuntos,
+          despachos: [],
+          timestamp: new Date().toISOString(),
+        };
+
+        await addDoc(collection(db, 'pedidos_portal'), pedido);
+
+        // Email al coordinador
+        const payload = {
+          accion: 'nuevo_pedido',
+          ...pedido,
+        };
+        const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+        await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+
+        alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
+      }
+
       setVista('panel');
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
@@ -144,33 +279,65 @@ function Pedidos({ usuario, onVolver }) {
         fecha_entrega: '', calle: '', numero: '', ciudad: '', provincia: '',
         mapsLink: '', obs: '', adjuntos: [],
       });
-      alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
+
     } catch (err) {
       console.error(err);
-      alert('Error al registrar el pedido: ' + err.message);
+      alert('Error: ' + err.message);
     } finally {
       setEnviando(false);
     }
   }
 
-  function suspender(id) {
+  async function suspender(p) {
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
-    setPedidos(pedidos.map(p => p.id === id ? { ...p, estado: 'Suspendido' } : p));
-    alert('Suspensión registrada. Se notificó al coordinador.');
+
+    const despachosAnteriores = p.despachos || [];
+    const teniaProgramacion = despachosAnteriores.length > 0;
+
+    await updateDoc(doc(db, 'pedidos_portal', p.docId), {
+      estado: 'Suspendido',
+      suspendido_por: usuario?.nombre || '',
+      suspendido_en: new Date().toLocaleString('es-AR'),
+      motivo_suspension: motivo,
+    });
+
+    const payload = {
+      accion: 'suspender_pedido',
+      id: p.id,
+      motivo,
+      suspendido_por: usuario?.nombre || '',
+      estado_anterior: p.estado,
+      tenia_programacion: teniaProgramacion,
+      producto: p.producto,
+      volumen: p.volumen,
+      cliente: p.cliente,
+      ov: p.ov,
+      fecha_entrega: p.fecha_entrega,
+      lugar: p.lugar,
+      email_transportista: despachosAnteriores[0]?.email_transportista || '',
+      transporte: despachosAnteriores[0]?.transporte || '',
+    };
+
+    const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+    await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+
+    alert('Pedido suspendido. Se notificó a los involucrados.');
   }
 
   const pillColors = {
-    Pendiente:  { bg: '#EEEDFE', color: '#3C3489' },
-    Programado: { bg: '#E1F5EE', color: '#085041' },
-    Nominado:   { bg: '#EEEDFE', color: '#3C3489' },
-    Cumplido:   { bg: '#E1F5EE', color: '#085041' },
-    Suspendido: { bg: '#FCEBEB', color: '#791F1F' },
+    Pendiente:      { bg: '#EEEDFE', color: '#3C3489' },
+    'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
+    Programado:     { bg: '#E1F5EE', color: '#085041' },
+    Nominado:       { bg: '#E1F5EE', color: '#085041' },
+    Suspendido:     { bg: '#FCEBEB', color: '#791F1F' },
+    Cumplido:       { bg: '#E1F5EE', color: '#085041' },
   };
 
   const pillLabel = {
-    Pendiente: 'Pendiente', Programado: 'Programado', Nominado: 'Nominado',
-    Cumplido: 'Cumplido', Suspendido: 'Suspendido',
+    Pendiente: 'Pendiente', 'prog-parcial': 'Prog. parcial',
+    Programado: 'Programado', Nominado: 'Nominado',
+    Suspendido: 'Suspendido', Cumplido: 'Cumplido',
   };
 
   return (
@@ -186,7 +353,9 @@ function Pedidos({ usuario, onVolver }) {
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Mis pedidos</h2>
-            <button style={styles.btnPrimary} onClick={() => setVista('nuevo')}>+ Nuevo pedido</button>
+            <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>
+              + Nuevo pedido
+            </button>
           </div>
           {pedidos.length === 0 && (
             <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>
@@ -195,11 +364,14 @@ function Pedidos({ usuario, onVolver }) {
             <div key={p.id} style={styles.card}>
               <div style={styles.cardHeader}>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>
-                  {pillLabel[p.estado]}
+                  {pillLabel[p.estado] || p.estado}
                 </span>
+                {p.editado && <span style={styles.badgeEditado}>Editado</span>}
                 <span style={styles.cardNro}>{p.id}</span>
                 <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
-                <span style={styles.cardFecha}>Creado {p.creado_en}</span>
+                <span style={styles.cardFecha}>
+                  {p.editado_en ? `Editado ${p.editado_en}` : `Creado ${p.creado_en}`}
+                </span>
               </div>
               <div style={styles.cardBody}>
                 <div style={styles.detailGrid}>
@@ -219,16 +391,28 @@ function Pedidos({ usuario, onVolver }) {
                     </span>
                   </div>
                   {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
+                  {p.motivo_suspension && (
+                    <div style={{ ...styles.field, gridColumn: '1/-1' }}>
+                      <span style={styles.label}>Motivo suspensión</span>
+                      <span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span>
+                    </div>
+                  )}
                 </div>
                 {p.adjuntos?.length > 0 && (
                   <div style={styles.adjuntosRow}>
                     {p.adjuntos.map(a => <span key={a} style={styles.adjuntoChip}>📎 {a}</span>)}
                   </div>
                 )}
-                <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}</div>
+                <div style={styles.origen}>
+                  Creado por <strong>{p.creado_por}</strong> · {p.creado_en}
+                  {p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}
+                </div>
                 {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                   <div style={styles.cardActions}>
-                    <button style={styles.btnSuspender} onClick={() => suspender(p.id)}>Suspender</button>
+                    {puedeEditar(p) && (
+                      <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
+                    )}
+                    <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
                   </div>
                 )}
               </div>
@@ -240,9 +424,14 @@ function Pedidos({ usuario, onVolver }) {
       {vista === 'nuevo' && (
         <div>
           <div style={styles.panelHeader}>
-            <h2 style={styles.titulo}>Nuevo pedido</h2>
-            <button style={styles.btnVolver} onClick={() => setVista('panel')}>← Volver</button>
+            <h2 style={styles.titulo}>{pedidoEditando ? 'Editar pedido' : 'Nuevo pedido'}</h2>
+            <button style={styles.btnVolver} onClick={() => { setVista('panel'); setPedidoEditando(null); }}>← Volver</button>
           </div>
+          {pedidoEditando && (
+            <div style={styles.editandoBanner}>
+              ✏️ Editando pedido <strong>{pedidoEditando.id}</strong> — Estado actual: <strong>{pedidoEditando.estado}</strong>
+            </div>
+          )}
           <form onSubmit={handleSubmit} style={styles.form}>
 
             <div style={styles.seccion}>
@@ -310,7 +499,7 @@ function Pedidos({ usuario, onVolver }) {
                     value={form.ov}
                     onChange={e => setForm({ ...form, ov: e.target.value.toUpperCase() })} />
                   {form.ov && !validarOV(form.ov) && (
-                    <span style={styles.fieldError}>Formato: MAY XX-XXXXX (ej: OV 02-12345)</span>
+                    <span style={styles.fieldError}>Formato: OV-XXXXX o OC-XXXXX</span>
                   )}
                 </div>
               </div>
@@ -333,7 +522,7 @@ function Pedidos({ usuario, onVolver }) {
                   </div>
                 </div>
                 {form.telefono_prefijo && !validarTelefono() && (
-                  <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 dígitos · Prefijo 6 dígitos → número 6 dígitos</span>
+                  <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 6 dígitos → número 6</span>
                 )}
               </div>
             </div>
@@ -410,9 +599,9 @@ function Pedidos({ usuario, onVolver }) {
 
             <div style={styles.formActions}>
               <button type="submit" style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }} disabled={enviando}>
-                {enviando ? 'Enviando...' : 'Confirmar pedido'}
+                {enviando ? 'Enviando...' : pedidoEditando ? 'Guardar cambios' : 'Confirmar pedido'}
               </button>
-              <button type="button" style={styles.btnCancelar} onClick={() => setVista('panel')}>Cancelar</button>
+              <button type="button" style={styles.btnCancelar} onClick={() => { setVista('panel'); setPedidoEditando(null); }}>Cancelar</button>
             </div>
           </form>
         </div>
@@ -432,8 +621,9 @@ const styles = {
   btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
-  cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
+  cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
   cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
   cardFecha: { fontSize: 11, color: '#9CA3AF', flexShrink: 0 },
@@ -447,8 +637,10 @@ const styles = {
   adjuntoQuitar: { border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 11, padding: 0 },
   origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 10 },
   cardActions: { display: 'flex', gap: 8 },
+  btnEditar: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #C8102E', background: '#fff', color: '#C8102E', fontSize: 12, cursor: 'pointer' },
   btnSuspender: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
   form: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.5rem' },
+  editandoBanner: { padding: '10px 14px', borderRadius: 8, background: '#FEF3C7', border: '0.5px solid #F59E0B', fontSize: 13, color: '#92400E', marginBottom: 16 },
   seccion: { marginBottom: '1.5rem' },
   seccionTitulo: { fontSize: 12, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '0.5px solid #F3F4F6' },
   grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 },
