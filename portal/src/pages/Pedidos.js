@@ -31,7 +31,6 @@ function Pedidos({ usuario, onVolver }) {
 
   const fileRef = useRef();
 
-  // Cargar pedidos del usuario desde Firestore
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const data = snap.docs
@@ -76,12 +75,12 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   function validarTelefono() {
-  const pre = form.telefono_prefijo.replace(/\D/g, '');
-  const num = form.telefono_numero.replace(/\D/g, '');
-  if (!pre && !num) return true;
-  if (pre.length === 3 && num.length === 7) return true;
-  if (pre.length === 4 && num.length === 6) return true;
-  return false;
+    const pre = form.telefono_prefijo.replace(/\D/g, '');
+    const num = form.telefono_numero.replace(/\D/g, '');
+    if (!pre && !num) return true;
+    if (pre.length === 3 && num.length === 7) return true;
+    if (pre.length === 4 && num.length === 6) return true;
+    return false;
   }
 
   function validarFecha(fecha) {
@@ -96,7 +95,6 @@ function Pedidos({ usuario, onVolver }) {
     const despachos = p.despachos || [];
     const nominados = despachos.filter(d => d.estado === 'Nominado');
     if (nominados.length > 0) {
-      // Verificar si la fecha de carga ya pasó
       const fechaCarga = nominados[0].fecha_carga;
       if (fechaCarga) {
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
@@ -137,40 +135,30 @@ function Pedidos({ usuario, onVolver }) {
       alert('Completá todos los campos obligatorios');
       return;
     }
-
     if (!validarOV(form.ov)) {
       alert('El formato de OV/OC debe ser: OV-XXXXX o OC-XXXXX (ej: OV-12345)');
       return;
     }
-
     if (!validarFecha(form.fecha_entrega)) {
       alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.');
       return;
     }
-
     if (form.telefono_prefijo && !validarTelefono()) {
       alert('Teléfono: prefijo 3 dígitos → número 7 dígitos. Prefijo 4 dígitos → número 6 dígitos.');
+      return;
     }
 
     const ahora = new Date().toLocaleString('es-AR');
     const lugar = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ');
     const telefono = form.telefono_prefijo && form.telefono_numero
-      ? `(${form.telefono_prefijo}) ${form.telefono_numero}`
-      : '';
+      ? `(${form.telefono_prefijo}) ${form.telefono_numero}` : '';
 
     setEnviando(true);
     try {
       if (pedidoEditando) {
-        // EDICIÓN
-        const estadoAnterior = pedidoEditando.estado;
         const despachosAnteriores = pedidoEditando.despachos || [];
         const teniaProgramacion = despachosAnteriores.length > 0;
-
-        // Marcar despachos anteriores como "En espera"
-        const despachosActualizados = despachosAnteriores.map(d => ({
-          ...d,
-          estado: 'En espera',
-        }));
+        const despachosActualizados = despachosAnteriores.map(d => ({ ...d, estado: 'En espera' }));
 
         await updateDoc(doc(db, 'pedidos_portal', pedidoEditando.docId), {
           tipo: form.tipo,
@@ -198,13 +186,12 @@ function Pedidos({ usuario, onVolver }) {
           despachos: despachosActualizados,
         });
 
-        // Enviar emails según estado anterior
         const payload = {
           accion: 'editar_pedido',
           id: pedidoEditando.id,
           editado_por: usuario?.nombre || '',
           editado_en: ahora,
-          estado_anterior: estadoAnterior,
+          estado_anterior: pedidoEditando.estado,
           tenia_programacion: teniaProgramacion,
           tipo: form.tipo,
           producto: form.producto,
@@ -217,15 +204,13 @@ function Pedidos({ usuario, onVolver }) {
           email_transportista: despachosAnteriores[0]?.email_transportista || '',
           transporte: despachosAnteriores[0]?.transporte || '',
         };
-
         const params = new URLSearchParams({ payload: JSON.stringify(payload) });
         await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
 
-        alert(`✓ Pedido ${pedidoEditando.id} actualizado. Se notificó a los involucrados.`);
+        alert(`✓ Pedido ${pedidoEditando.id} actualizado.`);
         setPedidoEditando(null);
 
       } else {
-        // NUEVO PEDIDO
         const id = genNro();
         const pedido = {
           id,
@@ -260,11 +245,7 @@ function Pedidos({ usuario, onVolver }) {
 
         await addDoc(collection(db, 'pedidos_portal'), pedido);
 
-        // Email al coordinador
-        const payload = {
-          accion: 'nuevo_pedido',
-          ...pedido,
-        };
+        const payload = { accion: 'nuevo_pedido', ...pedido };
         const params = new URLSearchParams({ payload: JSON.stringify(payload) });
         await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
 
@@ -317,7 +298,6 @@ function Pedidos({ usuario, onVolver }) {
       email_transportista: despachosAnteriores[0]?.email_transportista || '',
       transporte: despachosAnteriores[0]?.transporte || '',
     };
-
     const params = new URLSearchParams({ payload: JSON.stringify(payload) });
     await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
 
@@ -428,7 +408,7 @@ function Pedidos({ usuario, onVolver }) {
           </div>
           {pedidoEditando && (
             <div style={styles.editandoBanner}>
-              ✏️ Editando pedido <strong>{pedidoEditando.id}</strong> — Estado actual: <strong>{pedidoEditando.estado}</strong>
+              ✏️ Editando <strong>{pedidoEditando.id}</strong> — Estado actual: <strong>{pedidoEditando.estado}</strong>
             </div>
           )}
           <form onSubmit={handleSubmit} style={styles.form}>
@@ -507,10 +487,10 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.telRow}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
                     <input style={styles.input} type="text" placeholder="Prefijo"
-                      maxLength={6}
+                      maxLength={4}
                       value={form.telefono_prefijo}
-                      onChange={e => <span style={styles.telHint}setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
-                    <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
+                      onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
+                    <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                     <input style={styles.input} type="text" placeholder="Número"
@@ -521,7 +501,7 @@ function Pedidos({ usuario, onVolver }) {
                   </div>
                 </div>
                 {form.telefono_prefijo && !validarTelefono() && (
-                  <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 6 dígitos → número 6</span>
+                  <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>
                 )}
               </div>
             </div>
@@ -597,10 +577,15 @@ function Pedidos({ usuario, onVolver }) {
             </div>
 
             <div style={styles.formActions}>
-              <button type="submit" style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }} disabled={enviando}>
+              <button type="submit"
+                style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }}
+                disabled={enviando}>
                 {enviando ? 'Enviando...' : pedidoEditando ? 'Guardar cambios' : 'Confirmar pedido'}
               </button>
-              <button type="button" style={styles.btnCancelar} onClick={() => { setVista('panel'); setPedidoEditando(null); }}>Cancelar</button>
+              <button type="button" style={styles.btnCancelar}
+                onClick={() => { setVista('panel'); setPedidoEditando(null); }}>
+                Cancelar
+              </button>
             </div>
           </form>
         </div>
