@@ -18,7 +18,7 @@ function Transportista({ usuario, onVolver }) {
       snap.docs.forEach(d => {
         const pedido = d.data();
         (pedido.despachos || []).forEach((despacho, i) => {
-          if (despacho.estado === 'Programado' || despacho.estado === 'Aceptado' || despacho.estado === 'Nominado') {
+          if (['Programado', 'Aceptado', 'Nominado', 'En espera'].includes(despacho.estado)) {
             todos.push({
               docId: d.id,
               pedidoId: pedido.id,
@@ -32,7 +32,9 @@ function Transportista({ usuario, onVolver }) {
               cliente: pedido.cliente,
               ov: pedido.ov,
               fecha_carga: despacho.fecha_carga,
+              horario_carga: despacho.horario_carga || '',
               fecha_entrega: pedido.fecha_entrega,
+              banda_horaria: pedido.banda_horaria || '',
               lugar: pedido.lugar,
               recipiente: pedido.recipiente,
               obs: pedido.obs || '',
@@ -43,7 +45,11 @@ function Transportista({ usuario, onVolver }) {
               patente_tractor: despacho.patente_tractor || '',
               patente_semi: despacho.patente_semi || '',
               chofer: despacho.chofer || '',
-              cuit: despacho.cuit || '',
+              dni_chofer: despacho.dni_chofer || '',
+              cuit_chofer: despacho.cuit_chofer || '',
+              cuit_transporte: despacho.cuit_transporte || '',
+              tel_unidad: despacho.tel_unidad || '',
+              adjuntos: (pedido.adjuntos || []).filter(a => a.visible_transportista && !a._eliminado),
             });
           }
         });
@@ -59,18 +65,17 @@ function Transportista({ usuario, onVolver }) {
     'Programado': { bg: '#FAEEDA', color: '#633806' },
     'Aceptado':   { bg: '#E1F5EE', color: '#085041' },
     'Nominado':   { bg: '#EEEDFE', color: '#3C3489' },
+    'En espera':  { bg: '#F3F4F6', color: '#6B7280' },
   };
 
   const pillLabel = {
-    'Programado': 'Asignado',
-    'Aceptado':   'Aceptado',
-    'Nominado':   'Nominado',
+    'Programado': 'Asignado', 'Aceptado': 'Aceptado',
+    'Nominado': 'Nominado', 'En espera': 'En espera',
   };
 
   async function aceptar(d) {
-    const pedidoSnap = await import('firebase/firestore').then(({ getDoc }) =>
-      getDoc(doc(db, 'pedidos_portal', d.docId))
-    );
+    const { getDoc } = await import('firebase/firestore');
+    const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
     const pedido = pedidoSnap.data();
     const nuevosDespachos = [...pedido.despachos];
     nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Aceptado' };
@@ -81,29 +86,23 @@ function Transportista({ usuario, onVolver }) {
   async function rechazar(d) {
     const motivo = prompt('Motivo del rechazo (requerido):');
     if (!motivo) return;
-    const pedidoSnap = await import('firebase/firestore').then(({ getDoc }) =>
-      getDoc(doc(db, 'pedidos_portal', d.docId))
-    );
+    const { getDoc } = await import('firebase/firestore');
+    const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
     const pedido = pedidoSnap.data();
     const nuevosDespachos = [...pedido.despachos];
     nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Rechazado' };
-    await updateDoc(doc(db, 'pedidos_portal', d.docId), {
-      despachos: nuevosDespachos,
-      estado: 'Pendiente',
-    });
+    await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
     alert('Despacho rechazado. Se notificó al coordinador.');
   }
 
   async function nominar(d) {
     const nd = nomData[d.uid] || {};
-    if (!nd.patente_tractor || !nd.chofer || !nd.cuit) {
-      alert('Completá patente tractor, chofer y CUIT antes de nominar.');
+    if (!nd.patente_tractor || !nd.chofer || !nd.dni_chofer || !nd.cuit_transporte) {
+      alert('Completá patente tractor, nombre del chofer, DNI y CUIT de la empresa antes de nominar.');
       return;
     }
-
     setEnviando(true);
     try {
-      // 1 — Actualizar Firestore
       const { getDoc } = await import('firebase/firestore');
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
       const pedido = pedidoSnap.data();
@@ -111,38 +110,32 @@ function Transportista({ usuario, onVolver }) {
       nuevosDespachos[d.despachoIdx] = {
         ...nuevosDespachos[d.despachoIdx],
         estado: 'Nominado',
-        patente_tractor: nd.patente_tractor,
-        patente_semi: nd.patente_semi || '',
+        patente_tractor: nd.patente_tractor.toUpperCase(),
+        patente_semi: (nd.patente_semi || '').toUpperCase(),
         chofer: nd.chofer,
-        cuit: nd.cuit,
+        dni_chofer: nd.dni_chofer,
+        cuit_chofer: nd.cuit_chofer || '',
+        cuit_transporte: nd.cuit_transporte,
+        tel_unidad: nd.tel_unidad || '',
       };
-      await updateDoc(doc(db, 'pedidos_portal', d.docId), {
-        despachos: nuevosDespachos,
-        estado: 'Nominado',
-      });
+      await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Nominado' });
 
-      // 2 — Llamar Apps Script para escribir en Mov Vehículos Carga y Desc
       const payload = {
         accion: 'nominar_unidad',
-        pedido_id: d.pedidoId,
-        fecha_carga: d.fecha_carga,
-        tipo: d.tipo,
-        producto: d.producto,
-        volumen: d.volumen,
-        cliente: d.cliente,
-        ov: d.ov,
-        lugar: d.lugar,
-        patente_tractor: nd.patente_tractor,
-        patente_semi: nd.patente_semi || '',
-        chofer: nd.chofer,
-        cuit_transporte: nd.cuit,
+        pedido_id: d.pedidoId, fecha_carga: d.fecha_carga,
+        tipo: d.tipo, producto: d.producto, volumen: d.volumen,
+        cliente: d.cliente, ov: d.ov, lugar: d.lugar,
+        patente_tractor: nd.patente_tractor.toUpperCase(),
+        patente_semi: (nd.patente_semi || '').toUpperCase(),
+        chofer: nd.chofer, dni_chofer: nd.dni_chofer,
+        cuit_chofer: nd.cuit_chofer || '',
+        cuit_transporte: nd.cuit_transporte,
+        tel_unidad: nd.tel_unidad || '',
         transporte: d.transporte,
       };
-
       const params = new URLSearchParams({ payload: JSON.stringify(payload) });
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-
-      alert('✓ Nominación confirmada. Se escribió en Mov Vehículos Carga y Desc y se notificó a Portería.');
+      alert('✓ Nominación confirmada. Se notificó a Portería.');
     } catch (err) {
       console.error(err);
       alert('Error al nominar: ' + err.message);
@@ -151,18 +144,17 @@ function Transportista({ usuario, onVolver }) {
     }
   }
 
-  const filtrados = despachos.filter(d =>
-    filtro === 'todos' ||
-    (filtro === 'Programado' && d.estado === 'Programado') ||
-    (filtro === 'Aceptado' && d.estado === 'Aceptado') ||
-    (filtro === 'Nominado' && d.estado === 'Nominado')
-  );
+  function updateNom(uid, field, value) {
+    setNomData(prev => ({ ...prev, [uid]: { ...prev[uid], [field]: value } }));
+  }
+
+  const filtrados = despachos.filter(d => filtro === 'todos' || d.estado === filtro);
 
   return (
     <div style={styles.wrap}>
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
-         <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
+          <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
           <span style={styles.portalText}>Mis despachos</span>
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
@@ -173,28 +165,16 @@ function Transportista({ usuario, onVolver }) {
       </div>
 
       <div style={styles.metrics}>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Asignados</div>
-          <div style={{ ...styles.metricValue, color: '#BA7517' }}>
-            {despachos.filter(d => d.estado === 'Programado').length}
+        {[['Asignados', '#BA7517', 'Programado'], ['Aceptados', '#0F6E56', 'Aceptado'], ['Nominados', '#534AB7', 'Nominado'], ['En espera', '#6B7280', 'En espera']].map(([label, color, estado]) => (
+          <div key={estado} style={styles.metric}>
+            <div style={styles.metricLabel}>{label}</div>
+            <div style={{ ...styles.metricValue, color }}>{despachos.filter(d => d.estado === estado).length}</div>
           </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Aceptados</div>
-          <div style={{ ...styles.metricValue, color: '#0F6E56' }}>
-            {despachos.filter(d => d.estado === 'Aceptado').length}
-          </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Nominados</div>
-          <div style={{ ...styles.metricValue, color: '#534AB7' }}>
-            {despachos.filter(d => d.estado === 'Nominado').length}
-          </div>
-        </div>
+        ))}
       </div>
 
       <div style={styles.filtros}>
-        {['todos', 'Programado', 'Aceptado', 'Nominado'].map(f => (
+        {['todos', 'Programado', 'Aceptado', 'Nominado', 'En espera'].map(f => (
           <button key={f}
             style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }}
             onClick={() => setFiltro(f)}>
@@ -210,7 +190,7 @@ function Transportista({ usuario, onVolver }) {
         <div key={d.uid} style={styles.card}>
           <div style={styles.cardHeader} onClick={() => setExpandido(expandido === d.uid ? null : d.uid)}>
             <span style={{ ...styles.pill, background: pillColors[d.estado]?.bg, color: pillColors[d.estado]?.color }}>
-              {pillLabel[d.estado]}
+              {pillLabel[d.estado] || d.estado}
             </span>
             <span style={styles.cardNro}>{d.pedidoId} · D{d.despachoNro}</span>
             <span style={styles.cardResumen}>{d.producto} {d.volumen} tn · {d.cliente}</span>
@@ -223,6 +203,12 @@ function Transportista({ usuario, onVolver }) {
 
           {expandido === d.uid && (
             <div style={styles.cardBody}>
+              {d.estado === 'En espera' && (
+                <div style={styles.esperaBanner}>
+                  ⏸ Este despacho está en espera por cambios en el pedido. Aguardá la reprogramación del coordinador.
+                </div>
+              )}
+
               <div style={styles.origen}>
                 Programado por <strong>{d.programado_por}</strong> · {d.programado_en}
               </div>
@@ -239,44 +225,92 @@ function Transportista({ usuario, onVolver }) {
                 <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{d.recipiente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{d.ov}</span></div>
                 <div style={styles.field}><span style={styles.label}>Fecha de carga</span><span style={styles.hiVal}>{d.fecha_carga}</span></div>
+                {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario de carga sugerido</span><span style={styles.hiVal}>{d.horario_carga}</span></div>}
                 <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{d.fecha_entrega}</span></div>
+                {d.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria descarga</span><span>{d.banda_horaria}</span></div>}
                 <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{d.lugar}</span></div>
                 {d.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{d.obs}</span></div>}
               </div>
 
-              {d.estado !== 'Programado' && (
+              {d.adjuntos?.length > 0 && (
+                <div style={styles.adjuntosSection}>
+                  <div style={styles.adjuntosTitle}>Documentación adjunta</div>
+                  <div style={styles.adjuntosGrid}>
+                    {d.adjuntos.map(a => (
+                      <a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoLink}>
+                        📎 {a.nombre}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {d.estado !== 'Programado' && d.estado !== 'En espera' && (
                 <div style={styles.nomSection}>
                   <div style={styles.nomTitle}>🚛 Datos de la unidad</div>
+
+                  <div style={styles.nomSubtitle}>Empresa transportista</div>
+                  <div style={styles.nomGrid}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Nombre empresa</label>
+                      <input style={styles.input} type="text" placeholder="Razón social"
+                        defaultValue={d.transporte} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'transporte', e.target.value)} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>CUIT empresa *</label>
+                      <input style={styles.input} type="text" placeholder="20-00000000-0"
+                        defaultValue={d.cuit_transporte} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'cuit_transporte', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Chofer</div>
+                  <div style={styles.nomGrid}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Nombre completo *</label>
+                      <input style={styles.input} type="text" placeholder="Apellido, Nombre"
+                        defaultValue={d.chofer} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'chofer', e.target.value)} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>DNI *</label>
+                      <input style={styles.input} type="text" placeholder="00000000"
+                        defaultValue={d.dni_chofer} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'dni_chofer', e.target.value.replace(/\D/g, ''))} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>CUIT chofer</label>
+                      <input style={styles.input} type="text" placeholder="20-00000000-0"
+                        defaultValue={d.cuit_chofer} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'cuit_chofer', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Vehículo</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Patente tractor *</label>
-                      <input style={styles.input} type="text" placeholder="Ej: ABC 123"
-                        defaultValue={d.patente_tractor}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => setNomData({ ...nomData, [d.uid]: { ...nomData[d.uid], patente_tractor: e.target.value } })} />
+                      <input style={styles.input} type="text" placeholder="ABC123"
+                        defaultValue={d.patente_tractor} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'patente_tractor', e.target.value.toUpperCase())}
+                        onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Patente semi</label>
-                      <input style={styles.input} type="text" placeholder="Ej: XYZ 456"
-                        defaultValue={d.patente_semi}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => setNomData({ ...nomData, [d.uid]: { ...nomData[d.uid], patente_semi: e.target.value } })} />
+                      <input style={styles.input} type="text" placeholder="ABC123"
+                        defaultValue={d.patente_semi} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'patente_semi', e.target.value.toUpperCase())}
+                        onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
                     <div style={styles.formField}>
-                      <label style={styles.formLabel}>Nombre del chofer *</label>
-                      <input style={styles.input} type="text" placeholder="Nombre completo"
-                        defaultValue={d.chofer}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => setNomData({ ...nomData, [d.uid]: { ...nomData[d.uid], chofer: e.target.value } })} />
-                    </div>
-                    <div style={styles.formField}>
-                      <label style={styles.formLabel}>CUIT transportista *</label>
-                      <input style={styles.input} type="text" placeholder="20-00000000-0"
-                        defaultValue={d.cuit}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => setNomData({ ...nomData, [d.uid]: { ...nomData[d.uid], cuit: e.target.value } })} />
+                      <label style={styles.formLabel}>Teléfono de la unidad</label>
+                      <input style={styles.input} type="tel" placeholder="Nº de contacto"
+                        defaultValue={d.tel_unidad} disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'tel_unidad', e.target.value)} />
                     </div>
                   </div>
+
                   {d.estado === 'Nominado' && (
                     <div style={styles.nomOk}>✓ Nominación confirmada. Portería fue notificada.</div>
                   )}
@@ -292,8 +326,7 @@ function Transportista({ usuario, onVolver }) {
                 )}
                 {d.estado === 'Aceptado' && (
                   <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
-                    disabled={enviando}
-                    onClick={() => nominar(d)}>
+                    disabled={enviando} onClick={() => nominar(d)}>
                     {enviando ? 'Enviando...' : '✓ Confirmar nominación'}
                   </button>
                 )}
@@ -310,18 +343,16 @@ const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
-  logoCircle: { width: 32, height: 32, borderRadius: '50%', background: '#D63B1F', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800 },
-  logoText: { fontSize: 15, fontWeight: 500, color: '#111827' },
   portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   intro: { padding: '10px 14px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', fontSize: 13, color: '#6B7280', marginBottom: '1.5rem' },
-  metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: '1.5rem' },
+  metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10, marginBottom: '1.5rem' },
   metric: { background: '#F9FAFB', borderRadius: 8, padding: '12px 14px' },
   metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
   metricValue: { fontSize: 20, fontWeight: 500 },
   filtros: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' },
   filtroBtnBase: { padding: '6px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
-  filtroBtnActive: { background: '#EEEDFE', borderColor: '#534AB7', color: '#3C3489', fontWeight: 500 },
+  filtroBtnActive: { background: '#FDECEA', borderColor: '#C8102E', color: '#C8102E', fontWeight: 500 },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
@@ -333,21 +364,27 @@ const styles = {
   cardFechaVal: { fontSize: 11, color: '#6B7280' },
   chevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0 },
   cardBody: { padding: '12px 14px' },
+  esperaBanner: { padding: '8px 12px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB', fontSize: 12, color: '#6B7280', marginBottom: 10 },
   origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 10 },
   contextBanner: { fontSize: 12, color: '#633806', padding: '8px 10px', background: '#FAEEDA', border: '0.5px solid #EF9F27', borderRadius: 8, marginBottom: 10 },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 },
   field: { display: 'flex', flexDirection: 'column', gap: 3 },
   label: { fontSize: 11, color: '#9CA3AF' },
   hiVal: { fontSize: 14, fontWeight: 500, color: '#3C3489' },
+  adjuntosSection: { marginBottom: 10, padding: '10px 12px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB' },
+  adjuntosTitle: { fontSize: 11, fontWeight: 500, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 },
+  adjuntosGrid: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  adjuntoLink: { fontSize: 12, color: '#3C3489', textDecoration: 'none', padding: '4px 10px', background: '#EEEDFE', borderRadius: 8, border: '0.5px solid #C5C2F0' },
   nomSection: { marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #E5E7EB' },
-  nomTitle: { fontSize: 11, fontWeight: 500, color: '#534AB7', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 },
+  nomTitle: { fontSize: 11, fontWeight: 500, color: '#534AB7', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 },
+  nomSubtitle: { fontSize: 11, fontWeight: 500, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8, paddingBottom: 4, borderBottom: '0.5px solid #F3F4F6' },
   nomGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 },
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   formLabel: { fontSize: 12, color: '#6B7280' },
   input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
   nomOk: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' },
-  btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnRechazar: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 13, cursor: 'pointer' },
 };

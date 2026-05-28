@@ -1,8 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
+
+async function subirArchivo(file, pedidoId, subidoPor) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const base64 = e.target.result.split(',')[1];
+        const payload = {
+          accion: 'subir_adjunto',
+          nombre: file.name,
+          tipo_mime: file.type || 'application/octet-stream',
+          base64,
+          pedido_id: pedidoId,
+          subido_por: subidoPor,
+        };
+        const response = await fetch(APPS_SCRIPT_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (data.status === 'ok') resolve(data.data);
+        else reject(new Error(data.mensaje || 'Error subiendo archivo'));
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Error leyendo archivo'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function Coordinador({ usuario, onVolver }) {
   const [pedidos, setPedidos] = useState([]);
@@ -11,13 +39,14 @@ function Coordinador({ usuario, onVolver }) {
   const [expandido, setExpandido] = useState(null);
   const [nuevoDespacho, setNuevoDespacho] = useState({});
   const [enviando, setEnviando] = useState(false);
+  const [subiendoArchivos, setSubiendoArchivos] = useState(false);
+  const [archivosNuevos, setArchivosNuevos] = useState({});
+  const fileRefs = useRef({});
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const data = snap.docs.map(d => ({
-        docId: d.id,
-        ...d.data(),
-        despachos: d.data().despachos || [],
+        docId: d.id, ...d.data(), despachos: d.data().despachos || [],
       }));
       data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setPedidos(data);
@@ -35,23 +64,35 @@ function Coordinador({ usuario, onVolver }) {
   };
 
   const pillLabel = {
-    'Pendiente':    'Pendiente',
-    'prog-parcial': 'Prog. parcial',
-    'Programado':   'Programado',
-    'Nominado':     'Nominado',
-    'Suspendido':   'Suspendido',
+    'Pendiente': 'Pendiente', 'prog-parcial': 'Prog. parcial',
+    'Programado': 'Programado', 'Nominado': 'Nominado', 'Suspendido': 'Suspendido',
   };
 
   function volAsignado(p) {
     return (p.despachos || []).reduce((s, d) => s + Number(d.volumen), 0);
   }
+  function saldo(p) { return Number(p.volumen) - volAsignado(p); }
+  function pct(p) { return Math.min(100, Math.round(volAsignado(p) / Number(p.volumen) * 100)); }
 
-  function saldo(p) {
-    return Number(p.volumen) - volAsignado(p);
+  function handleArchivosNuevos(pedidoId, files) {
+    setArchivosNuevos(prev => ({
+      ...prev,
+      [pedidoId]: [...(prev[pedidoId] || []), ...Array.from(files)],
+    }));
   }
 
-  function pct(p) {
-    return Math.min(100, Math.round(volAsignado(p) / Number(p.volumen) * 100));
+  function quitarArchivoNuevo(pedidoId, nombre) {
+    setArchivosNuevos(prev => ({
+      ...prev,
+      [pedidoId]: (prev[pedidoId] || []).filter(f => f.name !== nombre),
+    }));
+  }
+
+  async function toggleVisibleTransportista(p, fileId, valorActual) {
+    const adjuntosActualizados = (p.adjuntos || []).map(a =>
+      a.file_id === fileId ? { ...a, visible_transportista: !valorActual } : a
+    );
+    await updateDoc(doc(db, 'pedidos_portal', p.docId), { adjuntos: adjuntosActualizados });
   }
 
   async function confirmarDespacho(pedidoId) {
@@ -62,40 +103,57 @@ function Coordinador({ usuario, onVolver }) {
     }
     const p = pedidos.find(x => x.id === pedidoId);
     const sal = saldo(p);
-
     if (Number(nd.volumen) > sal) {
       alert(`El volumen (${nd.volumen} tn) supera el saldo disponible (${sal} tn).`);
       return;
     }
-
     const fechaCarga = new Date(nd.fecha_carga + 'T00:00:00');
     const fechaEntrega = new Date(p.fecha_entrega + 'T00:00:00');
     if (fechaCarga > fechaEntrega) {
-      alert('La fecha de carga no puede ser posterior a la fecha de entrega comprometida (' + p.fecha_entrega + ').');
+      alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').');
       return;
     }
 
-    const now = new Date().toLocaleString('es-AR');
-    const despacho = {
-      id: 'D' + ((p.despachos || []).length + 1),
-      volumen: Number(nd.volumen),
-      fecha_carga: nd.fecha_carga,
-      transporte: nd.transporte,
-      email_transportista: nd.email_transportista || '',
-      estado: 'Programado',
-      programado_por: usuario?.nombre || 'Coordinador',
-      programado_en: now,
-    };
-
-    const nuevosDespachos = [...(p.despachos || []), despacho];
-    const nuevoSaldo = Number(p.volumen) - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
-    const nuevoEstado = nuevoSaldo === 0 ? 'Programado' : 'prog-parcial';
-
     setEnviando(true);
     try {
+      // Subir adjuntos nuevos del coordinador
+      let adjuntosActualizados = [...(p.adjuntos || [])];
+      const archivosCoord = archivosNuevos[pedidoId] || [];
+      if (archivosCoord.length > 0) {
+        setSubiendoArchivos(true);
+        for (const file of archivosCoord) {
+          try {
+            const resultado = await subirArchivo(file, p.id, usuario?.nombre || 'Coordinador');
+            adjuntosActualizados.push(resultado);
+          } catch (err) {
+            console.error('Error subiendo ' + file.name + ':', err);
+          }
+        }
+        setSubiendoArchivos(false);
+        setArchivosNuevos(prev => ({ ...prev, [pedidoId]: [] }));
+      }
+
+      const now = new Date().toLocaleString('es-AR');
+      const despacho = {
+        id: 'D' + ((p.despachos || []).length + 1),
+        volumen: Number(nd.volumen),
+        fecha_carga: nd.fecha_carga,
+        horario_carga: nd.horario_carga || '',
+        transporte: nd.transporte,
+        email_transportista: nd.email_transportista || '',
+        estado: 'Programado',
+        programado_por: usuario?.nombre || 'Coordinador',
+        programado_en: now,
+      };
+
+      const nuevosDespachos = [...(p.despachos || []), despacho];
+      const nuevoSaldo = Number(p.volumen) - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+      const nuevoEstado = nuevoSaldo === 0 ? 'Programado' : 'prog-parcial';
+
       await updateDoc(doc(db, 'pedidos_portal', p.docId), {
         despachos: nuevosDespachos,
         estado: nuevoEstado,
+        adjuntos: adjuntosActualizados,
       });
 
       const payload = {
@@ -103,6 +161,7 @@ function Coordinador({ usuario, onVolver }) {
         pedido_id: p.id,
         programado_por: usuario?.nombre || 'Coordinador',
         fecha_carga: nd.fecha_carga,
+        horario_carga: nd.horario_carga || '',
         transporte: nd.transporte,
         email_transportista: nd.email_transportista || '',
         tipo: p.tipo,
@@ -111,6 +170,7 @@ function Coordinador({ usuario, onVolver }) {
         cliente: p.cliente,
         ov: p.ov,
         lugar: p.lugar,
+        banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega,
         obs: p.obs || '',
       };
@@ -119,12 +179,13 @@ function Coordinador({ usuario, onVolver }) {
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
 
       setNuevoDespacho({ ...nuevoDespacho, [pedidoId]: {} });
-      alert('✓ Despacho confirmado. Se escribió en el Plan de Producción CI PGSM y se notificó al transportista.');
+      alert('✓ Despacho confirmado.');
     } catch (err) {
       console.error(err);
       alert('Error al confirmar el despacho: ' + err.message);
     } finally {
       setEnviando(false);
+      setSubiendoArchivos(false);
     }
   }
 
@@ -134,9 +195,7 @@ function Coordinador({ usuario, onVolver }) {
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
   }
 
-  const filtrados = pedidos.filter(p =>
-    filtro === 'todos' || p.estado === filtro
-  );
+  const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
 
   return (
     <div style={styles.wrap}>
@@ -149,30 +208,12 @@ function Coordinador({ usuario, onVolver }) {
       </div>
 
       <div style={styles.metrics}>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Pendientes</div>
-          <div style={{ ...styles.metricValue, color: '#534AB7' }}>
-            {pedidos.filter(p => p.estado === 'Pendiente').length}
+        {[['Pendientes', '#534AB7', 'Pendiente'], ['Prog. parcial', '#BA7517', 'prog-parcial'], ['Programados', '#0F6E56', 'Programado'], ['Suspendidos', '#A32D2D', 'Suspendido']].map(([label, color, estado]) => (
+          <div key={estado} style={styles.metric}>
+            <div style={styles.metricLabel}>{label}</div>
+            <div style={{ ...styles.metricValue, color }}>{pedidos.filter(p => p.estado === estado).length}</div>
           </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Prog. parcial</div>
-          <div style={{ ...styles.metricValue, color: '#BA7517' }}>
-            {pedidos.filter(p => p.estado === 'prog-parcial').length}
-          </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Programados</div>
-          <div style={{ ...styles.metricValue, color: '#0F6E56' }}>
-            {pedidos.filter(p => p.estado === 'Programado').length}
-          </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Suspendidos</div>
-          <div style={{ ...styles.metricValue, color: '#A32D2D' }}>
-            {pedidos.filter(p => p.estado === 'Suspendido').length}
-          </div>
-        </div>
+        ))}
       </div>
 
       <div style={styles.filtros}>
@@ -186,10 +227,7 @@ function Coordinador({ usuario, onVolver }) {
       </div>
 
       {cargando && <div style={styles.empty}>Cargando pedidos...</div>}
-
-      {!cargando && filtrados.length === 0 && (
-        <div style={styles.empty}>Sin pedidos para mostrar.</div>
-      )}
+      {!cargando && filtrados.length === 0 && <div style={styles.empty}>Sin pedidos para mostrar.</div>}
 
       {!cargando && filtrados.map(p => (
         <div key={p.id} style={styles.card}>
@@ -197,6 +235,7 @@ function Coordinador({ usuario, onVolver }) {
             <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>
               {pillLabel[p.estado] || p.estado}
             </span>
+            {p.editado && <span style={styles.badgeEditado}>Editado</span>}
             <span style={styles.cardNro}>{p.id}</span>
             <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
             <span style={styles.cardFecha}>Creado {p.creado_en}</span>
@@ -207,6 +246,7 @@ function Coordinador({ usuario, onVolver }) {
             <div style={styles.cardBody}>
               <div style={styles.origen}>
                 Pedido creado por <strong>{p.creado_por}</strong> · {p.creado_en}
+                {p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}
               </div>
 
               <div style={styles.detailGrid}>
@@ -218,6 +258,7 @@ function Coordinador({ usuario, onVolver }) {
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
                 <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono || '—'}</span></div>
                 <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
+                {p.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria entrega</span><span>{p.banda_horaria}</span></div>}
                 <div style={{ ...styles.field, gridColumn: '1/-1' }}>
                   <span style={styles.label}>Lugar</span><span>{p.lugar}</span>
                 </div>
@@ -227,6 +268,26 @@ function Coordinador({ usuario, onVolver }) {
                   </div>
                 )}
               </div>
+
+              {/* Adjuntos del pedido */}
+              {(p.adjuntos || []).length > 0 && (
+                <div style={styles.adjuntosSection}>
+                  <div style={styles.adjuntosTitle}>Adjuntos del pedido</div>
+                  <div style={styles.adjuntosGrid}>
+                    {p.adjuntos.map(a => (
+                      <div key={a.file_id} style={styles.adjuntoRow}>
+                        <a href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoLink}>📎 {a.nombre}</a>
+                        <span style={styles.adjuntoMeta}>Subido por {a.subido_por} · {a.subido_en}</span>
+                        <button
+                          style={{ ...styles.btnToggleVis, background: a.visible_transportista ? '#E1F5EE' : '#F3F4F6', color: a.visible_transportista ? '#085041' : '#6B7280' }}
+                          onClick={() => toggleVisibleTransportista(p, a.file_id, a.visible_transportista)}>
+                          {a.visible_transportista ? '👁 Visible al transportista' : '🚫 Oculto al transportista'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div style={styles.volBar}>
                 <div style={styles.volBarLabels}>
@@ -248,12 +309,13 @@ function Coordinador({ usuario, onVolver }) {
                   <div key={i} style={styles.despachoItem}>
                     <div style={styles.despachoHeader}>
                       <span style={styles.despachoNro}>Despacho {i + 1}</span>
-                      <span style={{ ...styles.pill, background: '#E1F5EE', color: '#085041', fontSize: 10 }}>Programado</span>
+                      <span style={{ ...styles.pill, background: d.estado === 'En espera' ? '#F3F4F6' : '#E1F5EE', color: d.estado === 'En espera' ? '#6B7280' : '#085041', fontSize: 10 }}>{d.estado}</span>
                       <span style={styles.despachoPor}>por {d.programado_por} · {d.programado_en}</span>
                     </div>
                     <div style={styles.despachoGrid}>
                       <div style={styles.field}><span style={styles.label}>Volumen</span><span>{d.volumen} tn</span></div>
                       <div style={styles.field}><span style={styles.label}>Fecha de carga</span><span>{d.fecha_carga}</span></div>
+                      {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario sugerido</span><span>{d.horario_carga}</span></div>}
                       <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Transportista</span><span>{d.transporte}</span></div>
                     </div>
                   </div>
@@ -270,12 +332,20 @@ function Coordinador({ usuario, onVolver }) {
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], volumen: e.target.value } })} />
                       </div>
                       <div style={styles.formField}>
-                        <label style={styles.formLabel}>Fecha de carga (≤ fecha entrega: {p.fecha_entrega})</label>
+                        <label style={styles.formLabel}>Fecha de carga (≤ {p.fecha_entrega})</label>
                         <input style={styles.input} type="date"
                           max={p.fecha_entrega}
                           value={nuevoDespacho[p.id]?.fecha_carga || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], fecha_carga: e.target.value } })} />
                       </div>
+                      {p.tipo === 'Entrega al cliente' && (
+                        <div style={styles.formField}>
+                          <label style={styles.formLabel}>Horario de carga sugerido</label>
+                          <input style={styles.input} type="text" placeholder="Ej: 08:00hs"
+                            value={nuevoDespacho[p.id]?.horario_carga || ''}
+                            onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], horario_carga: e.target.value } })} />
+                        </div>
+                      )}
                       <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
                         <label style={styles.formLabel}>Empresa transportista</label>
                         <input style={styles.input} type="text" placeholder="Nombre del transportista"
@@ -288,11 +358,39 @@ function Coordinador({ usuario, onVolver }) {
                           value={nuevoDespacho[p.id]?.email_transportista || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], email_transportista: e.target.value } })} />
                       </div>
+
+                      {/* Adjuntos del coordinador */}
+                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
+                        <label style={styles.formLabel}>Adjuntos para el transportista</label>
+                        {(archivosNuevos[p.id] || []).length > 0 && (
+                          <div style={styles.adjuntosRow}>
+                            {(archivosNuevos[p.id] || []).map(f => (
+                              <div key={f.name} style={styles.adjuntoChipEditable}>
+                                <span style={{ fontSize: 11 }}>📎 {f.name}</span>
+                                <button type="button" onClick={() => quitarArchivoNuevo(p.id, f.name)} style={styles.adjuntoQuitar}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <button type="button" style={styles.btnAdjuntar}
+                          onClick={() => {
+                            if (!fileRefs.current[p.id]) fileRefs.current[p.id] = document.createElement('input');
+                            const input = fileRefs.current[p.id];
+                            input.type = 'file';
+                            input.multiple = true;
+                            input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+                            input.onchange = (e) => handleArchivosNuevos(p.id, e.target.files);
+                            input.click();
+                          }}>
+                          📎 Adjuntar archivo
+                        </button>
+                      </div>
                     </div>
-                    <button style={{ ...styles.btnConfirmar, opacity: enviando ? 0.7 : 1 }}
-                      disabled={enviando}
+
+                    <button style={{ ...styles.btnConfirmar, opacity: (enviando || subiendoArchivos) ? 0.7 : 1 }}
+                      disabled={enviando || subiendoArchivos}
                       onClick={() => confirmarDespacho(p.id)}>
-                      {enviando ? 'Enviando...' : '✓ Confirmar despacho'}
+                      {subiendoArchivos ? 'Subiendo archivos...' : enviando ? 'Enviando...' : '✓ Confirmar despacho'}
                     </button>
                   </div>
                 )}
@@ -326,6 +424,7 @@ const styles = {
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
   cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
   cardFecha: { fontSize: 11, color: '#9CA3AF' },
@@ -335,6 +434,17 @@ const styles = {
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 12 },
   field: { display: 'flex', flexDirection: 'column', gap: 3 },
   label: { fontSize: 11, color: '#9CA3AF' },
+  adjuntosSection: { marginBottom: 12, padding: '10px 12px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB' },
+  adjuntosTitle: { fontSize: 11, fontWeight: 500, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 },
+  adjuntosGrid: { display: 'flex', flexDirection: 'column', gap: 6 },
+  adjuntoRow: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  adjuntoLink: { fontSize: 12, color: '#3C3489', textDecoration: 'none', flex: 1 },
+  adjuntoMeta: { fontSize: 10, color: '#9CA3AF' },
+  btnToggleVis: { fontSize: 10, padding: '3px 8px', borderRadius: 6, border: '0.5px solid #E5E7EB', cursor: 'pointer', flexShrink: 0 },
+  adjuntosRow: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 },
+  adjuntoChipEditable: { display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB' },
+  adjuntoQuitar: { border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 11, padding: 0 },
+  btnAdjuntar: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
   volBar: { padding: '10px 12px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', marginBottom: 12 },
   volBarLabels: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280', marginBottom: 6 },
   barTrack: { height: 8, borderRadius: 4, background: '#E5E7EB', overflow: 'hidden' },

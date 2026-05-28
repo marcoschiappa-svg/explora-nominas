@@ -4,11 +4,45 @@ import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firesto
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
+async function subirArchivo(file, pedidoId, subidoPor) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const base64 = e.target.result.split(',')[1];
+        const payload = {
+          accion: 'subir_adjunto',
+          nombre: file.name,
+          tipo_mime: file.type || 'application/octet-stream',
+          base64,
+          pedido_id: pedidoId,
+          subido_por: subidoPor,
+        };
+        const response = await fetch(APPS_SCRIPT_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (data.status === 'ok') {
+          resolve(data.data);
+        } else {
+          reject(new Error(data.mensaje || 'Error subiendo archivo'));
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Error leyendo archivo'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
   const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  const [subiendoArchivos, setSubiendoArchivos] = useState(false);
 
   const [form, setForm] = useState({
     tipo: 'Entrega al cliente',
@@ -18,15 +52,19 @@ function Pedidos({ usuario, onVolver }) {
     cliente: '',
     telefono_prefijo: '',
     telefono_numero: '',
-    ov: '',
+    ov_tipo: 'OV',
+    ov_numero: '',
     fecha_entrega: '',
+    banda_horaria: '',
     calle: '',
     numero: '',
     ciudad: '',
     provincia: '',
+    cp: '',
     mapsLink: '',
     obs: '',
     adjuntos: [],
+    archivosNuevos: [],
   });
 
   const fileRef = useRef();
@@ -53,12 +91,18 @@ function Pedidos({ usuario, onVolver }) {
 
   function handleAdjuntos(e) {
     const files = Array.from(e.target.files);
-    const nombres = files.map(f => f.name);
-    setForm(prev => ({ ...prev, adjuntos: [...prev.adjuntos, ...nombres] }));
+    setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] }));
   }
 
-  function quitarAdjunto(nombre) {
-    setForm(prev => ({ ...prev, adjuntos: prev.adjuntos.filter(a => a !== nombre) }));
+  function quitarArchivoNuevo(nombre) {
+    setForm(prev => ({ ...prev, archivosNuevos: prev.archivosNuevos.filter(f => f.name !== nombre) }));
+  }
+
+  function quitarAdjuntoExistente(fileId) {
+    setForm(prev => ({
+      ...prev,
+      adjuntos: prev.adjuntos.map(a => a.file_id === fileId ? { ...a, _eliminado: true } : a)
+    }));
   }
 
   function checkMapsLink(val) {
@@ -70,8 +114,12 @@ function Pedidos({ usuario, onVolver }) {
     window.open('https://maps.google.com?q=' + encodeURIComponent(query), '_blank');
   }
 
-  function validarOV(valor) {
-    return /^(OV|OC)-\d{5}$/.test(valor.trim());
+  function getOV() {
+    return `${form.ov_tipo}-${form.ov_numero}`;
+  }
+
+  function validarOV() {
+    return /^\d{5}$/.test(form.ov_numero.trim());
   }
 
   function validarTelefono() {
@@ -92,8 +140,7 @@ function Pedidos({ usuario, onVolver }) {
 
   function puedeEditar(p) {
     if (p.estado === 'Suspendido' || p.estado === 'Cumplido') return false;
-    const despachos = p.despachos || [];
-    const nominados = despachos.filter(d => d.estado === 'Nominado');
+    const nominados = (p.despachos || []).filter(d => d.estado === 'Nominado');
     if (nominados.length > 0) {
       const fechaCarga = nominados[0].fecha_carga;
       if (fechaCarga) {
@@ -107,6 +154,7 @@ function Pedidos({ usuario, onVolver }) {
 
   function abrirEditar(p) {
     setPedidoEditando(p);
+    const ovParts = (p.ov || 'OV-').split('-');
     setForm({
       tipo: p.tipo || 'Entrega al cliente',
       producto: p.producto || '',
@@ -115,15 +163,19 @@ function Pedidos({ usuario, onVolver }) {
       cliente: p.cliente || '',
       telefono_prefijo: p.telefono_prefijo || '',
       telefono_numero: p.telefono_numero || '',
-      ov: p.ov || '',
+      ov_tipo: ovParts[0] || 'OV',
+      ov_numero: ovParts[1] || '',
       fecha_entrega: p.fecha_entrega || '',
+      banda_horaria: p.banda_horaria || '',
       calle: p.calle || '',
       numero: p.numero || '',
       ciudad: p.ciudad || '',
       provincia: p.provincia || '',
+      cp: p.cp || '',
       mapsLink: p.mapsLink || '',
       obs: p.obs || '',
       adjuntos: p.adjuntos || [],
+      archivosNuevos: [],
     });
     setVista('nuevo');
   }
@@ -131,12 +183,12 @@ function Pedidos({ usuario, onVolver }) {
   async function handleSubmit(e) {
     e.preventDefault();
 
-    if (!form.producto || !form.volumen || !form.cliente || !form.ov || !form.fecha_entrega || !form.calle || !form.ciudad || !form.provincia) {
+    if (!form.producto || !form.volumen || !form.cliente || !form.ov_numero || !form.fecha_entrega || !form.calle || !form.ciudad || !form.provincia) {
       alert('Completá todos los campos obligatorios');
       return;
     }
-    if (!validarOV(form.ov)) {
-      alert('El formato de OV/OC debe ser: OV-XXXXX o OC-XXXXX (ej: OV-12345)');
+    if (!validarOV()) {
+      alert('El número de OV/OC debe tener exactamente 5 dígitos.');
       return;
     }
     if (!validarFecha(form.fecha_entrega)) {
@@ -144,45 +196,55 @@ function Pedidos({ usuario, onVolver }) {
       return;
     }
     if (form.telefono_prefijo && !validarTelefono()) {
-      alert('Teléfono: prefijo 3 dígitos → número 7 dígitos. Prefijo 4 dígitos → número 6 dígitos.');
+      alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.');
       return;
     }
 
     const ahora = new Date().toLocaleString('es-AR');
-    const lugar = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ');
+    const ov = getOV();
+    const lugar = [form.calle, form.numero, form.ciudad, form.provincia, form.cp].filter(Boolean).join(', ');
     const telefono = form.telefono_prefijo && form.telefono_numero
       ? `(${form.telefono_prefijo}) ${form.telefono_numero}` : '';
 
     setEnviando(true);
     try {
+      const id = pedidoEditando ? pedidoEditando.id : genNro();
+
+      // Subir archivos nuevos a Drive
+      let adjuntosFinales = (form.adjuntos || []).filter(a => !a._eliminado);
+      if (form.archivosNuevos.length > 0) {
+        setSubiendoArchivos(true);
+        for (const file of form.archivosNuevos) {
+          try {
+            const resultado = await subirArchivo(file, id, usuario?.nombre || '');
+            adjuntosFinales.push(resultado);
+          } catch (err) {
+            console.error('Error subiendo ' + file.name + ':', err);
+            alert('Error subiendo ' + file.name + '. El resto del pedido se guardará igual.');
+          }
+        }
+        setSubiendoArchivos(false);
+      }
+
       if (pedidoEditando) {
         const despachosAnteriores = pedidoEditando.despachos || [];
         const teniaProgramacion = despachosAnteriores.length > 0;
         const despachosActualizados = despachosAnteriores.map(d => ({ ...d, estado: 'En espera' }));
 
         await updateDoc(doc(db, 'pedidos_portal', pedidoEditando.docId), {
-          tipo: form.tipo,
-          producto: form.producto,
-          volumen: parseFloat(form.volumen),
-          recipiente: form.recipiente,
-          cliente: form.cliente,
-          ov: form.ov,
-          telefono,
+          tipo: form.tipo, producto: form.producto,
+          volumen: parseFloat(form.volumen), recipiente: form.recipiente,
+          cliente: form.cliente, ov, telefono,
           telefono_prefijo: form.telefono_prefijo,
           telefono_numero: form.telefono_numero,
           fecha_entrega: form.fecha_entrega,
-          lugar,
-          calle: form.calle,
-          numero: form.numero,
-          ciudad: form.ciudad,
-          provincia: form.provincia,
-          mapsLink: form.mapsLink || '',
-          obs: form.obs || '',
-          adjuntos: form.adjuntos,
-          estado: 'Pendiente',
-          editado: true,
-          editado_en: ahora,
-          editado_por: usuario?.nombre || '',
+          banda_horaria: form.banda_horaria,
+          lugar, calle: form.calle, numero: form.numero,
+          ciudad: form.ciudad, provincia: form.provincia, cp: form.cp,
+          mapsLink: form.mapsLink || '', obs: form.obs || '',
+          adjuntos: adjuntosFinales,
+          estado: 'Pendiente', editado: true,
+          editado_en: ahora, editado_por: usuario?.nombre || '',
           despachos: despachosActualizados,
         });
 
@@ -193,52 +255,37 @@ function Pedidos({ usuario, onVolver }) {
           editado_en: ahora,
           estado_anterior: pedidoEditando.estado,
           tenia_programacion: teniaProgramacion,
-          tipo: form.tipo,
-          producto: form.producto,
+          tipo: form.tipo, producto: form.producto,
           volumen: parseFloat(form.volumen),
-          cliente: form.cliente,
-          ov: form.ov,
+          cliente: form.cliente, ov,
           fecha_entrega: form.fecha_entrega,
-          lugar,
-          obs: form.obs || '',
+          banda_horaria: form.banda_horaria,
+          lugar, obs: form.obs || '',
           email_transportista: despachosAnteriores[0]?.email_transportista || '',
           transporte: despachosAnteriores[0]?.transporte || '',
         };
         const params = new URLSearchParams({ payload: JSON.stringify(payload) });
         await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-
         alert(`✓ Pedido ${pedidoEditando.id} actualizado.`);
         setPedidoEditando(null);
 
       } else {
-        const id = genNro();
         const pedido = {
-          id,
-          estado: 'Pendiente',
-          editado: false,
+          id, estado: 'Pendiente', editado: false,
           creado_por: usuario?.nombre || 'Usuario',
           creado_por_email: usuario?.email || '',
-          creado_en: ahora,
-          editado_en: null,
-          editado_por: null,
-          tipo: form.tipo,
-          producto: form.producto,
-          volumen: parseFloat(form.volumen),
-          recipiente: form.recipiente,
-          cliente: form.cliente,
-          ov: form.ov,
-          telefono,
+          creado_en: ahora, editado_en: null, editado_por: null,
+          tipo: form.tipo, producto: form.producto,
+          volumen: parseFloat(form.volumen), recipiente: form.recipiente,
+          cliente: form.cliente, ov, telefono,
           telefono_prefijo: form.telefono_prefijo,
           telefono_numero: form.telefono_numero,
           fecha_entrega: form.fecha_entrega,
-          lugar,
-          calle: form.calle,
-          numero: form.numero,
-          ciudad: form.ciudad,
-          provincia: form.provincia,
-          mapsLink: form.mapsLink || '',
-          obs: form.obs || '',
-          adjuntos: form.adjuntos,
+          banda_horaria: form.banda_horaria,
+          lugar, calle: form.calle, numero: form.numero,
+          ciudad: form.ciudad, provincia: form.provincia, cp: form.cp,
+          mapsLink: form.mapsLink || '', obs: form.obs || '',
+          adjuntos: adjuntosFinales,
           despachos: [],
           timestamp: new Date().toISOString(),
         };
@@ -248,16 +295,15 @@ function Pedidos({ usuario, onVolver }) {
         const payload = { accion: 'nuevo_pedido', ...pedido };
         const params = new URLSearchParams({ payload: JSON.stringify(payload) });
         await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-
         alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
       }
 
       setVista('panel');
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
-        cliente: '', telefono_prefijo: '', telefono_numero: '', ov: '',
-        fecha_entrega: '', calle: '', numero: '', ciudad: '', provincia: '',
-        mapsLink: '', obs: '', adjuntos: [],
+        cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '',
+        fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '',
+        cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [],
       });
 
     } catch (err) {
@@ -265,52 +311,43 @@ function Pedidos({ usuario, onVolver }) {
       alert('Error: ' + err.message);
     } finally {
       setEnviando(false);
+      setSubiendoArchivos(false);
     }
   }
 
   async function suspender(p) {
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
-
     const despachosAnteriores = p.despachos || [];
-    const teniaProgramacion = despachosAnteriores.length > 0;
-
     await updateDoc(doc(db, 'pedidos_portal', p.docId), {
       estado: 'Suspendido',
       suspendido_por: usuario?.nombre || '',
       suspendido_en: new Date().toLocaleString('es-AR'),
       motivo_suspension: motivo,
     });
-
     const payload = {
-      accion: 'suspender_pedido',
-      id: p.id,
-      motivo,
+      accion: 'suspender_pedido', id: p.id, motivo,
       suspendido_por: usuario?.nombre || '',
       estado_anterior: p.estado,
-      tenia_programacion: teniaProgramacion,
-      producto: p.producto,
-      volumen: p.volumen,
-      cliente: p.cliente,
-      ov: p.ov,
-      fecha_entrega: p.fecha_entrega,
-      lugar: p.lugar,
+      tenia_programacion: despachosAnteriores.length > 0,
+      producto: p.producto, volumen: p.volumen,
+      cliente: p.cliente, ov: p.ov,
+      fecha_entrega: p.fecha_entrega, lugar: p.lugar,
       email_transportista: despachosAnteriores[0]?.email_transportista || '',
       transporte: despachosAnteriores[0]?.transporte || '',
     };
     const params = new URLSearchParams({ payload: JSON.stringify(payload) });
     await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
 
   const pillColors = {
-    Pendiente:      { bg: '#EEEDFE', color: '#3C3489' },
+    Pendiente: { bg: '#EEEDFE', color: '#3C3489' },
     'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
-    Programado:     { bg: '#E1F5EE', color: '#085041' },
-    Nominado:       { bg: '#E1F5EE', color: '#085041' },
-    Suspendido:     { bg: '#FCEBEB', color: '#791F1F' },
-    Cumplido:       { bg: '#E1F5EE', color: '#085041' },
+    Programado: { bg: '#E1F5EE', color: '#085041' },
+    Nominado: { bg: '#E1F5EE', color: '#085041' },
+    Suspendido: { bg: '#FCEBEB', color: '#791F1F' },
+    Cumplido: { bg: '#E1F5EE', color: '#085041' },
   };
 
   const pillLabel = {
@@ -336,9 +373,7 @@ function Pedidos({ usuario, onVolver }) {
               + Nuevo pedido
             </button>
           </div>
-          {pedidos.length === 0 && (
-            <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>
-          )}
+          {pedidos.length === 0 && <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>}
           {pedidos.map(p => (
             <div key={p.id} style={styles.card}>
               <div style={styles.cardHeader}>
@@ -362,24 +397,21 @@ function Pedidos({ usuario, onVolver }) {
                   <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
                   <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono || '—'}</span></div>
                   <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
+                  {p.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria</span><span>{p.banda_horaria}</span></div>}
                   <div style={{ ...styles.field, gridColumn: '1/-1' }}>
                     <span style={styles.label}>Lugar</span>
-                    <span>
-                      {p.lugar}
-                      {p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}
-                    </span>
+                    <span>{p.lugar}{p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}</span>
                   </div>
                   {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
-                  {p.motivo_suspension && (
-                    <div style={{ ...styles.field, gridColumn: '1/-1' }}>
-                      <span style={styles.label}>Motivo suspensión</span>
-                      <span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span>
-                    </div>
-                  )}
+                  {p.motivo_suspension && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Motivo suspensión</span><span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span></div>}
                 </div>
-                {p.adjuntos?.length > 0 && (
+                {p.adjuntos?.filter(a => !a._eliminado).length > 0 && (
                   <div style={styles.adjuntosRow}>
-                    {p.adjuntos.map(a => <span key={a} style={styles.adjuntoChip}>📎 {a}</span>)}
+                    {p.adjuntos.filter(a => !a._eliminado).map(a => (
+                      <a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoChip}>
+                        📎 {a.nombre}
+                      </a>
+                    ))}
                   </div>
                 )}
                 <div style={styles.origen}>
@@ -388,9 +420,7 @@ function Pedidos({ usuario, onVolver }) {
                 </div>
                 {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                   <div style={styles.cardActions}>
-                    {puedeEditar(p) && (
-                      <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
-                    )}
+                    {puedeEditar(p) && <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>}
                     <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
                   </div>
                 )}
@@ -408,7 +438,7 @@ function Pedidos({ usuario, onVolver }) {
           </div>
           {pedidoEditando && (
             <div style={styles.editandoBanner}>
-              ✏️ Editando <strong>{pedidoEditando.id}</strong> — Estado actual: <strong>{pedidoEditando.estado}</strong>
+              ✏️ Editando <strong>{pedidoEditando.id}</strong> — Estado: <strong>{pedidoEditando.estado}</strong>
             </div>
           )}
           <form onSubmit={handleSubmit} style={styles.form}>
@@ -416,16 +446,10 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
-                <button type="button"
-                  style={{ ...styles.tipoBtn, ...(form.tipo === 'Entrega al cliente' ? styles.tipoBtnActive : {}) }}
-                  onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>
-                  Entrega al cliente
-                </button>
-                <button type="button"
-                  style={{ ...styles.tipoBtn, ...(form.tipo === 'Retiro de proveedor' ? styles.tipoBtnActive : {}) }}
-                  onClick={() => setForm({ ...form, tipo: 'Retiro de proveedor' })}>
-                  Retiro de proveedor
-                </button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo === 'Entrega al cliente' ? styles.tipoBtnActive : {}) }}
+                  onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo === 'Retiro de proveedor' ? styles.tipoBtnActive : {}) }}
+                  onClick={() => setForm({ ...form, tipo: 'Retiro de proveedor' })}>Retiro de proveedor</button>
               </div>
             </div>
 
@@ -436,13 +460,8 @@ function Pedidos({ usuario, onVolver }) {
                   <label style={styles.formLabel}>Producto *</label>
                   <select style={styles.input} value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })}>
                     <option value="">Seleccionar...</option>
-                    <option>Biodiesel</option>
-                    <option>EMAG</option>
-                    <option>Glicerina</option>
-                    <option>Sebo</option>
-                    <option>HFFA Vegetal</option>
-                    <option>Aceite</option>
-                    <option>Otro</option>
+                    <option>Biodiesel</option><option>EMAG</option><option>Glicerina</option>
+                    <option>Sebo</option><option>HFFA Vegetal</option><option>Aceite</option><option>Otro</option>
                   </select>
                 </div>
                 <div style={styles.formField}>
@@ -454,11 +473,9 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Tipo de recipiente</label>
                 <div style={styles.tipoGrid}>
-                  <button type="button"
-                    style={{ ...styles.tipoBtn, ...(form.recipiente === 'Granel' ? styles.tipoBtnActive : {}) }}
+                  <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente === 'Granel' ? styles.tipoBtnActive : {}) }}
                     onClick={() => setForm({ ...form, recipiente: 'Granel' })}>🚛 Granel</button>
-                  <button type="button"
-                    style={{ ...styles.tipoBtn, ...(form.recipiente === 'IBC' ? styles.tipoBtnActive : {}) }}
+                  <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente === 'IBC' ? styles.tipoBtnActive : {}) }}
                     onClick={() => setForm({ ...form, recipiente: 'IBC' })}>📦 IBC</button>
                 </div>
               </div>
@@ -473,28 +490,31 @@ function Pedidos({ usuario, onVolver }) {
                     value={form.cliente} onChange={e => setForm({ ...form, cliente: e.target.value })} />
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC * (ej: OV-12345)</label>
-                  <input style={styles.input} type="text" placeholder="OV-12345"
-                    value={form.ov}
-                    onChange={e => setForm({ ...form, ov: e.target.value.toUpperCase() })} />
-                  {form.ov && !validarOV(form.ov) && (
-                    <span style={styles.fieldError}>Formato: OV-XXXXX o OC-XXXXX</span>
-                  )}
+                  <label style={styles.formLabel}>OV / OC *</label>
+                  <div style={styles.ovRow}>
+                    <select style={{ ...styles.input, width: 80, flexShrink: 0 }}
+                      value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value })}>
+                      <option>OV</option><option>OC</option>
+                    </select>
+                    <span style={styles.ovSep}>-</span>
+                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="12345" maxLength={5}
+                      value={form.ov_numero}
+                      onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g, '') })} />
+                  </div>
+                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>Ingresá exactamente 5 dígitos</span>}
                 </div>
               </div>
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Teléfono de contacto</label>
                 <div style={styles.telRow}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
-                    <input style={styles.input} type="text" placeholder="Prefijo"
-                      maxLength={4}
+                    <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4}
                       value={form.telefono_prefijo}
                       onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g, '') })} />
                     <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <input style={styles.input} type="text" placeholder="Número"
-                      maxLength={7}
+                    <input style={styles.input} type="text" placeholder="Número" maxLength={7}
                       value={form.telefono_numero}
                       onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g, '') })} />
                     <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
@@ -508,14 +528,27 @@ function Pedidos({ usuario, onVolver }) {
 
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Logística</div>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>Fecha de entrega comprometida *</label>
-                <input style={{ ...styles.input, maxWidth: 220 }} type="date"
-                  value={form.fecha_entrega}
-                  min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                  onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+              <div style={styles.grid2}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Fecha de entrega comprometida *</label>
+                  <input style={styles.input} type="date"
+                    value={form.fecha_entrega}
+                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                    onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Banda horaria de entrega</label>
+                  <select style={styles.input} value={form.banda_horaria}
+                    onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
+                    <option value="">Seleccionar...</option>
+                    <option>Mañana (6-12hs)</option>
+                    <option>Tarde (12-18hs)</option>
+                    <option>Noche (18-24hs)</option>
+                    <option>A confirmar</option>
+                  </select>
+                </div>
               </div>
-              <div style={{ ...styles.formField, marginTop: 12 }}>
+              <div style={{ ...styles.formField, marginTop: 4 }}>
                 <label style={styles.formLabel}>Lugar de entrega / origen *</label>
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
@@ -538,49 +571,68 @@ function Pedidos({ usuario, onVolver }) {
                     <input style={styles.input} type="text" placeholder="Provincia"
                       value={form.provincia} onChange={e => setForm({ ...form, provincia: e.target.value })} />
                   </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>CP</label>
+                    <input style={styles.input} type="text" placeholder="Código postal" maxLength={8}
+                      value={form.cp} onChange={e => setForm({ ...form, cp: e.target.value })} />
+                  </div>
                 </div>
                 <div style={styles.mapsRow}>
                   <input style={{ ...styles.input, flex: 1 }} type="text"
                     placeholder="O pegar enlace de Google Maps..."
-                    value={form.mapsLink}
-                    onChange={e => setForm({ ...form, mapsLink: e.target.value })} />
+                    value={form.mapsLink} onChange={e => setForm({ ...form, mapsLink: e.target.value })} />
                   <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
                 </div>
-                {checkMapsLink(form.mapsLink) && (
-                  <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>
-                )}
+                {checkMapsLink(form.mapsLink) && <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>}
               </div>
             </div>
 
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Observaciones y adjuntos</div>
-              <div style={styles.obsRow}>
-                <textarea style={styles.textarea}
-                  placeholder="Información adicional, requerimientos especiales..."
-                  value={form.obs} onChange={e => setForm({ ...form, obs: e.target.value })} />
-                <button type="button" style={styles.btnAdjuntar} onClick={() => fileRef.current.click()}>
-                  📎<span style={{ fontSize: 11 }}>Adjuntar</span>
-                </button>
-                <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  style={{ display: 'none' }} onChange={handleAdjuntos} />
-              </div>
-              {form.adjuntos.length > 0 && (
-                <div style={styles.adjuntosRow}>
-                  {form.adjuntos.map(a => (
-                    <span key={a} style={styles.adjuntoChip}>
-                      📎 {a}
-                      <button type="button" onClick={() => quitarAdjunto(a)} style={styles.adjuntoQuitar}>✕</button>
-                    </span>
-                  ))}
+              <textarea style={{ ...styles.textarea, width: '100%', marginBottom: 10 }}
+                placeholder="Información adicional, requerimientos especiales..."
+                value={form.obs} onChange={e => setForm({ ...form, obs: e.target.value })} />
+
+              {form.adjuntos?.filter(a => !a._eliminado).length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={styles.adjuntosLabel}>Adjuntos existentes:</div>
+                  <div style={styles.adjuntosRow}>
+                    {form.adjuntos.filter(a => !a._eliminado).map(a => (
+                      <div key={a.file_id} style={styles.adjuntoChipEditable}>
+                        <a href={a.link} target="_blank" rel="noreferrer" style={{ color: '#3C3489', textDecoration: 'none', fontSize: 11 }}>📎 {a.nombre}</a>
+                        <button type="button" onClick={() => quitarAdjuntoExistente(a.file_id)} style={styles.adjuntoQuitar}>✕</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {form.archivosNuevos.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={styles.adjuntosLabel}>Archivos a subir:</div>
+                  <div style={styles.adjuntosRow}>
+                    {form.archivosNuevos.map(f => (
+                      <div key={f.name} style={styles.adjuntoChipEditable}>
+                        <span style={{ fontSize: 11 }}>📎 {f.name}</span>
+                        <button type="button" onClick={() => quitarArchivoNuevo(f.name)} style={styles.adjuntoQuitar}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button type="button" style={styles.btnAdjuntar} onClick={() => fileRef.current.click()}>
+                📎 Adjuntar archivo
+              </button>
+              <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                style={{ display: 'none' }} onChange={handleAdjuntos} />
             </div>
 
             <div style={styles.formActions}>
               <button type="submit"
-                style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }}
-                disabled={enviando}>
-                {enviando ? 'Enviando...' : pedidoEditando ? 'Guardar cambios' : 'Confirmar pedido'}
+                style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: (enviando || subiendoArchivos) ? 0.7 : 1 }}
+                disabled={enviando || subiendoArchivos}>
+                {subiendoArchivos ? 'Subiendo archivos...' : enviando ? 'Enviando...' : pedidoEditando ? 'Guardar cambios' : 'Confirmar pedido'}
               </button>
               <button type="button" style={styles.btnCancelar}
                 onClick={() => { setVista('panel'); setPedidoEditando(null); }}>
@@ -616,8 +668,10 @@ const styles = {
   field: { display: 'flex', flexDirection: 'column', gap: 3 },
   label: { fontSize: 11, color: '#9CA3AF' },
   mapsLink: { color: '#C8102E', textDecoration: 'none', marginLeft: 6, fontSize: 12 },
-  adjuntosRow: { display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0' },
-  adjuntoChip: { display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB', fontSize: 11, color: '#6B7280' },
+  adjuntosRow: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 },
+  adjuntosLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
+  adjuntoChip: { display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB', fontSize: 11, color: '#3C3489', textDecoration: 'none' },
+  adjuntoChipEditable: { display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB' },
   adjuntoQuitar: { border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 11, padding: 0 },
   origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 10 },
   cardActions: { display: 'flex', gap: 8 },
@@ -631,18 +685,19 @@ const styles = {
   formField: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: { fontSize: 13, color: '#6B7280', fontWeight: 500 },
   input: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
-  textarea: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', flex: 1, minHeight: 80, resize: 'vertical' },
+  textarea: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', minHeight: 80, resize: 'vertical' },
   tipoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   tipoBtn: { padding: '10px 8px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   tipoBtnActive: { border: '1.5px solid #C8102E', background: '#FDECEA', color: '#C8102E' },
+  ovRow: { display: 'flex', alignItems: 'center', gap: 6 },
+  ovSep: { fontSize: 16, color: '#6B7280', fontWeight: 500 },
   telRow: { display: 'flex', gap: 10, alignItems: 'flex-start' },
   telHint: { fontSize: 10, color: '#9CA3AF', marginTop: 2 },
   fieldError: { fontSize: 11, color: '#C8102E', marginTop: 2 },
   mapsRow: { display: 'flex', gap: 8, marginTop: 8 },
   btnMaps: { display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 },
   mapsPreview: { fontSize: 12, color: '#085041', background: '#E1F5EE', border: '0.5px solid #5DCAA5', padding: '6px 10px', borderRadius: 8, marginTop: 6 },
-  obsRow: { display: 'flex', gap: 8, alignItems: 'flex-start' },
-  btnAdjuntar: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 20, cursor: 'pointer', flexShrink: 0, minWidth: 64, minHeight: 80 },
+  btnAdjuntar: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   formActions: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: '1.5rem' },
   btnCancelar: { padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, cursor: 'pointer' },
 };
