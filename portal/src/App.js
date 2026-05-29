@@ -1,70 +1,75 @@
 import React, { useState, useEffect } from 'react';
-import { auth, loginConGoogle, logout } from './firebase';
+import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './firebase';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Pedidos from './pages/Pedidos';
 import Coordinador from './pages/Coordinador';
 import Transportista from './pages/Transportista';
+import Admin from './pages/Admin';
 
 function App() {
-  const [pantalla, setPantalla] = useState('login');
   const [usuario, setUsuario] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [modulo, setModulo] = useState('home');
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUsuario({
-          nombre: user.displayName,
-          email: user.email,
-          foto: user.photoURL,
-          uid: user.uid,
-        });
-        setPantalla('home');
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const snap = await getDoc(doc(db, 'usuarios_portal', firebaseUser.uid));
+        if (snap.exists() && snap.data().estado === 'activo') {
+          setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, ...snap.data() });
+        } else {
+          await auth.signOut();
+          setUsuario(null);
+        }
       } else {
         setUsuario(null);
-        setPantalla('login');
       }
       setCargando(false);
     });
     return () => unsub();
   }, []);
 
-  async function handleLogin() {
-    try {
-      await loginConGoogle();
-    } catch (err) {
-      console.error('Error login:', err);
-      alert('Error al iniciar sesión. Intentá de nuevo.');
-    }
+  function handleLogin(perfil) {
+    setUsuario(perfil);
+    setModulo('home');
   }
 
   async function handleLogout() {
-    await logout();
-  }
-
-  function handleModulo(id) {
-    setPantalla(id);
+    await auth.signOut();
+    setUsuario(null);
+    setModulo('home');
   }
 
   if (cargando) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#9CA3AF', fontSize: 14 }}>
-        Cargando...
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F5F5F5' }}>
+        <img src="/logo.png" alt="Explora" style={{ height: 40, opacity: 0.4 }} />
       </div>
     );
   }
 
-  if (pantalla === 'pedidos')       return <Pedidos      usuario={usuario} onVolver={() => setPantalla('home')} />;
-  if (pantalla === 'coordinador')   return <Coordinador  usuario={usuario} onVolver={() => setPantalla('home')} />;
-  if (pantalla === 'transportista') return <Transportista usuario={usuario} onVolver={() => setPantalla('home')} />;
+  if (!usuario) return <Login onLogin={handleLogin} />;
 
-  if (pantalla === 'home') {
-    return <Home usuario={usuario} onModulo={handleModulo} onLogout={handleLogout} />;
+  const rol = usuario.rol;
+
+  if (modulo === 'pedidos' && (rol === 'admin' || rol === 'comercial' || rol === 'coordinador')) {
+    return <Pedidos usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'coordinador' && (rol === 'admin' || rol === 'coordinador')) {
+    return <Coordinador usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'transportista' && (rol === 'admin' || rol === 'transportista')) {
+    return <Transportista usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'admin' && rol === 'admin') {
+    return <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
   }
 
-  return <Login onLogin={handleLogin} />;
+  return <Home usuario={usuario} onModulo={setModulo} onLogout={handleLogout} />;
 }
 
 export default App;
