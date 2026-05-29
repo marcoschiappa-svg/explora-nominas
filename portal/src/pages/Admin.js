@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 function Admin({ usuario, onVolver }) {
   const [usuarios, setUsuarios] = useState([]);
@@ -19,7 +17,7 @@ function Admin({ usuario, onVolver }) {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'usuarios_portal'), (snap) => {
       const data = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
-      data.sort((a, b) => a.nombre?.localeCompare(b.nombre));
+      data.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
       setUsuarios(data);
     });
     return () => unsub();
@@ -60,11 +58,8 @@ function Admin({ usuario, onVolver }) {
         });
         alert('✓ Usuario actualizado.');
       } else {
-        // Crear usuario en Firebase Auth
         const tempPassword = Math.random().toString(36).slice(-10) + 'X1!';
         const cred = await createUserWithEmailAndPassword(auth, form.email, tempPassword);
-
-        // Guardar perfil en Firestore
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
           uid: cred.user.uid,
           nombre: form.nombre,
@@ -77,10 +72,8 @@ function Admin({ usuario, onVolver }) {
           creado_por: usuario?.nombre || 'Admin',
           creado_en: new Date().toLocaleString('es-AR'),
         });
-
-        // Enviar email de recuperación para que setee su contraseña
         await sendPasswordResetEmail(auth, form.email);
-        alert(`✓ Usuario creado. Se envió un email a ${form.email} para que configure su contraseña.`);
+        alert(`✓ Usuario creado. Se envió email a ${form.email} para configurar su contraseña.`);
       }
       setVista('lista');
     } catch (err) {
@@ -146,7 +139,7 @@ function Admin({ usuario, onVolver }) {
           {usuarios.map(u => (
             <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
               <div style={styles.cardHeader}>
-                <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg, color: rolColors[u.rol]?.color }}>
+                <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg || '#F3F4F6', color: rolColors[u.rol]?.color || '#6B7280' }}>
                   {u.rol}
                 </span>
                 <span style={styles.cardNombre}>{u.nombre}</span>
@@ -226,9 +219,9 @@ function Admin({ usuario, onVolver }) {
               </div>
             </div>
 
-            {(form.rol === 'transportista' || form.rol === 'admin') && (
+            {(form.rol === 'transportista') && (
               <div style={styles.seccion}>
-                <div style={styles.seccionTitulo}>Datos empresa {form.rol === 'transportista' ? '(transportista)' : '(opcional)'}</div>
+                <div style={styles.seccionTitulo}>Datos empresa transportista</div>
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Nombre empresa</label>
