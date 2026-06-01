@@ -50,8 +50,6 @@ function Home({ usuario, onModulo, onLogout }) {
 
   return (
     <div style={styles.wrap}>
-
-      {/* Modal cambiar contraseña */}
       {modalPass && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalBox}>
@@ -128,3 +126,35 @@ function Home({ usuario, onModulo, onLogout }) {
 }
 
 const styles = {
+  wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
+  modalBox: { background: '#fff', borderRadius: 16, padding: '2rem 1.5rem', maxWidth: 380, width: '100%' },
+  modalTitulo: { fontSize: 16, fontWeight: 500, color: '#111827', marginBottom: 16, textAlign: 'center' },
+  form: { display: 'flex', flexDirection: 'column', gap: 12 },
+  formField: { display: 'flex', flexDirection: 'column', gap: 5 },
+  formLabel: { fontSize: 13, color: '#6B7280', fontWeight: 500 },
+  input: { fontSize: 14, padding: '9px 11px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  passwordRow: { display: 'flex', gap: 8, alignItems: 'center' },
+  btnVerPass: { padding: '9px 11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 14, flexShrink: 0 },
+  btnPrimary: { padding: '11px', borderRadius: 10, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  btnCancelar: { padding: '11px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer' },
+  error: { padding: '8px 12px', borderRadius: 8, background: '#FCEBEB', border: '0.5px solid #F87171', fontSize: 12, color: '#791F1F' },
+  success: { padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041', textAlign: 'center' },
+  topbar: { display: 'flex', alignItems: 'center', gap: 12, paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
+  logo: { height: 32, objectFit: 'contain' },
+  userArea: { flex: 1 },
+  userName: { fontSize: 13, fontWeight: 500, color: '#111827' },
+  userRol: { fontSize: 11, color: '#9CA3AF', textTransform: 'capitalize' },
+  btnCambiarPass: { padding: '6px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', fontSize: 14, cursor: 'pointer' },
+  btnLogout: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
+  bienvenida: { fontSize: 20, color: '#111827', marginBottom: '1.5rem' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 },
+  card: { display: 'flex', flexDirection: 'column', gap: 8, padding: '1.25rem', borderRadius: 12, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer', textAlign: 'left' },
+  cardIcon: { width: 44, height: 44, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 },
+  cardTitulo: { fontSize: 15, fontWeight: 500, color: '#111827' },
+  cardDesc: { fontSize: 12, color: '#9CA3AF', flex: 1 },
+  cardArrow: { fontSize: 16, fontWeight: 500 },
+  empresaTag: { marginTop: '1.5rem', padding: '8px 14px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', fontSize: 13, color: '#6B7280', textAlign: 'center' },
+};
+
+export default Home;
