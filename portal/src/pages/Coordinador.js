@@ -272,13 +272,25 @@ function Coordinador({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
-      <div style={styles.metrics}>
+<div style={styles.metrics}>
         {[['Pendientes', '#534AB7', 'Pendiente'], ['Prog. parcial', '#BA7517', 'prog-parcial'], ['Programados', '#0F6E56', 'Programado'], ['Suspendidos', '#A32D2D', 'Suspendido']].map(([label, color, estado]) => (
           <div key={estado} style={styles.metric}>
             <div style={styles.metricLabel}>{label}</div>
             <div style={{ ...styles.metricValue, color }}>{pedidos.filter(p => p.estado === estado).length}</div>
           </div>
         ))}
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Aceptados</div>
+          <div style={{ ...styles.metricValue, color: '#085041' }}>
+            {pedidos.reduce((acc, p) => acc + (p.despachos || []).filter(d => d.estado === 'Aceptado').length, 0)}
+          </div>
+        </div>
+        <div style={styles.metric}>
+          <div style={styles.metricLabel}>Nominados</div>
+          <div style={{ ...styles.metricValue, color: '#3C3489' }}>
+            {pedidos.reduce((acc, p) => acc + (p.despachos || []).filter(d => d.estado === 'Nominado').length, 0)}
+          </div>
+        </div>
       </div>
 
       <div style={styles.filtros}>
