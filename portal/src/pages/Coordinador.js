@@ -34,6 +34,7 @@ async function subirArchivo(file, pedidoId, subidoPor) {
 
 function Coordinador({ usuario, onVolver }) {
   const [pedidos, setPedidos] = useState([]);
+  const [transportistas, setTransportistas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState('todos');
   const [expandido, setExpandido] = useState(null);
@@ -54,6 +55,45 @@ function Coordinador({ usuario, onVolver }) {
     });
     return () => unsub();
   }, []);
+
+  // Carga la tabla maestra de transportistas
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'transportistas_portal'), (snap) => {
+      const data = snap.docs
+        .map(d => ({ docId: d.id, ...d.data() }))
+        .filter(t => t.estado === 'activo')
+        .sort((a, b) => a.empresa?.localeCompare(b.empresa));
+      setTransportistas(data);
+    });
+    return () => unsub();
+  }, []);
+
+  // Cuando el coordinador elige un transportista del selector,
+  // autocompleta empresa y emails en el estado del despacho
+  function seleccionarTransportista(pedidoId, docId) {
+    const t = transportistas.find(x => x.docId === docId);
+    if (!t) {
+      setNuevoDespacho(prev => ({
+        ...prev,
+        [pedidoId]: { ...prev[pedidoId], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] },
+      }));
+      return;
+    }
+    const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
+    const telefonos = [t.telefono_1, t.telefono_2, t.telefono_3].filter(Boolean);
+    setNuevoDespacho(prev => ({
+      ...prev,
+      [pedidoId]: {
+        ...prev[pedidoId],
+        transporte_id: t.docId,
+        transporte: t.empresa,
+        email_transportista: emails[0] || '',
+        emails_extra: emails.slice(1),
+        telefonos,
+        cuit_transporte: t.cuit_empresa || '',
+      },
+    }));
+  }
 
   const pillColors = {
     'Pendiente':    { bg: '#EEEDFE', color: '#3C3489' },
@@ -116,7 +156,6 @@ function Coordinador({ usuario, onVolver }) {
 
     setEnviando(true);
     try {
-      // Subir adjuntos nuevos del coordinador
       let adjuntosActualizados = [...(p.adjuntos || [])];
       const archivosCoord = archivosNuevos[pedidoId] || [];
       if (archivosCoord.length > 0) {
@@ -140,7 +179,11 @@ function Coordinador({ usuario, onVolver }) {
         fecha_carga: nd.fecha_carga,
         horario_carga: nd.horario_carga || '',
         transporte: nd.transporte,
+        transporte_id: nd.transporte_id || '',
         email_transportista: nd.email_transportista || '',
+        emails_extra: nd.emails_extra || [],
+        telefonos: nd.telefonos || [],
+        cuit_transporte: nd.cuit_transporte || '',
         estado: 'Programado',
         programado_por: usuario?.nombre || 'Coordinador',
         programado_en: now,
@@ -156,6 +199,9 @@ function Coordinador({ usuario, onVolver }) {
         adjuntos: adjuntosActualizados,
       });
 
+      // Construir lista de emails destinatarios (principal + extras)
+      const todosEmails = [nd.email_transportista, ...(nd.emails_extra || [])].filter(Boolean).join(',');
+
       const payload = {
         accion: 'programar_despacho',
         pedido_id: p.id,
@@ -163,7 +209,7 @@ function Coordinador({ usuario, onVolver }) {
         fecha_carga: nd.fecha_carga,
         horario_carga: nd.horario_carga || '',
         transporte: nd.transporte,
-        email_transportista: nd.email_transportista || '',
+        email_transportista: todosEmails,
         tipo: p.tipo,
         producto: p.producto,
         volumen: Number(nd.volumen),
@@ -269,7 +315,6 @@ function Coordinador({ usuario, onVolver }) {
                 )}
               </div>
 
-              {/* Adjuntos del pedido */}
               {(p.adjuntos || []).length > 0 && (
                 <div style={styles.adjuntosSection}>
                   <div style={styles.adjuntosTitle}>Adjuntos del pedido</div>
@@ -317,6 +362,13 @@ function Coordinador({ usuario, onVolver }) {
                       <div style={styles.field}><span style={styles.label}>Fecha de carga</span><span>{d.fecha_carga}</span></div>
                       {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario sugerido</span><span>{d.horario_carga}</span></div>}
                       <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Transportista</span><span>{d.transporte}</span></div>
+                      {d.email_transportista && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Email</span><span>{d.email_transportista}</span></div>}
+                      {(d.telefonos || []).length > 0 && (
+                        <div style={{ ...styles.field, gridColumn: '1/-1' }}>
+                          <span style={styles.label}>Teléfonos</span>
+                          <span>{d.telefonos.join(' · ')}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -325,12 +377,14 @@ function Coordinador({ usuario, onVolver }) {
                   <div style={styles.nuevoDespacho}>
                     <div style={styles.despachosTitle}>Nuevo despacho</div>
                     <div style={styles.despachoGrid}>
+
                       <div style={styles.formField}>
                         <label style={styles.formLabel}>Volumen (tn) — saldo: {saldo(p)} tn</label>
                         <input style={styles.input} type="number" placeholder={saldo(p)}
                           value={nuevoDespacho[p.id]?.volumen || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], volumen: e.target.value } })} />
                       </div>
+
                       <div style={styles.formField}>
                         <label style={styles.formLabel}>Fecha de carga (≤ {p.fecha_entrega})</label>
                         <input style={styles.input} type="date"
@@ -338,6 +392,7 @@ function Coordinador({ usuario, onVolver }) {
                           value={nuevoDespacho[p.id]?.fecha_carga || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], fecha_carga: e.target.value } })} />
                       </div>
+
                       {p.tipo === 'Entrega al cliente' && (
                         <div style={styles.formField}>
                           <label style={styles.formLabel}>Horario de carga sugerido</label>
@@ -346,18 +401,47 @@ function Coordinador({ usuario, onVolver }) {
                             onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], horario_carga: e.target.value } })} />
                         </div>
                       )}
+
+                      {/* SELECTOR DE TRANSPORTISTA */}
                       <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
-                        <label style={styles.formLabel}>Empresa transportista</label>
-                        <input style={styles.input} type="text" placeholder="Nombre del transportista"
-                          value={nuevoDespacho[p.id]?.transporte || ''}
-                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], transporte: e.target.value } })} />
+                        <label style={styles.formLabel}>Empresa transportista *</label>
+                        <select style={styles.input}
+                          value={nuevoDespacho[p.id]?.transporte_id || ''}
+                          onChange={e => seleccionarTransportista(p.id, e.target.value)}>
+                          <option value="">Seleccionar transportista...</option>
+                          {transportistas.map(t => (
+                            <option key={t.docId} value={t.docId}>{t.empresa}</option>
+                          ))}
+                        </select>
                       </div>
-                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
-                        <label style={styles.formLabel}>Email del transportista</label>
-                        <input style={styles.input} type="email" placeholder="transportista@empresa.com"
-                          value={nuevoDespacho[p.id]?.email_transportista || ''}
-                          onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], email_transportista: e.target.value } })} />
-                      </div>
+
+                      {/* DATOS AUTOCOMPLETADOS */}
+                      {nuevoDespacho[p.id]?.transporte && (
+                        <div style={{ ...styles.transportistaPreview, gridColumn: '1/-1' }}>
+                          <div style={styles.previewRow}>
+                            <span style={styles.previewLabel}>Email 1</span>
+                            <span>{nuevoDespacho[p.id]?.email_transportista || '—'}</span>
+                          </div>
+                          {(nuevoDespacho[p.id]?.emails_extra || []).map((em, i) => (
+                            <div key={i} style={styles.previewRow}>
+                              <span style={styles.previewLabel}>Email {i + 2}</span>
+                              <span>{em}</span>
+                            </div>
+                          ))}
+                          {(nuevoDespacho[p.id]?.telefonos || []).map((tel, i) => (
+                            <div key={i} style={styles.previewRow}>
+                              <span style={styles.previewLabel}>Teléfono {i + 1}</span>
+                              <span>{tel}</span>
+                            </div>
+                          ))}
+                          {nuevoDespacho[p.id]?.cuit_transporte && (
+                            <div style={styles.previewRow}>
+                              <span style={styles.previewLabel}>CUIT</span>
+                              <span>{nuevoDespacho[p.id]?.cuit_transporte}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Adjuntos del coordinador */}
                       <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
@@ -460,6 +544,13 @@ const styles = {
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   formLabel: { fontSize: 11, color: '#6B7280' },
   input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  transportistaPreview: {
+    padding: '10px 12px', borderRadius: 8,
+    background: '#F0FDF4', border: '0.5px solid #5DCAA5',
+    display: 'flex', flexDirection: 'column', gap: 6,
+  },
+  previewRow: { display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' },
+  previewLabel: { fontSize: 11, color: '#6B7280', minWidth: 70 },
   btnConfirmar: { marginTop: 10, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12 },
   btnSuspender: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
