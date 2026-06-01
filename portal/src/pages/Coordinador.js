@@ -413,6 +413,20 @@ function Coordinador({ usuario, onVolver }) {
                           <span>{d.telefonos.join(' · ')}</span>
                         </div>
                       )}
+                      {d.estado === 'Nominado' && (
+                        <>
+                          <div style={{ ...styles.field, gridColumn: '1/-1', marginTop: 8, paddingTop: 8, borderTop: '0.5px solid #E5E7EB' }}>
+                            <span style={{ ...styles.label, color: '#3C3489', fontWeight: 500 }}>NOMINACIÓN</span>
+                          </div>
+                          {d.chofer && <div style={styles.field}><span style={styles.label}>Chofer</span><span>{d.chofer}</span></div>}
+                          {d.dni_chofer && <div style={styles.field}><span style={styles.label}>DNI</span><span>{d.dni_chofer}</span></div>}
+                          {d.cuit_chofer && <div style={styles.field}><span style={styles.label}>CUIT chofer</span><span>{d.cuit_chofer}</span></div>}
+                          {d.patente_tractor && <div style={styles.field}><span style={styles.label}>Patente tractor</span><span>{d.patente_tractor}</span></div>}
+                          {d.patente_semi && <div style={styles.field}><span style={styles.label}>Patente semi</span><span>{d.patente_semi}</span></div>}
+                          {d.tel_unidad && <div style={styles.field}><span style={styles.label}>Tel. unidad</span><span>{d.tel_unidad}</span></div>}
+                          {d.cuit_transporte && <div style={styles.field}><span style={styles.label}>CUIT empresa</span><span>{d.cuit_transporte}</span></div>}
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
