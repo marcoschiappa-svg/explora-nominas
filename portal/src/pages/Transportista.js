@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
@@ -11,6 +11,7 @@ function Transportista({ usuario, onVolver }) {
   const [nomData, setNomData] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [filtro, setFiltro] = useState('todos');
+  const [modalNominacion, setModalNominacion] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
@@ -26,6 +27,7 @@ function Transportista({ usuario, onVolver }) {
               uid: pedido.id + '-D' + (i + 1),
               despachoNro: i + 1,
               estado: despacho.estado,
+              nominacion_pendiente: despacho.nominacion_pendiente || false,
               producto: pedido.producto,
               volumen: despacho.volumen,
               volumenTotal: pedido.volumen,
@@ -40,6 +42,7 @@ function Transportista({ usuario, onVolver }) {
               obs: pedido.obs || '',
               tipo: pedido.tipo,
               transporte: despacho.transporte,
+              email_transportista: despacho.email_transportista || '',
               programado_por: despacho.programado_por,
               programado_en: despacho.programado_en,
               patente_tractor: despacho.patente_tractor || '',
@@ -74,19 +77,59 @@ function Transportista({ usuario, onVolver }) {
   };
 
   async function aceptar(d) {
-    const { getDoc } = await import('firebase/firestore');
-    const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
-    const pedido = pedidoSnap.data();
-    const nuevosDespachos = [...pedido.despachos];
-    nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Aceptado' };
-    await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos });
-    alert('✓ Despacho aceptado. Completá los datos de la unidad para nominar.');
+    setEnviando(true);
+    try {
+      const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
+      const pedido = pedidoSnap.data();
+      const nuevosDespachos = [...pedido.despachos];
+      nuevosDespachos[d.despachoIdx] = {
+        ...nuevosDespachos[d.despachoIdx],
+        estado: 'Aceptado',
+        aceptado_en: new Date().toLocaleString('es-AR'),
+        nominacion_pendiente: true,
+      };
+      await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos });
+
+      const confirmadoEn = new Date().toLocaleString('es-AR');
+      const payload = {
+        accion: 'confirmar_despacho',
+        pedido_id: d.pedidoId,
+        despacho_id: 'D' + d.despachoNro,
+        transporte: d.transporte,
+        email_transportista: d.email_transportista,
+        producto: d.producto,
+        volumen: d.volumen,
+        cliente: d.cliente,
+        ov: d.ov,
+        fecha_carga: d.fecha_carga,
+        horario_carga: d.horario_carga,
+        lugar: d.lugar,
+        estado_nominacion: 'pendiente',
+        confirmado_en: confirmadoEn,
+      };
+      const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+      await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+
+      setModalNominacion(d);
+    } catch (err) {
+      console.error(err);
+      alert('Error al aceptar el despacho: ' + err.message);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function responderModalNominacion(elegioAhora) {
+    const d = modalNominacion;
+    setModalNominacion(null);
+    if (elegioAhora) {
+      setExpandido(d.uid);
+    }
   }
 
   async function rechazar(d) {
     const motivo = prompt('Motivo del rechazo (requerido):');
     if (!motivo) return;
-    const { getDoc } = await import('firebase/firestore');
     const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
     const pedido = pedidoSnap.data();
     const nuevosDespachos = [...pedido.despachos];
@@ -103,13 +146,13 @@ function Transportista({ usuario, onVolver }) {
     }
     setEnviando(true);
     try {
-      const { getDoc } = await import('firebase/firestore');
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
       const pedido = pedidoSnap.data();
       const nuevosDespachos = [...pedido.despachos];
       nuevosDespachos[d.despachoIdx] = {
         ...nuevosDespachos[d.despachoIdx],
         estado: 'Nominado',
+        nominacion_pendiente: false,
         patente_tractor: nd.patente_tractor.toUpperCase(),
         patente_semi: (nd.patente_semi || '').toUpperCase(),
         chofer: nd.chofer,
@@ -152,6 +195,35 @@ function Transportista({ usuario, onVolver }) {
 
   return (
     <div style={styles.wrap}>
+
+      {modalNominacion && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalIcon}>🚛</div>
+            <div style={styles.modalTitulo}>Despacho aceptado</div>
+            <div style={styles.modalSubtitulo}>
+              {modalNominacion.producto} · {modalNominacion.volumen} tn · Carga: {modalNominacion.fecha_carga}
+              {modalNominacion.horario_carga ? ' · ' + modalNominacion.horario_carga : ''}
+            </div>
+            <div style={styles.modalPregunta}>
+              ¿Querés nominar la unidad y el chofer ahora?
+            </div>
+            <div style={styles.modalHint}>
+              Podés hacerlo más tarde, pero recordá completarlo antes de la hora de carga.
+              Si no nominás con al menos 12 hs de anticipación recibirás un recordatorio automático.
+            </div>
+            <div style={styles.modalActions}>
+              <button style={styles.btnModalSi} onClick={() => responderModalNominacion(true)}>
+                Sí, nominar ahora
+              </button>
+              <button style={styles.btnModalNo} onClick={() => responderModalNominacion(false)}>
+                Lo hago más tarde
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
           <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
@@ -192,6 +264,9 @@ function Transportista({ usuario, onVolver }) {
             <span style={{ ...styles.pill, background: pillColors[d.estado]?.bg, color: pillColors[d.estado]?.color }}>
               {pillLabel[d.estado] || d.estado}
             </span>
+            {d.estado === 'Aceptado' && d.nominacion_pendiente && (
+              <span style={styles.pillPendiente}>Nominación pendiente</span>
+            )}
             <span style={styles.cardNro}>{d.pedidoId} · D{d.despachoNro}</span>
             <span style={styles.cardResumen}>{d.producto} {d.volumen} tn · {d.cliente}</span>
             <div style={styles.cardMeta}>
@@ -206,6 +281,13 @@ function Transportista({ usuario, onVolver }) {
               {d.estado === 'En espera' && (
                 <div style={styles.esperaBanner}>
                   ⏸ Este despacho está en espera por cambios en el pedido. Aguardá la reprogramación del coordinador.
+                </div>
+              )}
+
+              {d.estado === 'Aceptado' && d.nominacion_pendiente && (
+                <div style={styles.nominacionPendienteBanner}>
+                  ⏳ Tenés la nominación pendiente. Completá los datos de la unidad antes de la hora de carga.
+                  {d.horario_carga ? ' Horario sugerido: ' + d.horario_carga + '.' : ''}
                 </div>
               )}
 
@@ -320,7 +402,12 @@ function Transportista({ usuario, onVolver }) {
               <div style={styles.cardActions}>
                 {d.estado === 'Programado' && (
                   <>
-                    <button style={styles.btnAceptar} onClick={() => aceptar(d)}>✓ Aceptar despacho</button>
+                    <button
+                      style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }}
+                      disabled={enviando}
+                      onClick={() => aceptar(d)}>
+                      {enviando ? 'Procesando...' : '✓ Aceptar despacho'}
+                    </button>
                     <button style={styles.btnRechazar} onClick={() => rechazar(d)}>✕ Rechazar</button>
                   </>
                 )}
@@ -341,6 +428,32 @@ function Transportista({ usuario, onVolver }) {
 
 const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
+  modalOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem',
+  },
+  modalBox: {
+    background: '#fff', borderRadius: 16, padding: '2rem 1.5rem',
+    maxWidth: 400, width: '100%', textAlign: 'center',
+  },
+  modalIcon: { fontSize: 36, marginBottom: 12 },
+  modalTitulo: { fontSize: 18, fontWeight: 500, color: '#111827', marginBottom: 6 },
+  modalSubtitulo: { fontSize: 13, color: '#3C3489', fontWeight: 500, marginBottom: 16 },
+  modalPregunta: { fontSize: 15, color: '#111827', fontWeight: 500, marginBottom: 8 },
+  modalHint: {
+    fontSize: 12, color: '#6B7280', marginBottom: 24,
+    padding: '8px 12px', background: '#F9FAFB', borderRadius: 8,
+    border: '0.5px solid #E5E7EB', textAlign: 'left', lineHeight: 1.5,
+  },
+  modalActions: { display: 'flex', flexDirection: 'column', gap: 10 },
+  btnModalSi: {
+    padding: '11px', borderRadius: 8, border: 'none',
+    background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+  },
+  btnModalNo: {
+    padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB',
+    background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer',
+  },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
   portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
@@ -357,6 +470,7 @@ const styles = {
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  pillPendiente: { fontSize: 10, fontWeight: 500, padding: '3px 10px', borderRadius: 20, background: '#FAEEDA', color: '#633806', flexShrink: 0 },
   cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
   cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
   cardMeta: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 },
@@ -365,6 +479,7 @@ const styles = {
   chevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0 },
   cardBody: { padding: '12px 14px' },
   esperaBanner: { padding: '8px 12px', borderRadius: 8, background: '#F3F4F6', border: '0.5px solid #E5E7EB', fontSize: 12, color: '#6B7280', marginBottom: 10 },
+  nominacionPendienteBanner: { padding: '8px 12px', borderRadius: 8, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 12, color: '#633806', marginBottom: 10 },
   origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 10 },
   contextBanner: { fontSize: 12, color: '#633806', padding: '8px 10px', background: '#FAEEDA', border: '0.5px solid #EF9F27', borderRadius: 8, marginBottom: 10 },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 },
