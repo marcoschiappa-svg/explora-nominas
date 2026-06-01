@@ -6,19 +6,29 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 function Login({ onLogin }) {
-  const [modo, setModo] = useState('selector'); // selector | google | email
+  const [modo, setModo] = useState('selector');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [resetEnviado, setResetEnviado] = useState(false);
 
-  async function obtenerPerfil(uid) {
+  // Busca perfil por UID primero, luego por email como fallback
+  async function obtenerPerfil(uid, emailBusqueda) {
     const snap = await getDoc(doc(db, 'usuarios_portal', uid));
     if (snap.exists()) return snap.data();
+
+    // Fallback: buscar por email (útil cuando el usuario fue creado con email/pass
+    // y ahora entra con Google, o viceversa)
+    if (emailBusqueda) {
+      const q = query(collection(db, 'usuarios_portal'), where('email', '==', emailBusqueda));
+      const resultado = await getDocs(q);
+      if (!resultado.empty) return resultado.docs[0].data();
+    }
     return null;
   }
 
@@ -28,7 +38,7 @@ function Login({ onLogin }) {
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const perfil = await obtenerPerfil(result.user.uid);
+      const perfil = await obtenerPerfil(result.user.uid, result.user.email);
       if (!perfil) {
         setError('Tu cuenta no está habilitada en el portal. Contactá al administrador.');
         await auth.signOut();
@@ -55,7 +65,7 @@ function Login({ onLogin }) {
     setError('');
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      const perfil = await obtenerPerfil(result.user.uid);
+      const perfil = await obtenerPerfil(result.user.uid, result.user.email);
       if (!perfil) {
         setError('Tu cuenta no está habilitada en el portal. Contactá al administrador.');
         await auth.signOut();
@@ -77,7 +87,6 @@ function Login({ onLogin }) {
       } else {
         setError('Error al iniciar sesión. Intentá de nuevo.');
       }
-      console.error(err);
     } finally {
       setCargando(false);
     }
@@ -143,7 +152,7 @@ function Login({ onLogin }) {
 
         {modo === 'email' && (
           <div style={styles.selectorWrap}>
-            <p style={styles.modoDesc}>Para transportistas y accesos externos</p>
+            <p style={styles.modoDesc}>Ingresá con tu email y contraseña</p>
             {error && <div style={styles.error}>{error}</div>}
             {resetEnviado && <div style={styles.success}>✓ Email de recuperación enviado. Revisá tu bandeja.</div>}
             <form onSubmit={loginEmail} style={styles.form}>
@@ -154,10 +163,23 @@ function Login({ onLogin }) {
               </div>
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Contraseña</label>
-                <input style={styles.input} type="password" placeholder="••••••••"
-                  value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+                <div style={styles.passwordRow}>
+                  <input
+                    style={{ ...styles.input, flex: 1 }}
+                    type={verPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    autoComplete="current-password" />
+                  <button type="button" style={styles.btnVerPass}
+                    onClick={() => setVerPassword(!verPassword)}>
+                    {verPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
               </div>
-              <button type="submit" style={{ ...styles.btnPrimary, opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
+              <button type="submit"
+                style={{ ...styles.btnPrimary, opacity: cargando ? 0.7 : 1 }}
+                disabled={cargando}>
                 {cargando ? 'Ingresando...' : 'Ingresar'}
               </button>
             </form>
@@ -192,6 +214,8 @@ const styles = {
   formField: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: { fontSize: 13, color: '#6B7280', fontWeight: 500 },
   input: { fontSize: 14, padding: '9px 11px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  passwordRow: { display: 'flex', gap: 8, alignItems: 'center' },
+  btnVerPass: { padding: '9px 11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer', fontSize: 14, flexShrink: 0 },
   btnPrimary: { padding: '11px', borderRadius: 10, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
   btnReset: { background: 'none', border: 'none', color: '#6B7280', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' },
   btnVolver: { background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer', padding: 0, textAlign: 'center' },
