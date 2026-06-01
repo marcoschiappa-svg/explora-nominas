@@ -1,28 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 
 function Admin({ usuario, onVolver }) {
+  const [seccion, setSeccion] = useState('usuarios');
+
+  // ── USUARIOS ──
   const [usuarios, setUsuarios] = useState([]);
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
-
   const [form, setForm] = useState({
     nombre: '', email: '', rol: 'comercial',
     empresa: '', cuit_empresa: '', telefono: '', estado: 'activo',
   });
 
+  // ── TRANSPORTISTAS ──
+  const [transportistas, setTransportistas] = useState([]);
+  const [vistaT, setVistaT] = useState('lista');
+  const [editandoT, setEditandoT] = useState(null);
+  const [enviandoT, setEnviandoT] = useState(false);
+  const [formT, setFormT] = useState({
+    empresa: '', cuit_empresa: '', email_contacto: '',
+    telefono_1: '', telefono_2: '', telefono_3: '',
+    nombre_contacto: '', obs: '', estado: 'activo',
+  });
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'usuarios_portal'), (snap) => {
       const data = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
-      data.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+      data.sort((a, b) => a.nombre?.localeCompare(b.nombre));
       setUsuarios(data);
     });
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'transportistas_portal'), (snap) => {
+      const data = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
+      data.sort((a, b) => a.empresa?.localeCompare(b.empresa));
+      setTransportistas(data);
+    });
+    return () => unsub();
+  }, []);
+
+  // ── USUARIOS: funciones ──
   function abrirNuevo() {
     setEditando(null);
     setForm({ nombre: '', email: '', rol: 'comercial', empresa: '', cuit_empresa: '', telefono: '', estado: 'activo' });
@@ -49,31 +72,23 @@ function Admin({ usuario, onVolver }) {
     try {
       if (editando) {
         await updateDoc(doc(db, 'usuarios_portal', editando.docId), {
-          nombre: form.nombre,
-          rol: form.rol,
-          empresa: form.empresa || '',
-          cuit_empresa: form.cuit_empresa || '',
-          telefono: form.telefono || '',
-          estado: form.estado,
+          nombre: form.nombre, rol: form.rol,
+          empresa: form.empresa || '', cuit_empresa: form.cuit_empresa || '',
+          telefono: form.telefono || '', estado: form.estado,
         });
         alert('✓ Usuario actualizado.');
       } else {
         const tempPassword = Math.random().toString(36).slice(-10) + 'X1!';
         const cred = await createUserWithEmailAndPassword(auth, form.email, tempPassword);
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
-          uid: cred.user.uid,
-          nombre: form.nombre,
-          email: form.email,
-          rol: form.rol,
-          empresa: form.empresa || '',
-          cuit_empresa: form.cuit_empresa || '',
-          telefono: form.telefono || '',
-          estado: 'activo',
-          creado_por: usuario?.nombre || 'Admin',
+          uid: cred.user.uid, nombre: form.nombre, email: form.email,
+          rol: form.rol, empresa: form.empresa || '',
+          cuit_empresa: form.cuit_empresa || '', telefono: form.telefono || '',
+          estado: 'activo', creado_por: usuario?.nombre || 'Admin',
           creado_en: new Date().toLocaleString('es-AR'),
         });
         await sendPasswordResetEmail(auth, form.email);
-        alert(`✓ Usuario creado. Se envió email a ${form.email} para configurar su contraseña.`);
+        alert(`✓ Usuario creado. Se envió email a ${form.email} para configurar contraseña.`);
       }
       setVista('lista');
     } catch (err) {
@@ -82,7 +97,6 @@ function Admin({ usuario, onVolver }) {
       } else {
         alert('Error: ' + err.message);
       }
-      console.error(err);
     } finally {
       setEnviando(false);
     }
@@ -97,6 +111,66 @@ function Admin({ usuario, onVolver }) {
     if (!window.confirm(`¿Enviar email de recuperación a ${u.email}?`)) return;
     await sendPasswordResetEmail(auth, u.email);
     alert('✓ Email de recuperación enviado.');
+  }
+
+  // ── TRANSPORTISTAS: funciones ──
+  function abrirNuevoT() {
+    setEditandoT(null);
+    setFormT({ empresa: '', cuit_empresa: '', email_contacto: '', telefono_1: '', telefono_2: '', telefono_3: '', nombre_contacto: '', obs: '', estado: 'activo' });
+    setVistaT('form');
+  }
+
+  function abrirEditarT(t) {
+    setEditandoT(t);
+    setFormT({
+      empresa: t.empresa || '', cuit_empresa: t.cuit_empresa || '',
+      email_contacto: t.email_contacto || '',
+      telefono_1: t.telefono_1 || '', telefono_2: t.telefono_2 || '',
+      telefono_3: t.telefono_3 || '',
+      nombre_contacto: t.nombre_contacto || '',
+      obs: t.obs || '', estado: t.estado || 'activo',
+    });
+    setVistaT('form');
+  }
+
+  async function guardarT(e) {
+    e.preventDefault();
+    if (!formT.empresa || !formT.email_contacto || !formT.telefono_1) {
+      alert('Completá empresa, email y al menos un teléfono.');
+      return;
+    }
+    setEnviandoT(true);
+    try {
+      const datos = {
+        empresa: formT.empresa, cuit_empresa: formT.cuit_empresa || '',
+        email_contacto: formT.email_contacto,
+        telefono_1: formT.telefono_1, telefono_2: formT.telefono_2 || '',
+        telefono_3: formT.telefono_3 || '',
+        nombre_contacto: formT.nombre_contacto || '',
+        obs: formT.obs || '', estado: formT.estado,
+      };
+      if (editandoT) {
+        await updateDoc(doc(db, 'transportistas_portal', editandoT.docId), datos);
+        alert('✓ Transportista actualizado.');
+      } else {
+        await addDoc(collection(db, 'transportistas_portal'), {
+          ...datos,
+          creado_por: usuario?.nombre || 'Admin',
+          creado_en: new Date().toLocaleString('es-AR'),
+        });
+        alert('✓ Transportista registrado.');
+      }
+      setVistaT('lista');
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setEnviandoT(false);
+    }
+  }
+
+  async function toggleEstadoT(t) {
+    const nuevoEstado = t.estado === 'activo' ? 'inactivo' : 'activo';
+    await updateDoc(doc(db, 'transportistas_portal', t.docId), { estado: nuevoEstado });
   }
 
   const rolColors = {
@@ -116,7 +190,24 @@ function Admin({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
-      {vista === 'lista' && (
+      {/* Tabs de sección */}
+      <div style={styles.tabs}>
+        <button
+          style={{ ...styles.tab, ...(seccion === 'usuarios' ? styles.tabActive : {}) }}
+          onClick={() => { setSeccion('usuarios'); setVista('lista'); }}>
+          👤 Usuarios del portal
+        </button>
+        <button
+          style={{ ...styles.tab, ...(seccion === 'transportistas' ? styles.tabActive : {}) }}
+          onClick={() => { setSeccion('transportistas'); setVistaT('lista'); }}>
+          🚛 Transportistas
+        </button>
+      </div>
+
+      {/* ══════════════════════════════════════════
+          SECCIÓN USUARIOS
+      ══════════════════════════════════════════ */}
+      {seccion === 'usuarios' && vista === 'lista' && (
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Usuarios del portal</h2>
@@ -135,11 +226,10 @@ function Admin({ usuario, onVolver }) {
           </div>
 
           {usuarios.length === 0 && <div style={styles.empty}>No hay usuarios aún.</div>}
-
           {usuarios.map(u => (
             <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
               <div style={styles.cardHeader}>
-                <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg || '#F3F4F6', color: rolColors[u.rol]?.color || '#6B7280' }}>
+                <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg, color: rolColors[u.rol]?.color }}>
                   {u.rol}
                 </span>
                 <span style={styles.cardNombre}>{u.nombre}</span>
@@ -167,13 +257,12 @@ function Admin({ usuario, onVolver }) {
         </div>
       )}
 
-      {vista === 'form' && (
+      {seccion === 'usuarios' && vista === 'form' && (
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>{editando ? 'Editar usuario' : 'Nuevo usuario'}</h2>
             <button style={styles.btnVolver} onClick={() => setVista('lista')}>← Volver</button>
           </div>
-
           <form onSubmit={guardar} style={styles.form}>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos personales</div>
@@ -219,9 +308,9 @@ function Admin({ usuario, onVolver }) {
               </div>
             </div>
 
-            {(form.rol === 'transportista') && (
+            {(form.rol === 'transportista' || form.rol === 'admin') && (
               <div style={styles.seccion}>
-                <div style={styles.seccionTitulo}>Datos empresa transportista</div>
+                <div style={styles.seccionTitulo}>Datos empresa</div>
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Nombre empresa</label>
@@ -248,6 +337,156 @@ function Admin({ usuario, onVolver }) {
           </form>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════
+          SECCIÓN TRANSPORTISTAS
+      ══════════════════════════════════════════ */}
+      {seccion === 'transportistas' && vistaT === 'lista' && (
+        <div>
+          <div style={styles.panelHeader}>
+            <h2 style={styles.titulo}>Transportistas habilitados</h2>
+            <button style={styles.btnPrimary} onClick={abrirNuevoT}>+ Nuevo transportista</button>
+          </div>
+
+          <div style={styles.metrics}>
+            <div style={styles.metric}>
+              <div style={styles.metricLabel}>Total</div>
+              <div style={{ ...styles.metricValue, color: '#111827' }}>{transportistas.length}</div>
+            </div>
+            <div style={styles.metric}>
+              <div style={styles.metricLabel}>Activos</div>
+              <div style={{ ...styles.metricValue, color: '#0F6E56' }}>{transportistas.filter(t => t.estado === 'activo').length}</div>
+            </div>
+            <div style={styles.metric}>
+              <div style={styles.metricLabel}>Inactivos</div>
+              <div style={{ ...styles.metricValue, color: '#A32D2D' }}>{transportistas.filter(t => t.estado === 'inactivo').length}</div>
+            </div>
+          </div>
+
+          {transportistas.length === 0 && <div style={styles.empty}>No hay transportistas registrados aún.</div>}
+          {transportistas.map(t => (
+            <div key={t.docId} style={{ ...styles.card, opacity: t.estado === 'inactivo' ? 0.6 : 1 }}>
+              <div style={styles.cardHeader}>
+                <span style={{ ...styles.pill, background: t.estado === 'activo' ? '#E1F5EE' : '#F3F4F6', color: t.estado === 'activo' ? '#085041' : '#6B7280' }}>
+                  {t.estado}
+                </span>
+                <span style={styles.cardNombre}>{t.empresa}</span>
+                {t.cuit_empresa && <span style={styles.cardEmail}>CUIT: {t.cuit_empresa}</span>}
+              </div>
+              <div style={styles.cardBody}>
+                <div style={styles.detailGrid}>
+                  {t.nombre_contacto && <div style={styles.field}><span style={styles.label}>Contacto</span><span>{t.nombre_contacto}</span></div>}
+                  {t.email_contacto && <div style={styles.field}><span style={styles.label}>Email</span><span>{t.email_contacto}</span></div>}
+                  {t.telefono_1 && <div style={styles.field}><span style={styles.label}>Teléfono 1</span><span>{t.telefono_1}</span></div>}
+                  {t.telefono_2 && <div style={styles.field}><span style={styles.label}>Teléfono 2</span><span>{t.telefono_2}</span></div>}
+                  {t.telefono_3 && <div style={styles.field}><span style={styles.label}>Teléfono 3</span><span>{t.telefono_3}</span></div>}
+                  {t.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{t.obs}</span></div>}
+                  <div style={styles.field}><span style={styles.label}>Registrado por</span><span>{t.creado_por} · {t.creado_en}</span></div>
+                </div>
+                <div style={styles.cardActions}>
+                  <button style={styles.btnEditar} onClick={() => abrirEditarT(t)}>✏️ Editar</button>
+                  <button style={{ ...styles.btnToggle, color: t.estado === 'activo' ? '#A32D2D' : '#0F6E56' }}
+                    onClick={() => toggleEstadoT(t)}>
+                    {t.estado === 'activo' ? '⏸ Desactivar' : '▶ Activar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {seccion === 'transportistas' && vistaT === 'form' && (
+        <div>
+          <div style={styles.panelHeader}>
+            <h2 style={styles.titulo}>{editandoT ? 'Editar transportista' : 'Nuevo transportista'}</h2>
+            <button style={styles.btnVolver} onClick={() => setVistaT('lista')}>← Volver</button>
+          </div>
+          <form onSubmit={guardarT} style={styles.form}>
+
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Datos de la empresa</div>
+              <div style={styles.grid2}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Razón social *</label>
+                  <input style={styles.input} type="text" placeholder="Nombre de la empresa"
+                    value={formT.empresa} onChange={e => setFormT({ ...formT, empresa: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>CUIT empresa</label>
+                  <input style={styles.input} type="text" placeholder="20-00000000-0"
+                    value={formT.cuit_empresa} onChange={e => setFormT({ ...formT, cuit_empresa: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Contacto</div>
+              <div style={styles.grid2}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Nombre del contacto</label>
+                  <input style={styles.input} type="text" placeholder="Apellido, Nombre"
+                    value={formT.nombre_contacto} onChange={e => setFormT({ ...formT, nombre_contacto: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Email de contacto *</label>
+                  <input style={styles.input} type="email" placeholder="contacto@empresa.com"
+                    value={formT.email_contacto} onChange={e => setFormT({ ...formT, email_contacto: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Teléfonos / WhatsApp</div>
+              <div style={styles.grid2}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Teléfono 1 *</label>
+                  <input style={styles.input} type="text" placeholder="Ej: 3476123456"
+                    value={formT.telefono_1} onChange={e => setFormT({ ...formT, telefono_1: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Teléfono 2</label>
+                  <input style={styles.input} type="text" placeholder="Ej: 3476654321"
+                    value={formT.telefono_2} onChange={e => setFormT({ ...formT, telefono_2: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Teléfono 3</label>
+                  <input style={styles.input} type="text" placeholder="Ej: 3476987654"
+                    value={formT.telefono_3} onChange={e => setFormT({ ...formT, telefono_3: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Adicional</div>
+              <div style={styles.grid2}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Estado</label>
+                  <select style={styles.input} value={formT.estado} onChange={e => setFormT({ ...formT, estado: e.target.value })}>
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ ...styles.formField, marginTop: 12 }}>
+                <label style={styles.formLabel}>Observaciones</label>
+                <textarea style={{ ...styles.input, minHeight: 70, resize: 'vertical' }}
+                  placeholder="Notas internas, condiciones especiales..."
+                  value={formT.obs} onChange={e => setFormT({ ...formT, obs: e.target.value })} />
+              </div>
+            </div>
+
+            <div style={styles.formActions}>
+              <button type="submit"
+                style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviandoT ? 0.7 : 1 }}
+                disabled={enviandoT}>
+                {enviandoT ? 'Guardando...' : editandoT ? 'Guardar cambios' : 'Registrar transportista'}
+              </button>
+              <button type="button" style={styles.btnCancelar} onClick={() => setVistaT('lista')}>Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -258,6 +497,9 @@ const styles = {
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
   portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
+  tabs: { display: 'flex', gap: 8, marginBottom: '1.5rem', borderBottom: '0.5px solid #E5E7EB', paddingBottom: '1rem' },
+  tab: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
+  tabActive: { background: '#FDECEA', borderColor: '#C8102E', color: '#C8102E', fontWeight: 500 },
   panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' },
   titulo: { fontSize: 18, fontWeight: 500, color: '#111827' },
   btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
