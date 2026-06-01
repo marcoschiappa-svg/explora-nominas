@@ -88,7 +88,7 @@ function Transportista({ usuario, onVolver }) {
         aceptado_en: new Date().toLocaleString('es-AR'),
         nominacion_pendiente: true,
       };
-      await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos });
+await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Aceptado' });
 
       const confirmadoEn = new Date().toLocaleString('es-AR');
       const payload = {
