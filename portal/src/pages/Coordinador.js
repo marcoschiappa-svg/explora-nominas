@@ -56,7 +56,6 @@ function Coordinador({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // Carga la tabla maestra de transportistas
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'transportistas_portal'), (snap) => {
       const data = snap.docs
@@ -68,8 +67,6 @@ function Coordinador({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // Cuando el coordinador elige un transportista del selector,
-  // autocompleta empresa y emails en el estado del despacho
   function seleccionarTransportista(pedidoId, docId) {
     const t = transportistas.find(x => x.docId === docId);
     if (!t) {
@@ -95,6 +92,20 @@ function Coordinador({ usuario, onVolver }) {
     }));
   }
 
+  // Detecta si un pedido tiene algún despacho con nominación pendiente
+  function tieneNominacionPendiente(p) {
+    return (p.despachos || []).some(d => d.estado === 'Aceptado' && d.nominacion_pendiente);
+  }
+
+  // Próxima fecha de carga entre los despachos activos
+  function proximaCarga(p) {
+    const fechas = (p.despachos || [])
+      .filter(d => d.fecha_carga && d.estado !== 'En espera')
+      .map(d => d.fecha_carga)
+      .sort();
+    return fechas[0] || null;
+  }
+
   const pillColors = {
     'Pendiente':    { bg: '#EEEDFE', color: '#3C3489' },
     'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
@@ -106,6 +117,15 @@ function Coordinador({ usuario, onVolver }) {
   const pillLabel = {
     'Pendiente': 'Pendiente', 'prog-parcial': 'Prog. parcial',
     'Programado': 'Programado', 'Nominado': 'Nominado', 'Suspendido': 'Suspendido',
+  };
+
+  // Colores para estados de despacho individual
+  const despachoColors = {
+    'Programado': { bg: '#FAEEDA', color: '#633806' },
+    'Aceptado':   { bg: '#E1F5EE', color: '#085041' },
+    'Nominado':   { bg: '#EEEDFE', color: '#3C3489' },
+    'En espera':  { bg: '#F3F4F6', color: '#6B7280' },
+    'Rechazado':  { bg: '#FCEBEB', color: '#791F1F' },
   };
 
   function volAsignado(p) {
@@ -199,7 +219,6 @@ function Coordinador({ usuario, onVolver }) {
         adjuntos: adjuntosActualizados,
       });
 
-      // Construir lista de emails destinatarios (principal + extras)
       const todosEmails = [nd.email_transportista, ...(nd.emails_extra || [])].filter(Boolean).join(',');
 
       const payload = {
@@ -282,8 +301,20 @@ function Coordinador({ usuario, onVolver }) {
               {pillLabel[p.estado] || p.estado}
             </span>
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
+
+            {/* Badge nominación pendiente — visible sin abrir la card */}
+            {tieneNominacionPendiente(p) && (
+              <span style={styles.badgeNomPendiente}>⏳ Nom. pendiente</span>
+            )}
+
             <span style={styles.cardNro}>{p.id}</span>
             <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
+
+            {/* Próxima fecha de carga */}
+            {proximaCarga(p) && (
+              <span style={styles.cardFechaCarga}>📦 {proximaCarga(p)}</span>
+            )}
+
             <span style={styles.cardFecha}>Creado {p.creado_en}</span>
             <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
           </div>
@@ -351,10 +382,23 @@ function Coordinador({ usuario, onVolver }) {
                 <div style={styles.despachosTitle}>Despachos</div>
 
                 {(p.despachos || []).map((d, i) => (
-                  <div key={i} style={styles.despachoItem}>
+                  <div key={i} style={{
+                    ...styles.despachoItem,
+                    borderColor: d.estado === 'Aceptado' && d.nominacion_pendiente ? '#EF9F27' : '#E5E7EB',
+                  }}>
                     <div style={styles.despachoHeader}>
                       <span style={styles.despachoNro}>Despacho {i + 1}</span>
-                      <span style={{ ...styles.pill, background: d.estado === 'En espera' ? '#F3F4F6' : '#E1F5EE', color: d.estado === 'En espera' ? '#6B7280' : '#085041', fontSize: 10 }}>{d.estado}</span>
+                      <span style={{
+                        ...styles.pill,
+                        background: despachoColors[d.estado]?.bg || '#F3F4F6',
+                        color: despachoColors[d.estado]?.color || '#6B7280',
+                        fontSize: 10,
+                      }}>
+                        {d.estado}
+                      </span>
+                      {d.estado === 'Aceptado' && d.nominacion_pendiente && (
+                        <span style={styles.badgeNomPendiente}>⏳ Nom. pendiente</span>
+                      )}
                       <span style={styles.despachoPor}>por {d.programado_por} · {d.programado_en}</span>
                     </div>
                     <div style={styles.despachoGrid}>
@@ -377,14 +421,12 @@ function Coordinador({ usuario, onVolver }) {
                   <div style={styles.nuevoDespacho}>
                     <div style={styles.despachosTitle}>Nuevo despacho</div>
                     <div style={styles.despachoGrid}>
-
                       <div style={styles.formField}>
                         <label style={styles.formLabel}>Volumen (tn) — saldo: {saldo(p)} tn</label>
                         <input style={styles.input} type="number" placeholder={saldo(p)}
                           value={nuevoDespacho[p.id]?.volumen || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], volumen: e.target.value } })} />
                       </div>
-
                       <div style={styles.formField}>
                         <label style={styles.formLabel}>Fecha de carga (≤ {p.fecha_entrega})</label>
                         <input style={styles.input} type="date"
@@ -392,7 +434,6 @@ function Coordinador({ usuario, onVolver }) {
                           value={nuevoDespacho[p.id]?.fecha_carga || ''}
                           onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], fecha_carga: e.target.value } })} />
                       </div>
-
                       {p.tipo === 'Entrega al cliente' && (
                         <div style={styles.formField}>
                           <label style={styles.formLabel}>Horario de carga sugerido</label>
@@ -401,8 +442,6 @@ function Coordinador({ usuario, onVolver }) {
                             onChange={e => setNuevoDespacho({ ...nuevoDespacho, [p.id]: { ...nuevoDespacho[p.id], horario_carga: e.target.value } })} />
                         </div>
                       )}
-
-                      {/* SELECTOR DE TRANSPORTISTA */}
                       <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
                         <label style={styles.formLabel}>Empresa transportista *</label>
                         <select style={styles.input}
@@ -414,8 +453,6 @@ function Coordinador({ usuario, onVolver }) {
                           ))}
                         </select>
                       </div>
-
-                      {/* DATOS AUTOCOMPLETADOS */}
                       {nuevoDespacho[p.id]?.transporte && (
                         <div style={{ ...styles.transportistaPreview, gridColumn: '1/-1' }}>
                           <div style={styles.previewRow}>
@@ -442,8 +479,6 @@ function Coordinador({ usuario, onVolver }) {
                           )}
                         </div>
                       )}
-
-                      {/* Adjuntos del coordinador */}
                       <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
                         <label style={styles.formLabel}>Adjuntos para el transportista</label>
                         {(archivosNuevos[p.id] || []).length > 0 && (
@@ -470,7 +505,6 @@ function Coordinador({ usuario, onVolver }) {
                         </button>
                       </div>
                     </div>
-
                     <button style={{ ...styles.btnConfirmar, opacity: (enviando || subiendoArchivos) ? 0.7 : 1 }}
                       disabled={enviando || subiendoArchivos}
                       onClick={() => confirmarDespacho(p.id)}>
@@ -509,8 +543,10 @@ const styles = {
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
   badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
+  badgeNomPendiente: { fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 20, background: '#FAEEDA', color: '#633806', border: '0.5px solid #EF9F27', flexShrink: 0 },
   cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
   cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
+  cardFechaCarga: { fontSize: 11, color: '#085041', background: '#E1F5EE', padding: '2px 8px', borderRadius: 20, flexShrink: 0 },
   cardFecha: { fontSize: 11, color: '#9CA3AF' },
   chevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0 },
   cardBody: { padding: '12px 14px' },
@@ -544,11 +580,7 @@ const styles = {
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   formLabel: { fontSize: 11, color: '#6B7280' },
   input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
-  transportistaPreview: {
-    padding: '10px 12px', borderRadius: 8,
-    background: '#F0FDF4', border: '0.5px solid #5DCAA5',
-    display: 'flex', flexDirection: 'column', gap: 6,
-  },
+  transportistaPreview: { padding: '10px 12px', borderRadius: 8, background: '#F0FDF4', border: '0.5px solid #5DCAA5', display: 'flex', flexDirection: 'column', gap: 6 },
   previewRow: { display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' },
   previewLabel: { fontSize: 11, color: '#6B7280', minWidth: 70 },
   btnConfirmar: { marginTop: 10, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
