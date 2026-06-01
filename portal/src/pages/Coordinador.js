@@ -92,12 +92,10 @@ function Coordinador({ usuario, onVolver }) {
     }));
   }
 
-  // Detecta si un pedido tiene algún despacho con nominación pendiente
   function tieneNominacionPendiente(p) {
     return (p.despachos || []).some(d => d.estado === 'Aceptado' && d.nominacion_pendiente);
   }
 
-  // Próxima fecha de carga entre los despachos activos
   function proximaCarga(p) {
     const fechas = (p.despachos || [])
       .filter(d => d.fecha_carga && d.estado !== 'En espera')
@@ -110,16 +108,17 @@ function Coordinador({ usuario, onVolver }) {
     'Pendiente':    { bg: '#EEEDFE', color: '#3C3489' },
     'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
     'Programado':   { bg: '#E1F5EE', color: '#085041' },
+    'Aceptado':     { bg: '#D1FAE5', color: '#065F46' },
     'Nominado':     { bg: '#EEEDFE', color: '#3C3489' },
     'Suspendido':   { bg: '#FCEBEB', color: '#791F1F' },
   };
 
   const pillLabel = {
     'Pendiente': 'Pendiente', 'prog-parcial': 'Prog. parcial',
-    'Programado': 'Programado', 'Nominado': 'Nominado', 'Suspendido': 'Suspendido',
+    'Programado': 'Programado', 'Aceptado': 'Aceptado',
+    'Nominado': 'Nominado', 'Suspendido': 'Suspendido',
   };
 
-  // Colores para estados de despacho individual
   const despachoColors = {
     'Programado': { bg: '#FAEEDA', color: '#633806' },
     'Aceptado':   { bg: '#E1F5EE', color: '#085041' },
@@ -272,29 +271,24 @@ function Coordinador({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
-<div style={styles.metrics}>
-        {[['Pendientes', '#534AB7', 'Pendiente'], ['Prog. parcial', '#BA7517', 'prog-parcial'], ['Programados', '#0F6E56', 'Programado'], ['Suspendidos', '#A32D2D', 'Suspendido']].map(([label, color, estado]) => (
+      <div style={styles.metrics}>
+        {[
+          ['Pendientes',    '#534AB7', 'Pendiente'],
+          ['Prog. parcial', '#BA7517', 'prog-parcial'],
+          ['Programados',   '#0F6E56', 'Programado'],
+          ['Aceptados',     '#065F46', 'Aceptado'],
+          ['Nominados',     '#3C3489', 'Nominado'],
+          ['Suspendidos',   '#A32D2D', 'Suspendido'],
+        ].map(([label, color, estado]) => (
           <div key={estado} style={styles.metric}>
             <div style={styles.metricLabel}>{label}</div>
             <div style={{ ...styles.metricValue, color }}>{pedidos.filter(p => p.estado === estado).length}</div>
           </div>
         ))}
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Aceptados</div>
-          <div style={{ ...styles.metricValue, color: '#085041' }}>
-            {pedidos.reduce((acc, p) => acc + (p.despachos || []).filter(d => d.estado === 'Aceptado').length, 0)}
-          </div>
-        </div>
-        <div style={styles.metric}>
-          <div style={styles.metricLabel}>Nominados</div>
-          <div style={{ ...styles.metricValue, color: '#3C3489' }}>
-            {pedidos.reduce((acc, p) => acc + (p.despachos || []).filter(d => d.estado === 'Nominado').length, 0)}
-          </div>
-        </div>
       </div>
 
       <div style={styles.filtros}>
-        {['todos', 'Pendiente', 'prog-parcial', 'Programado', 'Suspendido'].map(f => (
+        {['todos', 'Pendiente', 'prog-parcial', 'Programado', 'Aceptado', 'Nominado', 'Suspendido'].map(f => (
           <button key={f}
             style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }}
             onClick={() => setFiltro(f)}>
@@ -313,20 +307,14 @@ function Coordinador({ usuario, onVolver }) {
               {pillLabel[p.estado] || p.estado}
             </span>
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
-
-            {/* Badge nominación pendiente — visible sin abrir la card */}
             {tieneNominacionPendiente(p) && (
               <span style={styles.badgeNomPendiente}>⏳ Nom. pendiente</span>
             )}
-
             <span style={styles.cardNro}>{p.id}</span>
             <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
-
-            {/* Próxima fecha de carga */}
             {proximaCarga(p) && (
               <span style={styles.cardFechaCarga}>📦 {proximaCarga(p)}</span>
             )}
-
             <span style={styles.cardFecha}>Creado {p.creado_en}</span>
             <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
           </div>
@@ -543,7 +531,7 @@ const styles = {
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
   portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
-  metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: '1.5rem' },
+  metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10, marginBottom: '1.5rem' },
   metric: { background: '#F9FAFB', borderRadius: 8, padding: '12px 14px' },
   metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
   metricValue: { fontSize: 20, fontWeight: 500 },
