@@ -22,9 +22,11 @@ function Admin({ usuario, onVolver }) {
   const [editandoT, setEditandoT] = useState(null);
   const [enviandoT, setEnviandoT] = useState(false);
   const [formT, setFormT] = useState({
-    empresa: '', cuit_empresa: '', email_contacto: '',
+    empresa: '', cuit_empresa: '',
+    nombre_contacto: '',
+    email_1: '', email_2: '', email_3: '',
     telefono_1: '', telefono_2: '', telefono_3: '',
-    nombre_contacto: '', obs: '', estado: 'activo',
+    obs: '', estado: 'activo',
   });
 
   useEffect(() => {
@@ -116,7 +118,12 @@ function Admin({ usuario, onVolver }) {
   // ── TRANSPORTISTAS: funciones ──
   function abrirNuevoT() {
     setEditandoT(null);
-    setFormT({ empresa: '', cuit_empresa: '', email_contacto: '', telefono_1: '', telefono_2: '', telefono_3: '', nombre_contacto: '', obs: '', estado: 'activo' });
+    setFormT({
+      empresa: '', cuit_empresa: '', nombre_contacto: '',
+      email_1: '', email_2: '', email_3: '',
+      telefono_1: '', telefono_2: '', telefono_3: '',
+      obs: '', estado: 'activo',
+    });
     setVistaT('form');
   }
 
@@ -124,10 +131,9 @@ function Admin({ usuario, onVolver }) {
     setEditandoT(t);
     setFormT({
       empresa: t.empresa || '', cuit_empresa: t.cuit_empresa || '',
-      email_contacto: t.email_contacto || '',
-      telefono_1: t.telefono_1 || '', telefono_2: t.telefono_2 || '',
-      telefono_3: t.telefono_3 || '',
       nombre_contacto: t.nombre_contacto || '',
+      email_1: t.email_1 || '', email_2: t.email_2 || '', email_3: t.email_3 || '',
+      telefono_1: t.telefono_1 || '', telefono_2: t.telefono_2 || '', telefono_3: t.telefono_3 || '',
       obs: t.obs || '', estado: t.estado || 'activo',
     });
     setVistaT('form');
@@ -135,18 +141,17 @@ function Admin({ usuario, onVolver }) {
 
   async function guardarT(e) {
     e.preventDefault();
-    if (!formT.empresa || !formT.email_contacto || !formT.telefono_1) {
-      alert('Completá empresa, email y al menos un teléfono.');
+    if (!formT.empresa || !formT.email_1 || !formT.telefono_1) {
+      alert('Completá razón social, al menos un email y un teléfono.');
       return;
     }
     setEnviandoT(true);
     try {
       const datos = {
         empresa: formT.empresa, cuit_empresa: formT.cuit_empresa || '',
-        email_contacto: formT.email_contacto,
-        telefono_1: formT.telefono_1, telefono_2: formT.telefono_2 || '',
-        telefono_3: formT.telefono_3 || '',
         nombre_contacto: formT.nombre_contacto || '',
+        email_1: formT.email_1, email_2: formT.email_2 || '', email_3: formT.email_3 || '',
+        telefono_1: formT.telefono_1, telefono_2: formT.telefono_2 || '', telefono_3: formT.telefono_3 || '',
         obs: formT.obs || '', estado: formT.estado,
       };
       if (editandoT) {
@@ -190,7 +195,6 @@ function Admin({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
-      {/* Tabs de sección */}
       <div style={styles.tabs}>
         <button
           style={{ ...styles.tab, ...(seccion === 'usuarios' ? styles.tabActive : {}) }}
@@ -204,16 +208,13 @@ function Admin({ usuario, onVolver }) {
         </button>
       </div>
 
-      {/* ══════════════════════════════════════════
-          SECCIÓN USUARIOS
-      ══════════════════════════════════════════ */}
+      {/* ══ USUARIOS: LISTA ══ */}
       {seccion === 'usuarios' && vista === 'lista' && (
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Usuarios del portal</h2>
             <button style={styles.btnPrimary} onClick={abrirNuevo}>+ Nuevo usuario</button>
           </div>
-
           <div style={styles.metrics}>
             {['admin', 'coordinador', 'comercial', 'transportista'].map(rol => (
               <div key={rol} style={styles.metric}>
@@ -224,7 +225,6 @@ function Admin({ usuario, onVolver }) {
               </div>
             ))}
           </div>
-
           {usuarios.length === 0 && <div style={styles.empty}>No hay usuarios aún.</div>}
           {usuarios.map(u => (
             <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
@@ -257,6 +257,7 @@ function Admin({ usuario, onVolver }) {
         </div>
       )}
 
+      {/* ══ USUARIOS: FORM ══ */}
       {seccion === 'usuarios' && vista === 'form' && (
         <div>
           <div style={styles.panelHeader}>
@@ -285,7 +286,6 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
             </div>
-
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Rol y acceso</div>
               <div style={styles.grid2}>
@@ -307,7 +307,6 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
             </div>
-
             {(form.rol === 'transportista' || form.rol === 'admin') && (
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Datos empresa</div>
@@ -325,7 +324,6 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
             )}
-
             <div style={styles.formActions}>
               <button type="submit"
                 style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }}
@@ -338,16 +336,13 @@ function Admin({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          SECCIÓN TRANSPORTISTAS
-      ══════════════════════════════════════════ */}
+      {/* ══ TRANSPORTISTAS: LISTA ══ */}
       {seccion === 'transportistas' && vistaT === 'lista' && (
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Transportistas habilitados</h2>
             <button style={styles.btnPrimary} onClick={abrirNuevoT}>+ Nuevo transportista</button>
           </div>
-
           <div style={styles.metrics}>
             <div style={styles.metric}>
               <div style={styles.metricLabel}>Total</div>
@@ -362,7 +357,6 @@ function Admin({ usuario, onVolver }) {
               <div style={{ ...styles.metricValue, color: '#A32D2D' }}>{transportistas.filter(t => t.estado === 'inactivo').length}</div>
             </div>
           </div>
-
           {transportistas.length === 0 && <div style={styles.empty}>No hay transportistas registrados aún.</div>}
           {transportistas.map(t => (
             <div key={t.docId} style={{ ...styles.card, opacity: t.estado === 'inactivo' ? 0.6 : 1 }}>
@@ -376,7 +370,9 @@ function Admin({ usuario, onVolver }) {
               <div style={styles.cardBody}>
                 <div style={styles.detailGrid}>
                   {t.nombre_contacto && <div style={styles.field}><span style={styles.label}>Contacto</span><span>{t.nombre_contacto}</span></div>}
-                  {t.email_contacto && <div style={styles.field}><span style={styles.label}>Email</span><span>{t.email_contacto}</span></div>}
+                  {t.email_1 && <div style={styles.field}><span style={styles.label}>Email 1</span><span>{t.email_1}</span></div>}
+                  {t.email_2 && <div style={styles.field}><span style={styles.label}>Email 2</span><span>{t.email_2}</span></div>}
+                  {t.email_3 && <div style={styles.field}><span style={styles.label}>Email 3</span><span>{t.email_3}</span></div>}
                   {t.telefono_1 && <div style={styles.field}><span style={styles.label}>Teléfono 1</span><span>{t.telefono_1}</span></div>}
                   {t.telefono_2 && <div style={styles.field}><span style={styles.label}>Teléfono 2</span><span>{t.telefono_2}</span></div>}
                   {t.telefono_3 && <div style={styles.field}><span style={styles.label}>Teléfono 3</span><span>{t.telefono_3}</span></div>}
@@ -396,6 +392,7 @@ function Admin({ usuario, onVolver }) {
         </div>
       )}
 
+      {/* ══ TRANSPORTISTAS: FORM ══ */}
       {seccion === 'transportistas' && vistaT === 'form' && (
         <div>
           <div style={styles.panelHeader}>
@@ -403,7 +400,6 @@ function Admin({ usuario, onVolver }) {
             <button style={styles.btnVolver} onClick={() => setVistaT('lista')}>← Volver</button>
           </div>
           <form onSubmit={guardarT} style={styles.form}>
-
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos de la empresa</div>
               <div style={styles.grid2}>
@@ -417,21 +413,31 @@ function Admin({ usuario, onVolver }) {
                   <input style={styles.input} type="text" placeholder="20-00000000-0"
                     value={formT.cuit_empresa} onChange={e => setFormT({ ...formT, cuit_empresa: e.target.value })} />
                 </div>
-              </div>
-            </div>
-
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Contacto</div>
-              <div style={styles.grid2}>
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>Nombre del contacto</label>
                   <input style={styles.input} type="text" placeholder="Apellido, Nombre"
                     value={formT.nombre_contacto} onChange={e => setFormT({ ...formT, nombre_contacto: e.target.value })} />
                 </div>
+              </div>
+            </div>
+
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Emails de contacto</div>
+              <div style={styles.grid2}>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>Email de contacto *</label>
+                  <label style={styles.formLabel}>Email 1 *</label>
                   <input style={styles.input} type="email" placeholder="contacto@empresa.com"
-                    value={formT.email_contacto} onChange={e => setFormT({ ...formT, email_contacto: e.target.value })} />
+                    value={formT.email_1} onChange={e => setFormT({ ...formT, email_1: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Email 2</label>
+                  <input style={styles.input} type="email" placeholder="contacto2@empresa.com"
+                    value={formT.email_2} onChange={e => setFormT({ ...formT, email_2: e.target.value })} />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Email 3</label>
+                  <input style={styles.input} type="email" placeholder="contacto3@empresa.com"
+                    value={formT.email_3} onChange={e => setFormT({ ...formT, email_3: e.target.value })} />
                 </div>
               </div>
             </div>

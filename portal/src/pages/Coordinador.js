@@ -253,11 +253,27 @@ function Coordinador({ usuario, onVolver }) {
     }
   }
 
-  async function suspender(p) {
-    const motivo = prompt('Motivo de la suspensión (requerido):');
-    if (!motivo) return;
-    await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
-  }
+async function suspender(p) {
+  const motivo = prompt('Motivo de la suspensión (requerido):');
+  if (!motivo) return;
+  const despachosAnteriores = p.despachos || [];
+  await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
+  const payload = {
+    accion: 'suspender_pedido',
+    id: p.id, motivo,
+    suspendido_por: usuario?.nombre || '',
+    estado_anterior: p.estado,
+    tenia_programacion: despachosAnteriores.length > 0,
+    producto: p.producto, volumen: p.volumen,
+    cliente: p.cliente, ov: p.ov,
+    fecha_entrega: p.fecha_entrega, lugar: p.lugar,
+    email_transportista: despachosAnteriores[0]?.email_transportista || '',
+    transporte: despachosAnteriores[0]?.transporte || '',
+  };
+  const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+  await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+  alert('Pedido suspendido. Se notificó a los involucrados.');
+}
 
   const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
 

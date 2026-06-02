@@ -127,16 +127,30 @@ await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos
     }
   }
 
-  async function rechazar(d) {
-    const motivo = prompt('Motivo del rechazo (requerido):');
-    if (!motivo) return;
-    const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
-    const pedido = pedidoSnap.data();
-    const nuevosDespachos = [...pedido.despachos];
-    nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Rechazado' };
-    await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
-    alert('Despacho rechazado. Se notificó al coordinador.');
-  }
+async function rechazar(d) {
+  const motivo = prompt('Motivo del rechazo (requerido):');
+  if (!motivo) return;
+  const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
+  const pedido = pedidoSnap.data();
+  const nuevosDespachos = [...pedido.despachos];
+  nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Rechazado' };
+  await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
+  const payload = {
+    accion: 'rechazar_despacho',
+    pedido_id: d.pedidoId,
+    despacho_id: 'D' + d.despachoNro,
+    transporte: d.transporte,
+    producto: d.producto,
+    volumen: d.volumen,
+    cliente: d.cliente,
+    ov: d.ov,
+    fecha_carga: d.fecha_carga,
+    motivo,
+  };
+  const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+  await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+  alert('Despacho rechazado. Se notificó al coordinador.');
+}
 
   async function nominar(d) {
     const nd = nomData[d.uid] || {};
