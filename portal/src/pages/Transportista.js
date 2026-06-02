@@ -64,6 +64,27 @@ function Transportista({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
+  // Cuando se expande una card, inicializar nomData con los valores existentes del despacho
+  function handleExpandir(d) {
+    const nuevoExpandido = expandido === d.uid ? null : d.uid;
+    setExpandido(nuevoExpandido);
+    if (nuevoExpandido && !nomData[d.uid]) {
+      setNomData(prev => ({
+        ...prev,
+        [d.uid]: {
+          transporte: d.transporte || '',
+          cuit_transporte: d.cuit_transporte || '',
+          chofer: d.chofer || '',
+          dni_chofer: d.dni_chofer || '',
+          cuit_chofer: d.cuit_chofer || '',
+          patente_tractor: d.patente_tractor || '',
+          patente_semi: d.patente_semi || '',
+          tel_unidad: d.tel_unidad || '',
+        }
+      }));
+    }
+  }
+
   const pillColors = {
     'Programado': { bg: '#FAEEDA', color: '#633806' },
     'Aceptado':   { bg: '#E1F5EE', color: '#085041' },
@@ -88,8 +109,7 @@ function Transportista({ usuario, onVolver }) {
         aceptado_en: new Date().toLocaleString('es-AR'),
         nominacion_pendiente: true,
       };
-await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Aceptado' });
-
+      await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Aceptado' });
       const confirmadoEn = new Date().toLocaleString('es-AR');
       const payload = {
         accion: 'confirmar_despacho',
@@ -109,7 +129,6 @@ await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos
       };
       const params = new URLSearchParams({ payload: JSON.stringify(payload) });
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-
       setModalNominacion(d);
     } catch (err) {
       console.error(err);
@@ -122,35 +141,33 @@ await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos
   async function responderModalNominacion(elegioAhora) {
     const d = modalNominacion;
     setModalNominacion(null);
-    if (elegioAhora) {
-      setExpandido(d.uid);
-    }
+    if (elegioAhora) setExpandido(d.uid);
   }
 
-async function rechazar(d) {
-  const motivo = prompt('Motivo del rechazo (requerido):');
-  if (!motivo) return;
-  const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
-  const pedido = pedidoSnap.data();
-  const nuevosDespachos = [...pedido.despachos];
-  nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Rechazado' };
-  await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
-  const payload = {
-    accion: 'rechazar_despacho',
-    pedido_id: d.pedidoId,
-    despacho_id: 'D' + d.despachoNro,
-    transporte: d.transporte,
-    producto: d.producto,
-    volumen: d.volumen,
-    cliente: d.cliente,
-    ov: d.ov,
-    fecha_carga: d.fecha_carga,
-    motivo,
-  };
-  const params = new URLSearchParams({ payload: JSON.stringify(payload) });
-  await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
-  alert('Despacho rechazado. Se notificó al coordinador.');
-}
+  async function rechazar(d) {
+    const motivo = prompt('Motivo del rechazo (requerido):');
+    if (!motivo) return;
+    const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
+    const pedido = pedidoSnap.data();
+    const nuevosDespachos = [...pedido.despachos];
+    nuevosDespachos[d.despachoIdx] = { ...nuevosDespachos[d.despachoIdx], estado: 'Rechazado' };
+    await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
+    const payload = {
+      accion: 'rechazar_despacho',
+      pedido_id: d.pedidoId,
+      despacho_id: 'D' + d.despachoNro,
+      transporte: d.transporte,
+      producto: d.producto,
+      volumen: d.volumen,
+      cliente: d.cliente,
+      ov: d.ov,
+      fecha_carga: d.fecha_carga,
+      motivo,
+    };
+    const params = new URLSearchParams({ payload: JSON.stringify(payload) });
+    await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+    alert('Despacho rechazado. Se notificó al coordinador.');
+  }
 
   async function nominar(d) {
     const nd = nomData[d.uid] || {};
@@ -176,7 +193,6 @@ async function rechazar(d) {
         tel_unidad: nd.tel_unidad || '',
       };
       await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Nominado' });
-
       const payload = {
         accion: 'nominar_unidad',
         pedido_id: d.pedidoId, fecha_carga: d.fecha_carga,
@@ -219,20 +235,14 @@ async function rechazar(d) {
               {modalNominacion.producto} · {modalNominacion.volumen} tn · Carga: {modalNominacion.fecha_carga}
               {modalNominacion.horario_carga ? ' · ' + modalNominacion.horario_carga : ''}
             </div>
-            <div style={styles.modalPregunta}>
-              ¿Querés nominar la unidad y el chofer ahora?
-            </div>
+            <div style={styles.modalPregunta}>¿Querés nominar la unidad y el chofer ahora?</div>
             <div style={styles.modalHint}>
               Podés hacerlo más tarde, pero recordá completarlo antes de la hora de carga.
               Si no nominás con al menos 12 hs de anticipación recibirás un recordatorio automático.
             </div>
             <div style={styles.modalActions}>
-              <button style={styles.btnModalSi} onClick={() => responderModalNominacion(true)}>
-                Sí, nominar ahora
-              </button>
-              <button style={styles.btnModalNo} onClick={() => responderModalNominacion(false)}>
-                Lo hago más tarde
-              </button>
+              <button style={styles.btnModalSi} onClick={() => responderModalNominacion(true)}>Sí, nominar ahora</button>
+              <button style={styles.btnModalNo} onClick={() => responderModalNominacion(false)}>Lo hago más tarde</button>
             </div>
           </div>
         </div>
@@ -274,7 +284,7 @@ async function rechazar(d) {
 
       {!cargando && filtrados.map(d => (
         <div key={d.uid} style={styles.card}>
-          <div style={styles.cardHeader} onClick={() => setExpandido(expandido === d.uid ? null : d.uid)}>
+          <div style={styles.cardHeader} onClick={() => handleExpandir(d)}>
             <span style={{ ...styles.pill, background: pillColors[d.estado]?.bg, color: pillColors[d.estado]?.color }}>
               {pillLabel[d.estado] || d.estado}
             </span>
@@ -297,24 +307,20 @@ async function rechazar(d) {
                   ⏸ Este despacho está en espera por cambios en el pedido. Aguardá la reprogramación del coordinador.
                 </div>
               )}
-
               {d.estado === 'Aceptado' && d.nominacion_pendiente && (
                 <div style={styles.nominacionPendienteBanner}>
                   ⏳ Tenés la nominación pendiente. Completá los datos de la unidad antes de la hora de carga.
                   {d.horario_carga ? ' Horario sugerido: ' + d.horario_carga + '.' : ''}
                 </div>
               )}
-
               <div style={styles.origen}>
                 Programado por <strong>{d.programado_por}</strong> · {d.programado_en}
               </div>
-
               {d.volumenTotal > d.volumen && (
                 <div style={styles.contextBanner}>
                   Este despacho es parte de un pedido de <strong>{d.volumenTotal} tn</strong> — tu asignación es <strong>{d.volumen} tn</strong>.
                 </div>
               )}
-
               <div style={styles.detailGrid}>
                 <div style={styles.field}><span style={styles.label}>Producto</span><span style={styles.hiVal}>{d.producto}</span></div>
                 <div style={styles.field}><span style={styles.label}>Volumen</span><span style={styles.hiVal}>{d.volumen} tn</span></div>
@@ -350,13 +356,15 @@ async function rechazar(d) {
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Nombre empresa</label>
                       <input style={styles.input} type="text" placeholder="Razón social"
-                        defaultValue={d.transporte} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.transporte || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'transporte', e.target.value)} />
                     </div>
                     <div style={styles.formField}>
-                      <label style={styles.formLabel}>CUIT empresa *</label>
-                      <input style={styles.input} type="text" placeholder="20-00000000-0"
-                        defaultValue={d.cuit_transporte} disabled={d.estado === 'Nominado'}
+                      <label style={styles.formLabel}>CUIT empresa * (sin guiones)</label>
+                      <input style={styles.input} type="text" placeholder="20000000009"
+                        value={nomData[d.uid]?.cuit_transporte || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit_transporte', e.target.value)} />
                     </div>
                   </div>
@@ -366,19 +374,22 @@ async function rechazar(d) {
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Nombre completo *</label>
                       <input style={styles.input} type="text" placeholder="Apellido, Nombre"
-                        defaultValue={d.chofer} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.chofer || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'chofer', e.target.value)} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>DNI *</label>
                       <input style={styles.input} type="text" placeholder="00000000"
-                        defaultValue={d.dni_chofer} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.dni_chofer || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'dni_chofer', e.target.value.replace(/\D/g, ''))} />
                     </div>
                     <div style={styles.formField}>
-                      <label style={styles.formLabel}>CUIT chofer</label>
-                      <input style={styles.input} type="text" placeholder="20-00000000-0"
-                        defaultValue={d.cuit_chofer} disabled={d.estado === 'Nominado'}
+                      <label style={styles.formLabel}>CUIT chofer (sin guiones)</label>
+                      <input style={styles.input} type="text" placeholder="20000000009"
+                        value={nomData[d.uid]?.cuit_chofer || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit_chofer', e.target.value)} />
                     </div>
                   </div>
@@ -388,21 +399,24 @@ async function rechazar(d) {
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Patente tractor *</label>
                       <input style={styles.input} type="text" placeholder="ABC123"
-                        defaultValue={d.patente_tractor} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.patente_tractor || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'patente_tractor', e.target.value.toUpperCase())}
                         onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Patente semi</label>
                       <input style={styles.input} type="text" placeholder="ABC123"
-                        defaultValue={d.patente_semi} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.patente_semi || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'patente_semi', e.target.value.toUpperCase())}
                         onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Teléfono de la unidad</label>
                       <input style={styles.input} type="tel" placeholder="Nº de contacto"
-                        defaultValue={d.tel_unidad} disabled={d.estado === 'Nominado'}
+                        value={nomData[d.uid]?.tel_unidad || ''}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'tel_unidad', e.target.value)} />
                     </div>
                   </div>
@@ -416,10 +430,8 @@ async function rechazar(d) {
               <div style={styles.cardActions}>
                 {d.estado === 'Programado' && (
                   <>
-                    <button
-                      style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }}
-                      disabled={enviando}
-                      onClick={() => aceptar(d)}>
+                    <button style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }}
+                      disabled={enviando} onClick={() => aceptar(d)}>
                       {enviando ? 'Procesando...' : '✓ Aceptar despacho'}
                     </button>
                     <button style={styles.btnRechazar} onClick={() => rechazar(d)}>✕ Rechazar</button>
@@ -442,32 +454,16 @@ async function rechazar(d) {
 
 const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
-  modalOverlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem',
-  },
-  modalBox: {
-    background: '#fff', borderRadius: 16, padding: '2rem 1.5rem',
-    maxWidth: 400, width: '100%', textAlign: 'center',
-  },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
+  modalBox: { background: '#fff', borderRadius: 16, padding: '2rem 1.5rem', maxWidth: 400, width: '100%', textAlign: 'center' },
   modalIcon: { fontSize: 36, marginBottom: 12 },
   modalTitulo: { fontSize: 18, fontWeight: 500, color: '#111827', marginBottom: 6 },
   modalSubtitulo: { fontSize: 13, color: '#3C3489', fontWeight: 500, marginBottom: 16 },
   modalPregunta: { fontSize: 15, color: '#111827', fontWeight: 500, marginBottom: 8 },
-  modalHint: {
-    fontSize: 12, color: '#6B7280', marginBottom: 24,
-    padding: '8px 12px', background: '#F9FAFB', borderRadius: 8,
-    border: '0.5px solid #E5E7EB', textAlign: 'left', lineHeight: 1.5,
-  },
+  modalHint: { fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '8px 12px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB', textAlign: 'left', lineHeight: 1.5 },
   modalActions: { display: 'flex', flexDirection: 'column', gap: 10 },
-  btnModalSi: {
-    padding: '11px', borderRadius: 8, border: 'none',
-    background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer',
-  },
-  btnModalNo: {
-    padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB',
-    background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer',
-  },
+  btnModalSi: { padding: '11px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  btnModalNo: { padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer' },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
   portalText: { fontSize: 13, color: '#9CA3AF', marginLeft: 4 },
