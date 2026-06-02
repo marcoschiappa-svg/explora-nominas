@@ -210,7 +210,6 @@ function Pedidos({ usuario, onVolver }) {
     try {
       const id = pedidoEditando ? pedidoEditando.id : genNro();
 
-      // Subir archivos nuevos a Drive
       let adjuntosFinales = (form.adjuntos || []).filter(a => !a._eliminado);
       if (form.archivosNuevos.length > 0) {
         setSubiendoArchivos(true);
@@ -245,6 +244,7 @@ function Pedidos({ usuario, onVolver }) {
           adjuntos: adjuntosFinales,
           estado: 'Pendiente', editado: true,
           editado_en: ahora, editado_por: usuario?.nombre || '',
+          creado_por_email: pedidoEditando.creado_por_email || usuario?.email || '',
           despachos: despachosActualizados,
         });
 
