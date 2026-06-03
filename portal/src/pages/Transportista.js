@@ -51,6 +51,8 @@ function Transportista({ usuario, onVolver }) {
               dni_chofer: despacho.dni_chofer || '',
               cuit_chofer: despacho.cuit_chofer || '',
               cuit_transporte: despacho.cuit_transporte || '',
+              tel_prefijo: despacho.tel_prefijo || '',
+              tel_numero: despacho.tel_numero || '',
               tel_unidad: despacho.tel_unidad || '',
               adjuntos: (pedido.adjuntos || []).filter(a => a.visible_transportista && !a._eliminado),
             });
@@ -64,11 +66,28 @@ function Transportista({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // Cuando se expande una card, inicializar nomData con los valores existentes del despacho
   function handleExpandir(d) {
     const nuevoExpandido = expandido === d.uid ? null : d.uid;
     setExpandido(nuevoExpandido);
     if (nuevoExpandido && !nomData[d.uid]) {
+      // Parsear CUIT chofer existente en 3 partes si viene con guiones
+      let cuit1 = '', cuit2 = '', cuit3 = '';
+      if (d.cuit_chofer) {
+        const partes = d.cuit_chofer.split('-');
+        if (partes.length === 3) {
+          cuit1 = partes[0]; cuit2 = partes[1]; cuit3 = partes[2];
+        } else {
+          cuit2 = d.cuit_chofer;
+        }
+      }
+      // Parsear teléfono existente
+      let tel_prefijo = d.tel_prefijo || '';
+      let tel_numero = d.tel_numero || '';
+      if (!tel_prefijo && d.tel_unidad) {
+        const match = d.tel_unidad.match(/^\((\d+)\)\s*(.+)$/);
+        if (match) { tel_prefijo = match[1]; tel_numero = match[2]; }
+        else { tel_numero = d.tel_unidad; }
+      }
       setNomData(prev => ({
         ...prev,
         [d.uid]: {
@@ -76,13 +95,25 @@ function Transportista({ usuario, onVolver }) {
           cuit_transporte: d.cuit_transporte || '',
           chofer: d.chofer || '',
           dni_chofer: d.dni_chofer || '',
-          cuit_chofer: d.cuit_chofer || '',
+          cuit1, cuit2, cuit3,
           patente_tractor: d.patente_tractor || '',
           patente_semi: d.patente_semi || '',
-          tel_unidad: d.tel_unidad || '',
+          tel_prefijo,
+          tel_numero,
         }
       }));
     }
+  }
+
+  function updateNom(uid, field, value) {
+    setNomData(prev => {
+      const updated = { ...prev, [uid]: { ...prev[uid], [field]: value } };
+      // Si cambia el DNI, actualizar cuit2 automáticamente
+      if (field === 'dni_chofer') {
+        updated[uid].cuit2 = value;
+      }
+      return updated;
+    });
   }
 
   const pillColors = {
@@ -117,14 +148,10 @@ function Transportista({ usuario, onVolver }) {
         despacho_id: 'D' + d.despachoNro,
         transporte: d.transporte,
         email_transportista: d.email_transportista,
-        producto: d.producto,
-        volumen: d.volumen,
-        cliente: d.cliente,
-        ov: d.ov,
-        fecha_carga: d.fecha_carga,
-        horario_carga: d.horario_carga,
-        lugar: d.lugar,
-        estado_nominacion: 'pendiente',
+        producto: d.producto, volumen: d.volumen,
+        cliente: d.cliente, ov: d.ov,
+        fecha_carga: d.fecha_carga, horario_carga: d.horario_carga,
+        lugar: d.lugar, estado_nominacion: 'pendiente',
         confirmado_en: confirmadoEn,
       };
       const params = new URLSearchParams({ payload: JSON.stringify(payload) });
@@ -154,15 +181,10 @@ function Transportista({ usuario, onVolver }) {
     await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Pendiente' });
     const payload = {
       accion: 'rechazar_despacho',
-      pedido_id: d.pedidoId,
-      despacho_id: 'D' + d.despachoNro,
-      transporte: d.transporte,
-      producto: d.producto,
-      volumen: d.volumen,
-      cliente: d.cliente,
-      ov: d.ov,
-      fecha_carga: d.fecha_carga,
-      motivo,
+      pedido_id: d.pedidoId, despacho_id: 'D' + d.despachoNro,
+      transporte: d.transporte, producto: d.producto,
+      volumen: d.volumen, cliente: d.cliente,
+      ov: d.ov, fecha_carga: d.fecha_carga, motivo,
     };
     const params = new URLSearchParams({ payload: JSON.stringify(payload) });
     await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
@@ -175,6 +197,11 @@ function Transportista({ usuario, onVolver }) {
       alert('Completá patente tractor, nombre del chofer, DNI y CUIT de la empresa antes de nominar.');
       return;
     }
+    const cuit_chofer = nd.cuit1 && nd.cuit2 && nd.cuit3
+      ? `${nd.cuit1}-${nd.cuit2}-${nd.cuit3}` : '';
+    const tel_unidad = nd.tel_prefijo && nd.tel_numero
+      ? `(${nd.tel_prefijo}) ${nd.tel_numero}` : nd.tel_numero || '';
+
     setEnviando(true);
     try {
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
@@ -188,9 +215,11 @@ function Transportista({ usuario, onVolver }) {
         patente_semi: (nd.patente_semi || '').toUpperCase(),
         chofer: nd.chofer,
         dni_chofer: nd.dni_chofer,
-        cuit_chofer: nd.cuit_chofer || '',
+        cuit_chofer,
         cuit_transporte: nd.cuit_transporte,
-        tel_unidad: nd.tel_unidad || '',
+        tel_unidad,
+        tel_prefijo: nd.tel_prefijo || '',
+        tel_numero: nd.tel_numero || '',
       };
       await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Nominado' });
       const payload = {
@@ -201,10 +230,8 @@ function Transportista({ usuario, onVolver }) {
         patente_tractor: nd.patente_tractor.toUpperCase(),
         patente_semi: (nd.patente_semi || '').toUpperCase(),
         chofer: nd.chofer, dni_chofer: nd.dni_chofer,
-        cuit_chofer: nd.cuit_chofer || '',
-        cuit_transporte: nd.cuit_transporte,
-        tel_unidad: nd.tel_unidad || '',
-        transporte: d.transporte,
+        cuit_chofer, cuit_transporte: nd.cuit_transporte,
+        tel_unidad, transporte: d.transporte,
       };
       const params = new URLSearchParams({ payload: JSON.stringify(payload) });
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
@@ -215,10 +242,6 @@ function Transportista({ usuario, onVolver }) {
     } finally {
       setEnviando(false);
     }
-  }
-
-  function updateNom(uid, field, value) {
-    setNomData(prev => ({ ...prev, [uid]: { ...prev[uid], [field]: value } }));
   }
 
   const filtrados = despachos.filter(d => filtro === 'todos' || d.estado === filtro);
@@ -327,7 +350,7 @@ function Transportista({ usuario, onVolver }) {
                 <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{d.recipiente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{d.ov}</span></div>
                 <div style={styles.field}><span style={styles.label}>Fecha de carga</span><span style={styles.hiVal}>{d.fecha_carga}</span></div>
-                {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario de carga sugerido</span><span style={styles.hiVal}>{d.horario_carga}</span></div>}
+                {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario sugerido</span><span style={styles.hiVal}>{d.horario_carga}</span></div>}
                 <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{d.fecha_entrega}</span></div>
                 {d.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria descarga</span><span>{d.banda_horaria}</span></div>}
                 <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{d.lugar}</span></div>
@@ -351,6 +374,7 @@ function Transportista({ usuario, onVolver }) {
                 <div style={styles.nomSection}>
                   <div style={styles.nomTitle}>🚛 Datos de la unidad</div>
 
+                  {/* Empresa transportista */}
                   <div style={styles.nomSubtitle}>Empresa transportista</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -369,6 +393,7 @@ function Transportista({ usuario, onVolver }) {
                     </div>
                   </div>
 
+                  {/* Chofer */}
                   <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Chofer</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -380,20 +405,42 @@ function Transportista({ usuario, onVolver }) {
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>DNI *</label>
-                      <input style={styles.input} type="text" placeholder="00000000"
+                      <input style={styles.input} type="text" placeholder="00000000" maxLength={8}
                         value={nomData[d.uid]?.dni_chofer || ''}
                         disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'dni_chofer', e.target.value.replace(/\D/g, ''))} />
                     </div>
-                    <div style={styles.formField}>
-                      <label style={styles.formLabel}>CUIT chofer (sin guiones)</label>
-                      <input style={styles.input} type="text" placeholder="20000000009"
-                        value={nomData[d.uid]?.cuit_chofer || ''}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => updateNom(d.uid, 'cuit_chofer', e.target.value)} />
-                    </div>
                   </div>
 
+                  {/* CUIT chofer en 3 campos */}
+                  <div style={{ marginTop: 8 }}>
+                    <label style={styles.formLabel}>CUIT chofer</label>
+                    <div style={styles.cuitRow}>
+                      <input
+                        style={{ ...styles.input, width: 52, flexShrink: 0, textAlign: 'center' }}
+                        type="text" placeholder="XX" maxLength={2}
+                        value={nomData[d.uid]?.cuit1 || ''}
+                        disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'cuit1', e.target.value.replace(/\D/g, ''))} />
+                      <span style={styles.cuitSep}>-</span>
+                      <input
+                        style={{ ...styles.input, flex: 1, textAlign: 'center', color: '#9CA3AF' }}
+                        type="text" placeholder="DNI"
+                        value={nomData[d.uid]?.cuit2 || ''}
+                        disabled
+                        readOnly />
+                      <span style={styles.cuitSep}>-</span>
+                      <input
+                        style={{ ...styles.input, width: 44, flexShrink: 0, textAlign: 'center' }}
+                        type="text" placeholder="X" maxLength={1}
+                        value={nomData[d.uid]?.cuit3 || ''}
+                        disabled={d.estado === 'Nominado'}
+                        onChange={e => updateNom(d.uid, 'cuit3', e.target.value.replace(/\D/g, ''))} />
+                    </div>
+                    <span style={styles.fieldHint}>El campo central se completa automáticamente con el DNI</span>
+                  </div>
+
+                  {/* Vehículo */}
                   <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Vehículo</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -412,12 +459,26 @@ function Transportista({ usuario, onVolver }) {
                         onChange={e => updateNom(d.uid, 'patente_semi', e.target.value.toUpperCase())}
                         onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
-                    <div style={styles.formField}>
-                      <label style={styles.formLabel}>Teléfono de la unidad</label>
-                      <input style={styles.input} type="tel" placeholder="Nº de contacto"
-                        value={nomData[d.uid]?.tel_unidad || ''}
-                        disabled={d.estado === 'Nominado'}
-                        onChange={e => updateNom(d.uid, 'tel_unidad', e.target.value)} />
+                  </div>
+
+                  {/* Teléfono de la unidad */}
+                  <div style={{ marginTop: 8 }}>
+                    <label style={styles.formLabel}>Teléfono de la unidad</label>
+                    <div style={styles.telRow}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '0 0 110px' }}>
+                        <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4}
+                          value={nomData[d.uid]?.tel_prefijo || ''}
+                          disabled={d.estado === 'Nominado'}
+                          onChange={e => updateNom(d.uid, 'tel_prefijo', e.target.value.replace(/\D/g, ''))} />
+                        <span style={styles.fieldHint}>Sin 0 · 3 o 4 díg.</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+                        <input style={styles.input} type="text" placeholder="Número" maxLength={7}
+                          value={nomData[d.uid]?.tel_numero || ''}
+                          disabled={d.estado === 'Nominado'}
+                          onChange={e => updateNom(d.uid, 'tel_numero', e.target.value.replace(/\D/g, ''))} />
+                        <span style={styles.fieldHint}>Sin 15 · 6 o 7 díg.</span>
+                      </div>
                     </div>
                   </div>
 
@@ -506,7 +567,11 @@ const styles = {
   nomGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 },
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   formLabel: { fontSize: 12, color: '#6B7280' },
-  input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  input: { fontSize: 13, padding: '7px 9px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box' },
+  cuitRow: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 },
+  cuitSep: { fontSize: 16, color: '#6B7280', fontWeight: 500, flexShrink: 0 },
+  telRow: { display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 4 },
+  fieldHint: { fontSize: 10, color: '#9CA3AF', marginTop: 3 },
   nomOk: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },

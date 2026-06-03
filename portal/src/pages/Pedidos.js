@@ -43,6 +43,8 @@ function Pedidos({ usuario, onVolver }) {
   const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const [verTodos, setVerTodos] = useState(false);
 
   const [form, setForm] = useState({
     tipo: 'Entrega al cliente',
@@ -119,7 +121,13 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   function validarOV() {
-    return /^\d{5}$/.test(form.ov_numero.trim());
+    if (form.ov_tipo === 'OV') return /^\d{4}$/.test(form.ov_numero.trim());
+    if (form.ov_tipo === 'OC') return /^\d{5}$/.test(form.ov_numero.trim());
+    return false;
+  }
+
+  function maxDigitosOV() {
+    return form.ov_tipo === 'OV' ? 4 : 5;
   }
 
   function validarTelefono() {
@@ -188,7 +196,9 @@ function Pedidos({ usuario, onVolver }) {
       return;
     }
     if (!validarOV()) {
-      alert('El número de OV/OC debe tener exactamente 5 dígitos.');
+      alert(form.ov_tipo === 'OV'
+        ? 'El número de OV debe tener exactamente 4 dígitos.'
+        : 'El número de OC debe tener exactamente 5 dígitos.');
       return;
     }
     if (!validarFecha(form.fecha_entrega)) {
@@ -299,6 +309,8 @@ function Pedidos({ usuario, onVolver }) {
       }
 
       setVista('panel');
+      setBusqueda('');
+      setVerTodos(false);
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
         cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '',
@@ -356,6 +368,18 @@ function Pedidos({ usuario, onVolver }) {
     Suspendido: 'Suspendido', Cumplido: 'Cumplido',
   };
 
+  const pedidosFiltrados = pedidos.filter(p => {
+    if (!busqueda) return true;
+    const q = busqueda.toLowerCase();
+    return (
+      p.id?.toLowerCase().includes(q) ||
+      p.cliente?.toLowerCase().includes(q) ||
+      p.producto?.toLowerCase().includes(q)
+    );
+  });
+
+  const pedidosMostrados = busqueda ? pedidosFiltrados : (verTodos ? pedidosFiltrados : pedidosFiltrados.slice(0, 10));
+
   return (
     <div style={styles.wrap}>
       <div style={styles.topbar}>
@@ -373,8 +397,22 @@ function Pedidos({ usuario, onVolver }) {
               + Nuevo pedido
             </button>
           </div>
-          {pedidos.length === 0 && <div style={styles.empty}>No tenés pedidos aún. Creá el primero.</div>}
-          {pedidos.map(p => (
+
+          <input
+            style={styles.buscador}
+            type="text"
+            placeholder="Buscar por N° pedido, cliente o producto..."
+            value={busqueda}
+            onChange={e => { setBusqueda(e.target.value); setVerTodos(false); }}
+          />
+
+          {pedidosMostrados.length === 0 && (
+            <div style={styles.empty}>
+              {busqueda ? 'Sin resultados para esa búsqueda.' : 'No tenés pedidos aún. Creá el primero.'}
+            </div>
+          )}
+
+          {pedidosMostrados.map(p => (
             <div key={p.id} style={styles.card}>
               <div style={styles.cardHeader}>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>
@@ -427,6 +465,12 @@ function Pedidos({ usuario, onVolver }) {
               </div>
             </div>
           ))}
+
+          {!busqueda && !verTodos && pedidosFiltrados.length > 10 && (
+            <button style={styles.btnVerTodos} onClick={() => setVerTodos(true)}>
+              Ver todos los pedidos ({pedidosFiltrados.length})
+            </button>
+          )}
         </div>
       )}
 
@@ -493,15 +537,23 @@ function Pedidos({ usuario, onVolver }) {
                   <label style={styles.formLabel}>OV / OC *</label>
                   <div style={styles.ovRow}>
                     <select style={{ ...styles.input, width: 80, flexShrink: 0 }}
-                      value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value })}>
+                      value={form.ov_tipo}
+                      onChange={e => setForm({ ...form, ov_tipo: e.target.value, ov_numero: '' })}>
                       <option>OV</option><option>OC</option>
                     </select>
                     <span style={styles.ovSep}>-</span>
-                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="12345" maxLength={5}
+                    <input style={{ ...styles.input, flex: 1 }}
+                      type="text"
+                      placeholder={form.ov_tipo === 'OV' ? '1234' : '12345'}
+                      maxLength={maxDigitosOV()}
                       value={form.ov_numero}
                       onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g, '') })} />
                   </div>
-                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>Ingresá exactamente 5 dígitos</span>}
+                  {form.ov_numero && !validarOV() && (
+                    <span style={styles.fieldError}>
+                      {form.ov_tipo === 'OV' ? 'OV: exactamente 4 dígitos' : 'OC: exactamente 5 dígitos'}
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={styles.formField}>
@@ -652,10 +704,12 @@ const styles = {
   logoArea: { display: 'flex', alignItems: 'center' },
   logoImg: { height: 36, objectFit: 'contain' },
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
-  panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' },
+  panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' },
   titulo: { fontSize: 18, fontWeight: 500, color: '#111827' },
   btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  buscador: { width: '100%', fontSize: 13, padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', marginBottom: '1rem', boxSizing: 'border-box' },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
+  btnVerTodos: { width: '100%', padding: '10px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#F9FAFB', color: '#6B7280', fontSize: 13, cursor: 'pointer', marginTop: 8 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
@@ -684,13 +738,13 @@ const styles = {
   grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 },
   formField: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: { fontSize: 13, color: '#6B7280', fontWeight: 500 },
-  input: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  input: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box' },
   textarea: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', minHeight: 80, resize: 'vertical' },
   tipoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   tipoBtn: { padding: '10px 8px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   tipoBtnActive: { border: '1.5px solid #C8102E', background: '#FDECEA', color: '#C8102E' },
   ovRow: { display: 'flex', alignItems: 'center', gap: 6 },
-  ovSep: { fontSize: 16, color: '#6B7280', fontWeight: 500 },
+  ovSep: { fontSize: 16, color: '#6B7280', fontWeight: 500, flexShrink: 0 },
   telRow: { display: 'flex', gap: 10, alignItems: 'flex-start' },
   telHint: { fontSize: 10, color: '#9CA3AF', marginTop: 2 },
   fieldError: { fontSize: 11, color: '#C8102E', marginTop: 2 },
