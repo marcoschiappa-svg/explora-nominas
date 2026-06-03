@@ -43,6 +43,7 @@ function Transportista({ usuario, onVolver }) {
               tipo: pedido.tipo,
               transporte: despacho.transporte,
               email_transportista: despacho.email_transportista || '',
+              email_comercial: pedido.creado_por_email || '',
               programado_por: despacho.programado_por,
               programado_en: despacho.programado_en,
               patente_tractor: despacho.patente_tractor || '',
@@ -70,7 +71,6 @@ function Transportista({ usuario, onVolver }) {
     const nuevoExpandido = expandido === d.uid ? null : d.uid;
     setExpandido(nuevoExpandido);
     if (nuevoExpandido && !nomData[d.uid]) {
-      // Parsear CUIT chofer existente en 3 partes si viene con guiones
       let cuit1 = '', cuit2 = '', cuit3 = '';
       if (d.cuit_chofer) {
         const partes = d.cuit_chofer.split('-');
@@ -80,7 +80,6 @@ function Transportista({ usuario, onVolver }) {
           cuit2 = d.cuit_chofer;
         }
       }
-      // Parsear teléfono existente
       let tel_prefijo = d.tel_prefijo || '';
       let tel_numero = d.tel_numero || '';
       if (!tel_prefijo && d.tel_unidad) {
@@ -108,7 +107,6 @@ function Transportista({ usuario, onVolver }) {
   function updateNom(uid, field, value) {
     setNomData(prev => {
       const updated = { ...prev, [uid]: { ...prev[uid], [field]: value } };
-      // Si cambia el DNI, actualizar cuit2 automáticamente
       if (field === 'dni_chofer') {
         updated[uid].cuit2 = value;
       }
@@ -232,6 +230,7 @@ function Transportista({ usuario, onVolver }) {
         chofer: nd.chofer, dni_chofer: nd.dni_chofer,
         cuit_chofer, cuit_transporte: nd.cuit_transporte,
         tel_unidad, transporte: d.transporte,
+        email_comercial: d.email_comercial || '',
       };
       const params = new URLSearchParams({ payload: JSON.stringify(payload) });
       await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
@@ -374,7 +373,6 @@ function Transportista({ usuario, onVolver }) {
                 <div style={styles.nomSection}>
                   <div style={styles.nomTitle}>🚛 Datos de la unidad</div>
 
-                  {/* Empresa transportista */}
                   <div style={styles.nomSubtitle}>Empresa transportista</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -393,7 +391,6 @@ function Transportista({ usuario, onVolver }) {
                     </div>
                   </div>
 
-                  {/* Chofer */}
                   <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Chofer</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -412,26 +409,21 @@ function Transportista({ usuario, onVolver }) {
                     </div>
                   </div>
 
-                  {/* CUIT chofer en 3 campos */}
                   <div style={{ marginTop: 8 }}>
                     <label style={styles.formLabel}>CUIT chofer</label>
                     <div style={styles.cuitRow}>
-                      <input
-                        style={{ ...styles.input, width: 52, flexShrink: 0, textAlign: 'center' }}
+                      <input style={{ ...styles.input, width: 52, flexShrink: 0, textAlign: 'center' }}
                         type="text" placeholder="XX" maxLength={2}
                         value={nomData[d.uid]?.cuit1 || ''}
                         disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit1', e.target.value.replace(/\D/g, ''))} />
                       <span style={styles.cuitSep}>-</span>
-                      <input
-                        style={{ ...styles.input, flex: 1, textAlign: 'center', color: '#9CA3AF' }}
+                      <input style={{ ...styles.input, flex: 1, textAlign: 'center', color: '#9CA3AF' }}
                         type="text" placeholder="DNI"
                         value={nomData[d.uid]?.cuit2 || ''}
-                        disabled
-                        readOnly />
+                        disabled readOnly />
                       <span style={styles.cuitSep}>-</span>
-                      <input
-                        style={{ ...styles.input, width: 44, flexShrink: 0, textAlign: 'center' }}
+                      <input style={{ ...styles.input, width: 44, flexShrink: 0, textAlign: 'center' }}
                         type="text" placeholder="X" maxLength={1}
                         value={nomData[d.uid]?.cuit3 || ''}
                         disabled={d.estado === 'Nominado'}
@@ -440,7 +432,6 @@ function Transportista({ usuario, onVolver }) {
                     <span style={styles.fieldHint}>El campo central se completa automáticamente con el DNI</span>
                   </div>
 
-                  {/* Vehículo */}
                   <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Vehículo</div>
                   <div style={styles.nomGrid}>
                     <div style={styles.formField}>
@@ -461,7 +452,6 @@ function Transportista({ usuario, onVolver }) {
                     </div>
                   </div>
 
-                  {/* Teléfono de la unidad */}
                   <div style={{ marginTop: 8 }}>
                     <label style={styles.formLabel}>Teléfono de la unidad</label>
                     <div style={styles.telRow}>
