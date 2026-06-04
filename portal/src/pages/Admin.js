@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, addDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+
+// Segunda instancia de Firebase solo para crear usuarios sin romper la sesión del admin
+const firebaseConfig = {
+  apiKey: "AIzaSyA_cmSLuKPVYXjgQu75varhmEBkaY0uwss",
+  authDomain: "explora-portal.firebaseapp.com",
+  projectId: "explora-portal",
+  storageBucket: "explora-portal.firebasestorage.app",
+  messagingSenderId: "871895783017",
+  appId: "1:871895783017:web:9503299046accde84774f8"
+};
+const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
+const secondaryAuth = getAuth(secondaryApp);
 
 function Admin({ usuario, onVolver }) {
   const [seccion, setSeccion] = useState('usuarios');
@@ -11,8 +25,10 @@ function Admin({ usuario, onVolver }) {
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  const [verPassword, setVerPassword] = useState(false);
+  const [credencialCreada, setCredencialCreada] = useState(null); // { email, password }
   const [form, setForm] = useState({
-    nombre: '', email: '', rol: 'comercial',
+    nombre: '', email: '', password: '', rol: 'comercial',
     empresa: '', cuit_empresa: '', telefono: '', estado: 'activo',
   });
 
@@ -50,24 +66,44 @@ function Admin({ usuario, onVolver }) {
   // ── USUARIOS: funciones ──
   function abrirNuevo() {
     setEditando(null);
-    setForm({ nombre: '', email: '', rol: 'comercial', empresa: '', cuit_empresa: '', telefono: '', estado: 'activo' });
+    setCredencialCreada(null);
+    setVerPassword(false);
+    setForm({ nombre: '', email: '', password: '', rol: 'comercial', empresa: '', cuit_empresa: '', telefono: '', estado: 'activo' });
     setVista('form');
   }
 
   function abrirEditar(u) {
     setEditando(u);
+    setCredencialCreada(null);
+    setVerPassword(false);
     setForm({
-      nombre: u.nombre || '', email: u.email || '', rol: u.rol || 'comercial',
-      empresa: u.empresa || '', cuit_empresa: u.cuit_empresa || '',
-      telefono: u.telefono || '', estado: u.estado || 'activo',
+      nombre: u.nombre || '', email: u.email || '', password: '',
+      rol: u.rol || 'comercial', empresa: u.empresa || '',
+      cuit_empresa: u.cuit_empresa || '', telefono: u.telefono || '',
+      estado: u.estado || 'activo',
     });
     setVista('form');
+  }
+
+  function copiarCredencial() {
+    if (!credencialCreada) return;
+    const texto = `Portal Explora\nUsuario: ${credencialCreada.email}\nContraseña: ${credencialCreada.password}\nAcceso: https://portal-ivory-zeta.vercel.app`;
+    navigator.clipboard.writeText(texto);
+    alert('✓ Credenciales copiadas al portapapeles.');
   }
 
   async function guardar(e) {
     e.preventDefault();
     if (!form.nombre || !form.email || !form.rol) {
       alert('Completá nombre, email y rol.');
+      return;
+    }
+    if (!editando && !form.password) {
+      alert('Ingresá una contraseña para el usuario.');
+      return;
+    }
+    if (!editando && form.password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
     setEnviando(true);
@@ -79,9 +115,12 @@ function Admin({ usuario, onVolver }) {
           telefono: form.telefono || '', estado: form.estado,
         });
         alert('✓ Usuario actualizado.');
+        setVista('lista');
       } else {
-        const tempPassword = Math.random().toString(36).slice(-10) + 'X1!';
-        const cred = await createUserWithEmailAndPassword(auth, form.email, tempPassword);
+        // Usar segunda instancia para no romper sesión del admin
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
+        await secondaryAuth.signOut();
+
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
           uid: cred.user.uid, nombre: form.nombre, email: form.email,
           rol: form.rol, empresa: form.empresa || '',
@@ -89,10 +128,10 @@ function Admin({ usuario, onVolver }) {
           estado: 'activo', creado_por: usuario?.nombre || 'Admin',
           creado_en: new Date().toLocaleString('es-AR'),
         });
-        await sendPasswordResetEmail(auth, form.email);
-        alert(`✓ Usuario creado. Se envió email a ${form.email} para configurar contraseña.`);
+
+        setCredencialCreada({ email: form.email, password: form.password });
+        setForm(prev => ({ ...prev, nombre: '', email: '', password: '', empresa: '', cuit_empresa: '', telefono: '' }));
       }
-      setVista('lista');
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') {
         alert('Ya existe un usuario con ese email.');
@@ -198,7 +237,7 @@ function Admin({ usuario, onVolver }) {
       <div style={styles.tabs}>
         <button
           style={{ ...styles.tab, ...(seccion === 'usuarios' ? styles.tabActive : {}) }}
-          onClick={() => { setSeccion('usuarios'); setVista('lista'); }}>
+          onClick={() => { setSeccion('usuarios'); setVista('lista'); setCredencialCreada(null); }}>
           👤 Usuarios del portal
         </button>
         <button
@@ -262,77 +301,125 @@ function Admin({ usuario, onVolver }) {
         <div>
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>{editando ? 'Editar usuario' : 'Nuevo usuario'}</h2>
-            <button style={styles.btnVolver} onClick={() => setVista('lista')}>← Volver</button>
+            <button style={styles.btnVolver} onClick={() => { setVista('lista'); setCredencialCreada(null); }}>← Volver</button>
           </div>
-          <form onSubmit={guardar} style={styles.form}>
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Datos personales</div>
-              <div style={styles.grid2}>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Nombre completo *</label>
-                  <input style={styles.input} type="text" placeholder="Apellido, Nombre"
-                    value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Email *{editando ? ' (no editable)' : ''}</label>
-                  <input style={styles.input} type="email" placeholder="usuario@email.com"
-                    value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
-                    disabled={!!editando} />
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Teléfono / WhatsApp</label>
-                  <input style={styles.input} type="text" placeholder="Ej: 3476123456"
-                    value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} />
-                </div>
+
+          {/* Banner de credencial creada */}
+          {credencialCreada && (
+            <div style={styles.credencialBanner}>
+              <div style={styles.credencialTitulo}>✓ Usuario creado correctamente</div>
+              <div style={styles.credencialFila}>
+                <span style={styles.credencialLabel}>Email</span>
+                <span style={styles.credencialValor}>{credencialCreada.email}</span>
+              </div>
+              <div style={styles.credencialFila}>
+                <span style={styles.credencialLabel}>Contraseña</span>
+                <span style={styles.credencialValor}>{credencialCreada.password}</span>
+              </div>
+              <div style={styles.credencialAcciones}>
+                <button style={styles.btnCopiar} onClick={copiarCredencial}>📋 Copiar para WhatsApp</button>
+                <button style={styles.btnNuevoUsuario} onClick={abrirNuevo}>+ Crear otro usuario</button>
+                <button style={styles.btnVolver2} onClick={() => { setVista('lista'); setCredencialCreada(null); }}>Volver a la lista</button>
               </div>
             </div>
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Rol y acceso</div>
-              <div style={styles.grid2}>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Rol *</label>
-                  <select style={styles.input} value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value })}>
-                    <option value="admin">Admin</option>
-                    <option value="coordinador">Coordinador</option>
-                    <option value="comercial">Comercial</option>
-                    <option value="transportista">Transportista</option>
-                  </select>
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Estado</label>
-                  <select style={styles.input} value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })}>
-                    <option value="activo">Activo</option>
-                    <option value="inactivo">Inactivo</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            {(form.rol === 'transportista' || form.rol === 'admin') && (
+          )}
+
+          {!credencialCreada && (
+            <form onSubmit={guardar} style={styles.form}>
               <div style={styles.seccion}>
-                <div style={styles.seccionTitulo}>Datos empresa</div>
+                <div style={styles.seccionTitulo}>Datos personales</div>
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
-                    <label style={styles.formLabel}>Nombre empresa</label>
-                    <input style={styles.input} type="text" placeholder="Razón social"
-                      value={form.empresa} onChange={e => setForm({ ...form, empresa: e.target.value })} />
+                    <label style={styles.formLabel}>Nombre completo *</label>
+                    <input style={styles.input} type="text" placeholder="Apellido, Nombre"
+                      value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
                   </div>
                   <div style={styles.formField}>
-                    <label style={styles.formLabel}>CUIT empresa</label>
-                    <input style={styles.input} type="text" placeholder="20-00000000-0"
-                      value={form.cuit_empresa} onChange={e => setForm({ ...form, cuit_empresa: e.target.value })} />
+                    <label style={styles.formLabel}>Email *{editando ? ' (no editable)' : ''}</label>
+                    <input style={styles.input} type="email" placeholder="usuario@email.com"
+                      value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
+                      disabled={!!editando} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Teléfono / WhatsApp</label>
+                    <input style={styles.input} type="text" placeholder="Ej: 3476123456"
+                      value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} />
                   </div>
                 </div>
               </div>
-            )}
-            <div style={styles.formActions}>
-              <button type="submit"
-                style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }}
-                disabled={enviando}>
-                {enviando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Crear usuario'}
-              </button>
-              <button type="button" style={styles.btnCancelar} onClick={() => setVista('lista')}>Cancelar</button>
-            </div>
-          </form>
+
+              {!editando && (
+                <div style={styles.seccion}>
+                  <div style={styles.seccionTitulo}>Contraseña de acceso</div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Contraseña *</label>
+                    <div style={styles.passwordRow}>
+                      <input
+                        style={{ ...styles.input, flex: 1 }}
+                        type={verPassword ? 'text' : 'password'}
+                        placeholder="Mínimo 6 caracteres"
+                        value={form.password}
+                        onChange={e => setForm({ ...form, password: e.target.value })}
+                      />
+                      <button type="button" style={styles.btnVerPass} onClick={() => setVerPassword(!verPassword)}>
+                        {verPassword ? '🙈 Ocultar' : '👁 Ver'}
+                      </button>
+                    </div>
+                    <span style={styles.passHint}>Esta contraseña la vas a ver una sola vez al confirmar. Guardala o copiala para enviársela al usuario.</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={styles.seccion}>
+                <div style={styles.seccionTitulo}>Rol y acceso</div>
+                <div style={styles.grid2}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Rol *</label>
+                    <select style={styles.input} value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value })}>
+                      <option value="admin">Admin</option>
+                      <option value="coordinador">Coordinador</option>
+                      <option value="comercial">Comercial</option>
+                      <option value="transportista">Transportista</option>
+                    </select>
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Estado</label>
+                    <select style={styles.input} value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })}>
+                      <option value="activo">Activo</option>
+                      <option value="inactivo">Inactivo</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {(form.rol === 'transportista' || form.rol === 'admin') && (
+                <div style={styles.seccion}>
+                  <div style={styles.seccionTitulo}>Datos empresa</div>
+                  <div style={styles.grid2}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Nombre empresa</label>
+                      <input style={styles.input} type="text" placeholder="Razón social"
+                        value={form.empresa} onChange={e => setForm({ ...form, empresa: e.target.value })} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>CUIT empresa</label>
+                      <input style={styles.input} type="text" placeholder="20-00000000-0"
+                        value={form.cuit_empresa} onChange={e => setForm({ ...form, cuit_empresa: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={styles.formActions}>
+                <button type="submit"
+                  style={{ ...styles.btnPrimary, padding: '11px', fontSize: 14, opacity: enviando ? 0.7 : 1 }}
+                  disabled={enviando}>
+                  {enviando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Crear usuario'}
+                </button>
+                <button type="button" style={styles.btnCancelar} onClick={() => { setVista('lista'); setCredencialCreada(null); }}>Cancelar</button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
@@ -534,9 +621,23 @@ const styles = {
   grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 },
   formField: { display: 'flex', flexDirection: 'column', gap: 5 },
   formLabel: { fontSize: 13, color: '#6B7280', fontWeight: 500 },
-  input: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' },
+  input: { fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box' },
   formActions: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: '1.5rem' },
   btnCancelar: { padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, cursor: 'pointer' },
+  // Contraseña
+  passwordRow: { display: 'flex', gap: 8, alignItems: 'center' },
+  btnVerPass: { padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 },
+  passHint: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  // Banner credencial creada
+  credencialBanner: { background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' },
+  credencialTitulo: { fontSize: 14, fontWeight: 600, color: '#085041', marginBottom: 12 },
+  credencialFila: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 },
+  credencialLabel: { fontSize: 12, color: '#6B7280', width: 80, flexShrink: 0 },
+  credencialValor: { fontSize: 14, fontWeight: 500, color: '#111827', fontFamily: 'monospace', background: '#fff', padding: '4px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB' },
+  credencialAcciones: { display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' },
+  btnCopiar: { padding: '8px 14px', borderRadius: 8, border: 'none', background: '#085041', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  btnNuevoUsuario: { padding: '8px 14px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  btnVolver2: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
 };
 
 export default Admin;
