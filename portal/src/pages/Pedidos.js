@@ -46,6 +46,12 @@ function Pedidos({ usuario, onVolver }) {
   const [busqueda, setBusqueda] = useState('');
   const [verTodos, setVerTodos] = useState(false);
 
+  // — Memoria de cliente —
+  const [sugerenciaCliente, setSugerenciaCliente] = useState(null);
+  const [clientesSugeridos, setClientesSugeridos] = useState([]);
+  const [mostrarDropCliente, setMostrarDropCliente] = useState(false);
+  const clienteRef = useRef();
+
   const [form, setForm] = useState({
     tipo: 'Entrega al cliente',
     producto: '',
@@ -81,6 +87,67 @@ function Pedidos({ usuario, onVolver }) {
     });
     return () => unsub();
   }, [usuario]);
+
+  // — Cuando cambia el campo cliente, buscar coincidencias en pedidos anteriores —
+  useEffect(() => {
+    const q = form.cliente.trim().toLowerCase();
+    if (!q || q.length < 2) {
+      setClientesSugeridos([]);
+      setSugerenciaCliente(null);
+      setMostrarDropCliente(false);
+      return;
+    }
+    // Clientes únicos que coincidan, tomando el pedido más reciente de cada uno
+    const mapaClientes = {};
+    pedidos.forEach(p => {
+      const nombre = (p.cliente || '').trim();
+      if (!nombre) return;
+      if (!mapaClientes[nombre] || new Date(p.timestamp) > new Date(mapaClientes[nombre].timestamp)) {
+        mapaClientes[nombre] = p;
+      }
+    });
+    const coincidencias = Object.values(mapaClientes).filter(p =>
+      p.cliente.toLowerCase().includes(q)
+    );
+    setClientesSugeridos(coincidencias);
+    setMostrarDropCliente(coincidencias.length > 0);
+
+    // Si hay coincidencia exacta, preparar sugerencia de datos
+    const exacto = coincidencias.find(p => p.cliente.toLowerCase() === q);
+    if (exacto) {
+      setSugerenciaCliente(exacto);
+    } else {
+      setSugerenciaCliente(null);
+    }
+  }, [form.cliente, pedidos]);
+
+  function aplicarMemoria(pedidoRef) {
+    const ovParts = (pedidoRef.ov || 'OV-').split('-');
+    setForm(prev => ({
+      ...prev,
+      cliente: pedidoRef.cliente,
+      producto: pedidoRef.producto || prev.producto,
+      recipiente: pedidoRef.recipiente || prev.recipiente,
+      telefono_prefijo: pedidoRef.telefono_prefijo || prev.telefono_prefijo,
+      telefono_numero: pedidoRef.telefono_numero || prev.telefono_numero,
+      banda_horaria: pedidoRef.banda_horaria || prev.banda_horaria,
+      calle: pedidoRef.calle || prev.calle,
+      numero: pedidoRef.numero || prev.numero,
+      ciudad: pedidoRef.ciudad || prev.ciudad,
+      provincia: pedidoRef.provincia || prev.provincia,
+      cp: pedidoRef.cp || prev.cp,
+      mapsLink: pedidoRef.mapsLink || prev.mapsLink,
+      ov_tipo: ovParts[0] || prev.ov_tipo,
+      // No copiamos: volumen, ov_numero, fecha_entrega, obs — son siempre distintos
+    }));
+    setSugerenciaCliente(null);
+    setClientesSugeridos([]);
+    setMostrarDropCliente(false);
+  }
+
+  function seleccionarClienteDrop(pedidoRef) {
+    aplicarMemoria(pedidoRef);
+  }
 
   function genNro() {
     const now = new Date();
@@ -311,6 +378,9 @@ function Pedidos({ usuario, onVolver }) {
       setVista('panel');
       setBusqueda('');
       setVerTodos(false);
+      setSugerenciaCliente(null);
+      setClientesSugeridos([]);
+      setMostrarDropCliente(false);
       setForm({
         tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
         cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '',
@@ -528,11 +598,54 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos comerciales</div>
               <div style={styles.grid2}>
+
+                {/* — Campo cliente con dropdown de sugerencias — */}
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>Cliente / Proveedor *</label>
-                  <input style={styles.input} type="text" placeholder="Ej: SINER"
-                    value={form.cliente} onChange={e => setForm({ ...form, cliente: e.target.value })} />
+                  <div style={{ position: 'relative' }} ref={clienteRef}>
+                    <input
+                      style={styles.input}
+                      type="text"
+                      placeholder="Ej: SINER"
+                      value={form.cliente}
+                      onChange={e => setForm({ ...form, cliente: e.target.value })}
+                      onBlur={() => setTimeout(() => setMostrarDropCliente(false), 150)}
+                      onFocus={() => clientesSugeridos.length > 0 && setMostrarDropCliente(true)}
+                      autoComplete="off"
+                    />
+                    {mostrarDropCliente && clientesSugeridos.length > 0 && (
+                      <div style={styles.clienteDrop}>
+                        {clientesSugeridos.map(p => (
+                          <button
+                            key={p.docId}
+                            type="button"
+                            style={styles.clienteDropItem}
+                            onMouseDown={() => seleccionarClienteDrop(p)}
+                          >
+                            <span style={styles.clienteDropNombre}>{p.cliente}</span>
+                            <span style={styles.clienteDropDetalle}>{p.producto} · {p.ciudad || p.lugar?.split(',')[2]?.trim() || ''}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Banner de sugerencia cuando hay coincidencia exacta */}
+                  {sugerenciaCliente && !mostrarDropCliente && (
+                    <div style={styles.memoriaBanner}>
+                      <span style={styles.memoriaTexto}>
+                        💡 Último pedido: <strong>{sugerenciaCliente.producto}</strong> a <strong>{sugerenciaCliente.ciudad || sugerenciaCliente.lugar}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        style={styles.memoriaBtn}
+                        onClick={() => aplicarMemoria(sugerenciaCliente)}
+                      >
+                        Autocompletar
+                      </button>
+                    </div>
+                  )}
                 </div>
+
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>OV / OC *</label>
                   <div style={styles.ovRow}>
@@ -754,6 +867,14 @@ const styles = {
   btnAdjuntar: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   formActions: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: '1.5rem' },
   btnCancelar: { padding: '11px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, cursor: 'pointer' },
+  // — Memoria de cliente —
+  clienteDrop: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', marginTop: 2, overflow: 'hidden' },
+  clienteDropItem: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '8px 12px', border: 'none', borderBottom: '0.5px solid #F3F4F6', background: '#fff', cursor: 'pointer', textAlign: 'left' },
+  clienteDropNombre: { fontSize: 13, fontWeight: 500, color: '#111827' },
+  clienteDropDetalle: { fontSize: 11, color: '#9CA3AF' },
+  memoriaBanner: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6, padding: '7px 10px', borderRadius: 8, background: '#EFF6FF', border: '0.5px solid #BFDBFE' },
+  memoriaTexto: { fontSize: 12, color: '#1D4ED8', flex: 1 },
+  memoriaBtn: { padding: '4px 10px', borderRadius: 6, border: '0.5px solid #93C5FD', background: '#DBEAFE', color: '#1D4ED8', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' },
 };
 
 export default Pedidos;
