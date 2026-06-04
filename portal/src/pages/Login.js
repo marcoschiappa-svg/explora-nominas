@@ -180,7 +180,7 @@ const s = {
   },
   panelInner: { width: '100%', display: 'flex', flexDirection: 'column', gap: 0 },
   logoArea: { marginBottom: 28, display: 'flex', alignItems: 'center' },
-  logo: { height: 36, objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.9 },
+  logo: { height: 36, objectFit: 'contain', mixBlendMode: "screen", opacity: 1 },
   heading: { fontSize: 26, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.5px', lineHeight: 1.2, marginBottom: 6 },
   subheading: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 36, letterSpacing: '0.04em', textTransform: 'uppercase' },
   formWrap: { display: 'flex', flexDirection: 'column', gap: 12 },
