@@ -169,7 +169,7 @@ const s = {
   wrap: { minHeight: '100vh', display: 'flex', fontFamily: "'DM Sans', system-ui, sans-serif" },
 
   // Foto lado izquierdo
-  fotoWrap: { flex: 1, position: 'relative', display: 'none', overflow: 'hidden' },
+  fotoWrap: { flex: 1, position: "relative", overflow: "hidden" },
   foto: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%', display: 'block' },
   fotoOverlay: { position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 60%)' },
   fotoBadge: { position: 'absolute', bottom: 32, left: 32 },
