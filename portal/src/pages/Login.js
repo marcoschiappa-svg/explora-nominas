@@ -70,11 +70,17 @@ function Login({ onLogin }) {
 
   return (
     <div style={s.wrap}>
-      {/* Fondo con foto */}
-      <div style={s.bg} />
-      <div style={s.overlay} />
+      {/* Foto de fondo izquierda */}
+      <div style={s.fotoWrap}>
+        <img src="/planta_bg.jpg" alt="" style={s.foto} />
+        <div style={s.fotoOverlay} />
+        <div style={s.fotoBadge}>
+          <div style={s.fotoBadgeTitulo}>Complejo Industrial PGSM</div>
+          <div style={s.fotoBadgeSub}>Puerto General San Martín · Santa Fe</div>
+        </div>
+      </div>
 
-      {/* Panel lateral derecho */}
+      {/* Panel derecho blanco */}
       <div style={s.panel}>
         <div style={s.panelInner}>
           <div style={s.logoArea}>
@@ -82,14 +88,18 @@ function Login({ onLogin }) {
           </div>
 
           <div style={s.heading}>Portal Operativo</div>
-          <div style={s.subheading}>Complejo Industrial PGSM</div>
+          <div style={s.subheading}>Iniciá sesión para continuar</div>
 
           {modo === 'selector' && (
             <div style={s.formWrap}>
               <button style={s.btnGoogle} onClick={() => setModo('google')}>
                 <GoogleIcon /> Ingresar con Google
               </button>
-              <div style={s.divider}><span style={s.dividerLine}/><span style={s.dividerText}>o</span><span style={s.dividerLine}/></div>
+              <div style={s.divider}>
+                <span style={s.dividerLine} />
+                <span style={s.dividerText}>o</span>
+                <span style={s.dividerLine} />
+              </div>
               <button style={s.btnEmail} onClick={() => setModo('email')}>
                 ✉ Ingresar con email y contraseña
               </button>
@@ -137,7 +147,7 @@ function Login({ onLogin }) {
             </div>
           )}
 
-          <div style={s.footer}>Explora S.A. · Uso interno</div>
+          <div style={s.footer}>Explora S.A. · Uso interno · PGSM</div>
         </div>
       </div>
     </div>
@@ -156,56 +166,58 @@ function GoogleIcon() {
 }
 
 const s = {
-  wrap: { minHeight: '100vh', display: 'flex', position: 'relative', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  bg: {
-    position: 'fixed', inset: 0, zIndex: 0,
-    backgroundImage: 'url(/planta_bg.jpg)',
-    backgroundSize: 'cover', backgroundPosition: 'center 30%',
-    filter: 'brightness(0.55) saturate(0.8)',
-  },
-  overlay: {
-    position: 'fixed', inset: 0, zIndex: 1,
-    background: 'linear-gradient(105deg, rgba(0,0,0,0.7) 0%, rgba(10,10,20,0.3) 60%, transparent 100%)',
-  },
+  wrap: { minHeight: '100vh', display: 'flex', fontFamily: "'DM Sans', system-ui, sans-serif" },
+
+  // Foto lado izquierdo
+  fotoWrap: { flex: 1, position: 'relative', display: 'none', overflow: 'hidden' },
+  foto: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%', display: 'block' },
+  fotoOverlay: { position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 60%)' },
+  fotoBadge: { position: 'absolute', bottom: 32, left: 32 },
+  fotoBadgeTitulo: { fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4, letterSpacing: '-0.3px' },
+  fotoBadgeSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
+
+  // Panel derecho blanco
   panel: {
-    position: 'relative', zIndex: 10,
-    marginLeft: 'auto',
-    width: '100%', maxWidth: 420,
+    width: '100%', maxWidth: 440,
     minHeight: '100vh',
-    background: 'rgba(10,10,14,0.82)',
-    backdropFilter: 'blur(20px)',
-    borderLeft: '1px solid rgba(255,255,255,0.07)',
+    background: '#FFFFFF',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: '2rem',
+    padding: '2.5rem 2rem',
+    boxShadow: '-8px 0 32px rgba(0,0,0,0.08)',
+    boxSizing: 'border-box',
   },
   panelInner: { width: '100%', display: 'flex', flexDirection: 'column', gap: 0 },
-  logoArea: { marginBottom: 28, display: 'flex', alignItems: 'center' },
-  logo: { height: 36, objectFit: 'contain', mixBlendMode: "screen", opacity: 1 },
-  heading: { fontSize: 26, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.5px', lineHeight: 1.2, marginBottom: 6 },
-  subheading: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 36, letterSpacing: '0.04em', textTransform: 'uppercase' },
+  logoArea: { marginBottom: 32 },
+  logo: { height: 40, objectFit: 'contain' },
+  heading: { fontSize: 24, fontWeight: 700, color: '#111827', letterSpacing: '-0.5px', marginBottom: 6 },
+  subheading: { fontSize: 14, color: '#9CA3AF', marginBottom: 32 },
+
   formWrap: { display: 'flex', flexDirection: 'column', gap: 12 },
-  modoDesc: { fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: '0 0 4px', textAlign: 'center' },
-  form: { display: 'flex', flexDirection: 'column', gap: 12 },
+  modoDesc: { fontSize: 12, color: '#9CA3AF', margin: '0 0 4px', textAlign: 'center' },
+  form: { display: 'flex', flexDirection: 'column', gap: 14 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
-  label: { fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase' },
-  input: {
-    fontSize: 14, padding: '11px 14px', borderRadius: 8, width: '100%', boxSizing: 'border-box',
-    background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
-    color: '#fff', outline: 'none',
-  },
+  label: { fontSize: 12, color: '#374151', fontWeight: 600, letterSpacing: '0.02em' },
+  input: { fontSize: 14, padding: '11px 13px', borderRadius: 8, border: '1.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box', outline: 'none', background: '#FAFAFA' },
   passRow: { display: 'flex', gap: 8, alignItems: 'center' },
-  btnVer: { padding: '11px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.07)', cursor: 'pointer', fontSize: 14, color: '#fff', flexShrink: 0 },
+  btnVer: { padding: '11px 12px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#FAFAFA', cursor: 'pointer', fontSize: 14, color: '#6B7280', flexShrink: 0 },
   btnPrimary: { padding: '12px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.02em' },
-  btnGoogle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
-  btnEmail: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 14, cursor: 'pointer' },
+  btnGoogle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  btnEmail: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
   divider: { display: 'flex', alignItems: 'center', gap: 10 },
-  dividerLine: { flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' },
-  dividerText: { fontSize: 12, color: 'rgba(255,255,255,0.3)' },
-  btnReset: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' },
-  btnVolver: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: 13, cursor: 'pointer', padding: 0, textAlign: 'center', marginTop: 4 },
-  error: { padding: '10px 14px', borderRadius: 8, background: 'rgba(200,16,46,0.2)', border: '1px solid rgba(200,16,46,0.4)', fontSize: 12, color: '#FCA5A5' },
-  success: { padding: '10px 14px', borderRadius: 8, background: 'rgba(15,110,86,0.25)', border: '1px solid rgba(93,202,165,0.3)', fontSize: 12, color: '#6EE7B7' },
-  footer: { marginTop: 48, fontSize: 11, color: 'rgba(255,255,255,0.2)', textAlign: 'center', letterSpacing: '0.05em' },
+  dividerLine: { flex: 1, height: 1, background: '#E5E7EB' },
+  dividerText: { fontSize: 12, color: '#9CA3AF' },
+  btnReset: { background: 'none', border: 'none', color: '#9CA3AF', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' },
+  btnVolver: { background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer', padding: 0, textAlign: 'center', marginTop: 4 },
+  error: { padding: '10px 14px', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12, color: '#B91C1C' },
+  success: { padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 12, color: '#166534' },
+  footer: { marginTop: 48, fontSize: 11, color: '#D1D5DB', textAlign: 'center' },
 };
+
+// Mostrar foto en pantallas grandes
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = '@media (min-width: 768px) { .login-foto { display: block !important; } }';
+  document.head.appendChild(style);
+}
 
 export default Login;
