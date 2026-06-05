@@ -305,12 +305,12 @@ function Admin({ usuario, onVolver }) {
                       <div style={styles.telPrefijoWrap}>
                         <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4}
                           value={form[`prefijo_${n}`]} onChange={f(`prefijo_${n}`)} />
-                        <span style={styles.telHint}>Sin 0 · 3-4 díg.</span>
+                        <span style={styles.telHint}>Sin 0 · 2-4 díg.</span>
                       </div>
                       <div style={styles.telNumeroWrap}>
-                        <input style={styles.input} type="text" placeholder="Número" maxLength={7}
+                        <input style={styles.input} type="text" placeholder="Número" maxLength={8}
                           value={form[`numero_${n}`]} onChange={f(`numero_${n}`)} />
-                        <span style={styles.telHint}>Sin 15 · 6-7 díg.</span>
+                        <span style={styles.telHint}>Sin 15 · 6-8 díg.</span>
                       </div>
                     </div>
                   </div>

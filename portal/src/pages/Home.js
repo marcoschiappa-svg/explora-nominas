@@ -8,7 +8,9 @@ function Home({ usuario, onModulo, onLogout }) {
   const [passActual, setPassActual] = useState('');
   const [passNueva, setPassNueva] = useState('');
   const [passConfirm, setPassConfirm] = useState('');
-  const [verPass, setVerPass] = useState(false);
+  const [verPass1, setVerPass1] = useState(false);
+  const [verPass2, setVerPass2] = useState(false);
+  const [verPass3, setVerPass3] = useState(false);
   const [errorPass, setErrorPass] = useState('');
   const [okPass, setOkPass] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -61,33 +63,78 @@ function Home({ usuario, onModulo, onLogout }) {
           <div style={{ ...base.modalBox, background: t.modalBg, border: `1px solid ${t.borde}` }}>
             <div style={{ ...base.modalTitulo, color: t.texto }}>Cambiar contraseña</div>
             {okPass
-              ? <div style={{ ...base.successMsg }}> ✓ Contraseña actualizada correctamente.</div>
+              ? <div style={base.successMsg}>✓ Contraseña actualizada correctamente.</div>
               : (
                 <form onSubmit={cambiarPassword} style={base.modalForm}>
                   {errorPass && <div style={base.errorMsg}>{errorPass}</div>}
-                  {[
-                    { label: 'Contraseña actual', val: passActual, set: setPassActual, auto: 'current-password' },
-                    { label: 'Contraseña nueva', val: passNueva, set: setPassNueva, auto: 'new-password' },
-                    { label: 'Confirmar contraseña', val: passConfirm, set: setPassConfirm, auto: 'new-password' },
-                  ].map((f, i) => (
-                    <div key={i} style={base.field}>
-                      <label style={{ ...base.fieldLabel, color: t.labelColor }}>{f.label}</label>
-                      <div style={i === 0 ? base.passRow : {}}>
-                        <input style={{ ...base.input, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto, flex: i === 0 ? 1 : undefined }}
-                          type={verPass ? 'text' : 'password'} value={f.val}
-                          onChange={e => f.set(e.target.value)} placeholder="••••••••" autoComplete={f.auto} />
-                        {i === 0 && (
-                          <button type="button" style={{ ...base.btnVer, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto }}
-                            onClick={() => setVerPass(!verPass)}>{verPass ? '🙈' : '👁'}</button>
-                        )}
-                      </div>
+
+                  {/* Campo 1 — actual */}
+                  <div style={base.field}>
+                    <label style={{ ...base.fieldLabel, color: t.labelColor }}>Contraseña actual</label>
+                    <div style={base.passRow}>
+                      <input
+                        style={{ ...base.input, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto, flex: 1 }}
+                        type={verPass1 ? 'text' : 'password'}
+                        value={passActual}
+                        onChange={e => setPassActual(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                      <button type="button"
+                        style={{ ...base.btnVer, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto }}
+                        onClick={() => setVerPass1(!verPass1)}>
+                        {verPass1 ? '🙈' : '👁'}
+                      </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Campo 2 — nueva */}
+                  <div style={base.field}>
+                    <label style={{ ...base.fieldLabel, color: t.labelColor }}>Contraseña nueva</label>
+                    <div style={base.passRow}>
+                      <input
+                        style={{ ...base.input, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto, flex: 1 }}
+                        type={verPass2 ? 'text' : 'password'}
+                        value={passNueva}
+                        onChange={e => setPassNueva(e.target.value)}
+                        placeholder="Mínimo 8 caracteres"
+                        autoComplete="new-password"
+                      />
+                      <button type="button"
+                        style={{ ...base.btnVer, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto }}
+                        onClick={() => setVerPass2(!verPass2)}>
+                        {verPass2 ? '🙈' : '👁'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Campo 3 — confirmar */}
+                  <div style={base.field}>
+                    <label style={{ ...base.fieldLabel, color: t.labelColor }}>Confirmar contraseña</label>
+                    <div style={base.passRow}>
+                      <input
+                        style={{ ...base.input, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto, flex: 1 }}
+                        type={verPass3 ? 'text' : 'password'}
+                        value={passConfirm}
+                        onChange={e => setPassConfirm(e.target.value)}
+                        placeholder="Repetí la contraseña"
+                        autoComplete="new-password"
+                      />
+                      <button type="button"
+                        style={{ ...base.btnVer, background: t.inputBg, border: `1px solid ${t.borde}`, color: t.texto }}
+                        onClick={() => setVerPass3(!verPass3)}>
+                        {verPass3 ? '🙈' : '👁'}
+                      </button>
+                    </div>
+                  </div>
+
                   <button type="submit" style={{ ...base.btnPrimary, opacity: guardando ? 0.7 : 1 }} disabled={guardando}>
                     {guardando ? 'Guardando...' : 'Cambiar contraseña'}
                   </button>
                   <button type="button" style={{ ...base.btnSecundario, border: `1px solid ${t.borde}`, color: t.textoSub }}
-                    onClick={() => { setModalPass(false); setErrorPass(''); }}>Cancelar</button>
+                    onClick={() => { setModalPass(false); setErrorPass(''); setVerPass1(false); setVerPass2(false); setVerPass3(false); }}>
+                    Cancelar
+                  </button>
                 </form>
               )}
           </div>
@@ -107,11 +154,8 @@ function Home({ usuario, onModulo, onLogout }) {
             <span style={{ fontSize: 13, fontWeight: 500, color: t.texto }}>{usuario?.nombre || usuario?.email}</span>
             <span style={{ fontSize: 11, color: t.textoSub, textTransform: 'capitalize' }}>{rolLabel[rol] || rol}</span>
           </div>
-          <button
-            style={{ ...base.btnIcono, background: t.btnBg, border: `1px solid ${t.borde}`, color: t.texto }}
-            onClick={() => setOscuro(!oscuro)}
-            title={oscuro ? 'Modo claro' : 'Modo oscuro'}
-          >
+          <button style={{ ...base.btnIcono, background: t.btnBg, border: `1px solid ${t.borde}`, color: t.texto }}
+            onClick={() => setOscuro(!oscuro)} title={oscuro ? 'Modo claro' : 'Modo oscuro'}>
             {oscuro ? '☀️' : '🌙'}
           </button>
           <button style={{ ...base.btnIcono, background: t.btnBg, border: `1px solid ${t.borde}`, color: t.texto }}
@@ -127,9 +171,7 @@ function Home({ usuario, onModulo, onLogout }) {
           <div style={{ fontSize: 28, fontWeight: 700, color: t.texto, letterSpacing: '-0.5px', marginBottom: 6 }}>
             Bienvenido, <span style={{ color: '#C8102E' }}>{usuario?.nombre?.split(' ')[0] || 'usuario'}</span>
           </div>
-          <div style={{ fontSize: 13, color: t.textoSub, letterSpacing: '0.02em' }}>
-            Portal Operativo · Complejo Industrial PGSM
-          </div>
+          <div style={{ fontSize: 13, color: t.textoSub }}>Portal Operativo · Complejo Industrial PGSM</div>
         </div>
         {usuario?.empresa && (
           <div style={{ ...base.empresaTag, background: t.tagBg, border: `1px solid ${t.borde}`, color: t.textoSub }}>
@@ -160,39 +202,23 @@ function Home({ usuario, onModulo, onLogout }) {
 }
 
 const light = {
-  bg: '#F8F8F8',
-  texto: '#111827',
-  textoSub: '#6B7280',
-  labelColor: '#6B7280',
-  borde: '#E5E7EB',
-  topbarBg: 'rgba(255,255,255,0.92)',
-  modalBg: '#FFFFFF',
-  inputBg: '#F9FAFB',
-  cardBg: '#FFFFFF',
-  cardHover: '#FFF5F5',
-  btnBg: '#FFFFFF',
-  tagBg: '#F3F4F6',
+  bg: '#F8F8F8', texto: '#111827', textoSub: '#6B7280', labelColor: '#6B7280',
+  borde: '#E5E7EB', topbarBg: 'rgba(255,255,255,0.92)', modalBg: '#FFFFFF',
+  inputBg: '#F9FAFB', cardBg: '#FFFFFF', cardHover: '#FFF5F5',
+  btnBg: '#FFFFFF', tagBg: '#F3F4F6',
 };
 
 const dark = {
-  bg: '#0D0D0F',
-  texto: '#F9FAFB',
-  textoSub: 'rgba(255,255,255,0.4)',
-  labelColor: 'rgba(255,255,255,0.45)',
-  borde: 'rgba(255,255,255,0.09)',
-  topbarBg: 'rgba(13,13,15,0.92)',
-  modalBg: '#18181B',
-  inputBg: 'rgba(255,255,255,0.06)',
-  cardBg: 'rgba(255,255,255,0.04)',
-  cardHover: 'rgba(255,255,255,0.07)',
-  btnBg: 'rgba(255,255,255,0.06)',
-  tagBg: 'rgba(255,255,255,0.06)',
+  bg: '#0D0D0F', texto: '#F9FAFB', textoSub: 'rgba(255,255,255,0.4)', labelColor: 'rgba(255,255,255,0.45)',
+  borde: 'rgba(255,255,255,0.09)', topbarBg: 'rgba(13,13,15,0.92)', modalBg: '#18181B',
+  inputBg: 'rgba(255,255,255,0.06)', cardBg: 'rgba(255,255,255,0.04)', cardHover: 'rgba(255,255,255,0.07)',
+  btnBg: 'rgba(255,255,255,0.06)', tagBg: 'rgba(255,255,255,0.06)',
 };
 
 const base = {
   wrap: { minHeight: '100vh', fontFamily: "'DM Sans', system-ui, sans-serif", transition: 'background 0.2s, color 0.2s' },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem', backdropFilter: 'blur(4px)' },
-  modalBox: { borderRadius: 16, padding: '2rem 1.75rem', maxWidth: 380, width: '100%' },
+  modalBox: { borderRadius: 16, padding: '2rem 1.75rem', maxWidth: 400, width: '100%' },
   modalTitulo: { fontSize: 16, fontWeight: 600, marginBottom: 20, textAlign: 'center' },
   modalForm: { display: 'flex', flexDirection: 'column', gap: 14 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
