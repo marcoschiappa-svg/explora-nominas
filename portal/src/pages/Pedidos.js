@@ -7,7 +7,6 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubD
 
 const PRODUCTOS_VALIDOS  = ['Biodiesel','EMAG','Glicerina','Sebo','HFFA Vegetal','Aceite','Otro'];
 const TIPOS_VALIDOS      = ['Entrega al cliente','Retiro de proveedor'];
-const RECIPIENTES_VALIDOS= ['Granel','IBC'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
