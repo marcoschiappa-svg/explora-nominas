@@ -6,7 +6,7 @@
 // Firestore: proyecto explora-portal, colección "portal"
 // ═══════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 // ── FIREBASE ────────────────────────────────────────────────
 // Usa la misma instancia de firebase que el resto del portal.
@@ -233,7 +233,7 @@ export default function Tarifario({ userRole, userEmail }) {
       categoria: gProd,
       fecha: new Date().toLocaleDateString('es-AR')
     });
-  }, [gKm, gProd, gDestino, gCliente, rutas, mods]);
+  }, [gKm, gProd, gDestino, gCliente, rutas, mods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Aprobación desde Generador ────────────────────────────
   const confirmarAprobacion = async () => {
