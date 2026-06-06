@@ -9,6 +9,7 @@ import Pedidos from './pages/Pedidos';
 import Coordinador from './pages/Coordinador';
 import Transportista from './pages/Transportista';
 import Admin from './pages/Admin';
+import Tarifario from './Tarifario';
 
 function App() {
   const [usuario, setUsuario] = useState(null);
@@ -17,12 +18,12 @@ function App() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-if (firebaseUser) {
-  const snap = await getDoc(doc(db, 'usuarios_portal', firebaseUser.uid));
-  console.log('UID Firebase:', firebaseUser.uid);
-  console.log('Documento existe:', snap.exists());
-  console.log('Datos:', snap.data());
-  if (snap.exists() && snap.data().estado === 'activo') {
+      if (firebaseUser) {
+        const snap = await getDoc(doc(db, 'usuarios_portal', firebaseUser.uid));
+        console.log('UID Firebase:', firebaseUser.uid);
+        console.log('Documento existe:', snap.exists());
+        console.log('Datos:', snap.data());
+        if (snap.exists() && snap.data().estado === 'activo') {
           setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, ...snap.data() });
         } else {
           await auth.signOut();
@@ -70,6 +71,9 @@ if (firebaseUser) {
   }
   if (modulo === 'admin' && rol === 'admin') {
     return <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'tarifario' && rol !== 'transportista') {
+    return <Tarifario userRole={rol} userEmail={usuario.email} onVolver={() => setModulo('home')} />;
   }
 
   return <Home usuario={usuario} onModulo={setModulo} onLogout={handleLogout} />;
