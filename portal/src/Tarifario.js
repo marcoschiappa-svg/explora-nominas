@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 // Usa la misma instancia de firebase que el resto del portal.
 // Se importa desde el módulo global ya inicializado en App.js.
 import { db } from './firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // ── DATOS BASE (42 rutas) ───────────────────────────────────
 const T_BASE = [{"proveedor":"Bioils Argentina S.A.","producto":"Aceite","destino":"COFCO Pto.Gral.San Martin (SF)","km":29,"tarifa_base":8408,"tarifa_vigente":9187,"catac":13721.38,"categoria":"General"},{"proveedor":"Frigorifico Soychu SAICFIA","producto":"Aceite","destino":"Molinos - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"Molinos Agro S.A. - San Lorenzo","producto":"Aceite","destino":"Molinos - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"Union Agricola Avellaneda COOP LTDA","producto":"Aceite","destino":"Vicentin - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"BLD Agro S.A.","producto":"Aceite","destino":"Molinos - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"Asoc. Coop. Argentinas COOP LTDA","producto":"Aceite","destino":"Vicentin - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"Asoc. Coop. Argentinas COOP LTDA","producto":"Aceite","destino":"Molinos - San Lorenzo (SF)","km":29,"tarifa_base":8967,"tarifa_vigente":9797,"catac":13721.38,"categoria":"General"},{"proveedor":"Viterra Argentina S. A.","producto":"Aceite","destino":"Renova - Timbues (SF)","km":20,"tarifa_base":9133,"tarifa_vigente":9979,"catac":11584.79,"categoria":"General"},{"proveedor":"LDC Argentina S.A.","producto":"Aceite","destino":"LDC - Timbues (SF)","km":20,"tarifa_base":9133,"tarifa_vigente":9979,"catac":11584.79,"categoria":"General"},{"proveedor":"LDC Argentina S.A.","producto":"Aceite","destino":"General Lagos","km":71,"tarifa_base":15783,"tarifa_vigente":17245,"catac":20683.74,"categoria":"General"},{"proveedor":"Cargill SACEI","producto":"Aceite","destino":"Cargill Villa Gob. Galvez (SF)","km":62,"tarifa_base":14405,"tarifa_vigente":15739,"catac":19248.19,"categoria":"General"},{"proveedor":"Agricultores Federados Arg. SCL","producto":"Aceite","destino":"AFA Los Cardos (SF)","km":138,"tarifa_base":23890,"tarifa_vigente":26102,"catac":30909.56,"categoria":"General"},{"proveedor":"ECOPOR","producto":"EMAG","destino":"Bella Vista","km":320,"tarifa_base":43629,"tarifa_vigente":47669,"catac":57316.7,"categoria":"General"},{"proveedor":"Laruso","producto":"Oleina","destino":"Canada Rosquin","km":120,"tarifa_base":21747,"tarifa_vigente":23761,"catac":28590.2,"categoria":"General"},{"proveedor":"Alianza Nutrientes S.A","producto":"Glicerina","destino":"Lima (BS)","km":242,"tarifa_base":35012,"tarifa_vigente":38254,"catac":45682.69,"categoria":"General"},{"proveedor":"Glycopharma","producto":"Glicerina Tecnica","destino":"Nogoya","km":129,"tarifa_base":22506,"tarifa_vigente":24590,"catac":29752.42,"categoria":"General"},{"proveedor":"Solamb S.R.L","producto":"RINP / HFFA","destino":"Timbues (SF)","km":18,"tarifa_base":7578,"tarifa_vigente":8280,"catac":11075.2,"categoria":"Peligroso"},{"proveedor":"Alltec SA","producto":"EMAG","destino":"Puerto Tirol (CH)","km":700,"tarifa_base":75952,"tarifa_vigente":82985,"catac":87165.04,"categoria":"Peligroso"},{"proveedor":"Formulagro","producto":"EMAG","destino":"San Lorenzo (SF)","km":5,"tarifa_base":17146,"tarifa_vigente":18734,"catac":9233.51,"categoria":"Peligroso"},{"proveedor":"Lab. San Pablo Prod. Biologicos","producto":"EMAG","destino":"Tucuman (TUC)","km":950,"tarifa_base":95880,"tarifa_vigente":104758,"catac":101289.99,"categoria":"Peligroso"},{"proveedor":"Ararami","producto":"EMAG","destino":"Figuiera (SF)","km":80,"tarifa_base":23449,"tarifa_vigente":25620,"catac":22229.54,"categoria":"Peligroso"},{"proveedor":"Daruma Agro SRL","producto":"EMAG","destino":"Lobos (BS)","km":354,"tarifa_base":41650,"tarifa_vigente":45507,"catac":61643.8,"categoria":"Peligroso"},{"proveedor":"El Tobiano","producto":"EMAG","destino":"Tortuguitas","km":308,"tarifa_base":36593,"tarifa_vigente":39982,"catac":55808.97,"categoria":"Peligroso"},{"proveedor":"Induagro","producto":"EMAG","destino":"Canada de Gomez","km":85,"tarifa_base":23449,"tarifa_vigente":25620,"catac":23139.04,"categoria":"Peligroso"},{"proveedor":"Pro Crop S. A.","producto":"EMAG","destino":"Sigma - Brandsen (BS)","km":427,"tarifa_base":47699,"tarifa_vigente":52116,"catac":70094.46,"categoria":"Peligroso"},{"proveedor":"Pro Crop S. A.","producto":"EMAG","destino":"Termochemical - Ezeiza (BA)","km":365,"tarifa_base":43965,"tarifa_vigente":48036,"catac":63053.38,"categoria":"Peligroso"},{"proveedor":"Pro Crop S. A.","producto":"EMAG","destino":"Stoller - (Cba)","km":420,"tarifa_base":49470,"tarifa_vigente":54051,"catac":69448.08,"categoria":"Peligroso"},{"proveedor":"Whor Quimica S.R.L","producto":"EMAG","destino":"Esperanza (SF)","km":175,"tarifa_base":27418,"tarifa_vigente":29957,"catac":36047.69,"categoria":"Peligroso"},{"proveedor":"Daruma Agro SRL","producto":"EMAG","destino":"Arrecifes (BA)","km":190,"tarifa_base":29715,"tarifa_vigente":32467,"catac":38209.43,"categoria":"Peligroso"},{"proveedor":"Serv Quim S.A.","producto":"EMAG","destino":"Las Varillas (Cba)","km":245,"tarifa_base":33150,"tarifa_vigente":36220,"catac":46140.74,"categoria":"Peligroso"},{"proveedor":"AKTIV S.R.L","producto":"EMAG","destino":"Rio Primero (Cba)","km":370,"tarifa_base":45900,"tarifa_vigente":50150,"catac":63718.56,"categoria":"Peligroso"},{"proveedor":"Molisoles S.A","producto":"EMAG","destino":"America (BA)","km":440,"tarifa_base":47699,"tarifa_vigente":52116,"catac":71297.01,"categoria":"Peligroso"},{"proveedor":"PAE","producto":"Biodiesel","destino":"Campana (BA)","km":280,"tarifa_base":32161,"tarifa_vigente":35139,"catac":51549.09,"categoria":"Peligroso"},{"proveedor":"AGM","producto":"EMAG","destino":"Pilar (BA)","km":334,"tarifa_base":36593,"tarifa_vigente":39982,"catac":59063.36,"categoria":"Peligroso"},{"proveedor":"Rainbow","producto":"EMAG","destino":"Gualeguaychu (ER)","km":260,"tarifa_base":32311,"tarifa_vigente":35303,"catac":48413.09,"categoria":"Peligroso"},{"proveedor":"Exolgan","producto":"Biodiesel","destino":"Dock Sur","km":340,"tarifa_base":40898,"tarifa_vigente":44685,"catac":59845.78,"categoria":"Peligroso"},{"proveedor":"Andreani Logistica SA","producto":"Biodiesel","destino":"Tigre (BA)","km":291,"tarifa_base":39467,"tarifa_vigente":43122,"catac":53305.51,"categoria":"Peligroso"},{"proveedor":"Pro Crop S. A.","producto":"EMAG","destino":"Sigma - Gral. Rodriguez (BA)","km":316,"tarifa_base":39467,"tarifa_vigente":43122,"catac":56810.47,"categoria":"Peligroso"},{"proveedor":"Laboratorio Peyte S.A.","producto":"EMAG","destino":"Venado Tuerto (SF)","km":210,"tarifa_base":30396,"tarifa_vigente":33211,"catac":41058.27,"categoria":"Peligroso"},{"proveedor":"PAN AMERICAN ENERGY S.A. TSL","producto":"Biodiesel","destino":"Terminal San Lorenzo (SF)","km":14,"tarifa_base":17146,"tarifa_vigente":18734,"catac":11049.19,"categoria":"Peligroso"},{"proveedor":"PAN AMERICAN ENERGY S.A. TPG","producto":"Biodiesel","destino":"Terminal Galvan (BA)","km":800,"tarifa_base":118392,"tarifa_vigente":129355,"catac":93893.18,"categoria":"Peligroso"},{"proveedor":"PAN AMERICAN ENERGY S.A. TC","producto":"Biodiesel","destino":"Terminal Campana (BA)","km":261,"tarifa_base":34072,"tarifa_vigente":37227,"catac":48548.47,"categoria":"Peligroso"}];
@@ -38,12 +39,12 @@ function getCatacTabla(tabla, km) {
 }
 
 // ── FIRESTORE refs ───────────────────────────────────────────
-const DOC_MODS       = db.collection('portal').doc('mods');
-const DOC_RUTAS      = db.collection('portal').doc('rutas');
-const DOC_PENDIENTES = db.collection('portal').doc('pendientes');
-const DOC_HISTORIAL  = db.collection('portal').doc('historial');
-const DOC_CATAC      = db.collection('portal').doc('catac');
-const DOC_CONFIG     = db.collection('portal').doc('config');
+const REF_MODS       = () => doc(db, 'portal', 'mods');
+const REF_RUTAS      = () => doc(db, 'portal', 'rutas');
+const REF_PENDIENTES = () => doc(db, 'portal', 'pendientes');
+const REF_HISTORIAL  = () => doc(db, 'portal', 'historial');
+const REF_CATAC      = () => doc(db, 'portal', 'catac');
+const REF_CONFIG     = () => doc(db, 'portal', 'config');
 
 const DEFAULT_PW = 'explora2026';
 
@@ -116,8 +117,8 @@ export default function Tarifario({ userRole, userEmail }) {
     async function cargar() {
       try {
         const [mDoc, pDoc, hDoc, cDoc, cfDoc, rDoc] = await Promise.all([
-          DOC_MODS.get(), DOC_PENDIENTES.get(), DOC_HISTORIAL.get(),
-          DOC_CATAC.get(), DOC_CONFIG.get(), DOC_RUTAS.get()
+          getDoc(REF_MODS()), getDoc(REF_PENDIENTES()), getDoc(REF_HISTORIAL()),
+          getDoc(REF_CATAC()), getDoc(REF_CONFIG()), getDoc(REF_RUTAS())
         ]);
         setMods((mDoc.exists && mDoc.data().data) ? mDoc.data().data : {});
         setPendientes((pDoc.exists && pDoc.data().data) ? pDoc.data().data : []);
@@ -130,7 +131,7 @@ export default function Tarifario({ userRole, userEmail }) {
           setRutas(rDoc.data().lista);
         } else {
           setRutas(T_BASE);
-          await DOC_RUTAS.set({ lista: T_BASE });
+          await setDoc(REF_RUTAS(), { lista: T_BASE });
         }
       } catch (e) {
         console.error('Tarifario: error cargando Firestore', e);
@@ -141,10 +142,10 @@ export default function Tarifario({ userRole, userEmail }) {
     cargar();
 
     // Listener en tiempo real para mods e historial
-    const unsubMods = DOC_MODS.onSnapshot(snap => {
+    const unsubMods = onSnapshot(REF_MODS(), snap => {
       if (snap.exists && snap.data().data) setMods(snap.data().data);
     });
-    const unsubHist = DOC_HISTORIAL.onSnapshot(snap => {
+    const unsubHist = onSnapshot(REF_HISTORIAL(), snap => {
       if (snap.exists && snap.data().data) setHistorial(snap.data().data);
     });
     return () => { unsubMods(); unsubHist(); };
@@ -183,9 +184,9 @@ export default function Tarifario({ userRole, userEmail }) {
   }, [getAllRows, q, fcat, fprod]);
 
   // ── Guardar en Firestore ──────────────────────────────────
-  const saveMods = async o => { setMods(o); await DOC_MODS.set({ data: o }); };
-  const savePendientes = async p => { setPendientes(p); await DOC_PENDIENTES.set({ data: p }); };
-  const saveHistorial = async h => { setHistorial(h); await DOC_HISTORIAL.set({ data: h }); };
+  const saveMods = async o => { setMods(o); await setDoc(REF_MODS(), { data: o }); };
+  const savePendientes = async p => { setPendientes(p); await setDoc(REF_PENDIENTES(), { data: p }); };
+  const saveHistorial = async h => { setHistorial(h); await setDoc(REF_HISTORIAL(), { data: h }); };
 
   // ── Login admin ───────────────────────────────────────────
   // NOTA: si el usuario ya tiene rol 'admin' en usuarios_portal,
@@ -250,7 +251,7 @@ export default function Tarifario({ userRole, userEmail }) {
       const nuevaRuta = { ...pendingApproval, tarifa_base: null, esNueva: true };
       const newRutas = [...rutas, nuevaRuta];
       setRutas(newRutas);
-      await DOC_RUTAS.set({ lista: newRutas });
+      await setDoc(REF_RUTAS(), { lista: newRutas });
       newHist.unshift({ proveedor: pendingApproval.proveedor, destino: pendingApproval.destino, km: pendingApproval.km, categoria: pendingApproval.categoria, tarifaAnterior: 0, tarifaNueva: pendingApproval.tarifa_vigente, variacion: 100, just: 'Nueva ruta — Generador', ref: 'Otro', fecha: new Date().toLocaleDateString('es-AR') });
     }
     await saveMods(newMods);
@@ -309,7 +310,7 @@ export default function Tarifario({ userRole, userEmail }) {
     if (newPw.length < 6) { setPwMsg({ text: 'Mínimo 6 caracteres.', ok: false }); return; }
     if (newPw !== confPw) { setPwMsg({ text: 'Las claves no coinciden.', ok: false }); return; }
     setAdminPwState(newPw);
-    await DOC_CONFIG.set({ adminPw: newPw }, { merge: true });
+    await setDoc(REF_CONFIG(), { adminPw: newPw }, { merge: true });
     setPwMsg({ text: 'Clave actualizada correctamente.', ok: true });
     setOldPw(''); setNewPw(''); setConfPw('');
   };
