@@ -54,9 +54,6 @@ const DEFAULT_PW = 'explora2026';
 //   userEmail {string}  — correo del usuario logueado
 // ════════════════════════════════════════════════════════════
 export default function Tarifario({ userRole, userEmail }) {
-  // Bloquear acceso a transportistas
-  if (userRole === 'transportista') return null;
-
   // ── Estado principal ──────────────────────────────────────
   const [tab, setTab]             = useState('consulta');
   const [rutas, setRutas]         = useState([]);
@@ -389,6 +386,9 @@ export default function Tarifario({ userRole, userEmail }) {
   // ─────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────
+
+  // Bloquear acceso a transportistas — debe ir después de todos los hooks
+  if (userRole === 'transportista') return null;
 
   if (loading) return (
     <div style={{ padding: 40, textAlign: 'center', color: '#6b6760', fontSize: 13 }}>Cargando tarifario…</div>
