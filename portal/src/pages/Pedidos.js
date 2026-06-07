@@ -14,6 +14,7 @@ const COLS_ESPERADAS     = [
   'ov_tipo','ov_numero','fecha_entrega','banda_horaria',
   'calle','numero_calle','ciudad','provincia','cp','maps_link','obs'
 ];
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 async function subirArchivo(file, pedidoId, subidoPor) {
   return new Promise((resolve, reject) => {
@@ -68,11 +69,20 @@ function validarFila(fila) {
 function Pedidos({ usuario, onVolver }) {
   const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
+  const [expandido, setExpandido] = useState(null);
   const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
-  const [busqueda, setBusqueda] = useState('');
-  const [verTodos, setVerTodos] = useState(false);
+
+  // Filtros
+  const [fCreador, setFCreador] = useState('');
+  const [fProducto, setFProducto] = useState('');
+  const [fCliente, setFCliente] = useState('');
+  const [fRecipiente, setFRecipiente] = useState('');
+  const [fMesEntrega, setFMesEntrega] = useState('');
+  const [fAnioEntrega, setFAnioEntrega] = useState('');
+  const [fMesCreacion, setFMesCreacion] = useState('');
+  const [fAnioCreacion, setFAnioCreacion] = useState('');
 
   const [sugerenciaCliente, setSugerenciaCliente] = useState(null);
   const [clientesSugeridos, setClientesSugeridos] = useState([]);
@@ -93,10 +103,8 @@ function Pedidos({ usuario, onVolver }) {
     adjuntos: [], archivosNuevos: [],
   });
   const fileRef = useRef();
-
   const rol = usuario?.rol || '';
 
-  // ── Carga todos los pedidos — filtrado por rol en la vista ──
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const data = snap.docs
@@ -107,7 +115,7 @@ function Pedidos({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // Memoria de cliente — usa todos los pedidos del usuario actual
+  // Memoria de cliente
   useEffect(() => {
     const q = form.cliente.trim().toLowerCase();
     if (!q || q.length < 2) { setClientesSugeridos([]); setSugerenciaCliente(null); setMostrarDropCliente(false); return; }
@@ -139,6 +147,42 @@ function Pedidos({ usuario, onVolver }) {
       ov_tipo: ovParts[0]||prev.ov_tipo,
     }));
     setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
+  }
+
+  // ── Opciones dinámicas para filtros ─────────────────────────
+  const creadores = [...new Set(pedidos.map(p => p.creado_por).filter(Boolean))].sort();
+  const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
+  const aniosEntrega = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
+  const aniosCreacion = [...new Set(pedidos.map(p => p.timestamp?.slice(0,4)).filter(Boolean))].sort().reverse();
+
+  // ── Lógica de filtrado ───────────────────────────────────────
+  const pedidosFiltrados = pedidos.filter(p => {
+    if (fCreador && p.creado_por !== fCreador) return false;
+    if (fProducto && p.producto !== fProducto) return false;
+    if (fCliente && !(p.cliente||'').toLowerCase().includes(fCliente.toLowerCase())) return false;
+    if (fRecipiente && p.recipiente !== fRecipiente) return false;
+    if (fMesEntrega && p.fecha_entrega) {
+      const mes = parseInt(p.fecha_entrega.slice(5,7), 10);
+      if (mes !== parseInt(fMesEntrega, 10)) return false;
+    }
+    if (fAnioEntrega && p.fecha_entrega) {
+      if (p.fecha_entrega.slice(0,4) !== fAnioEntrega) return false;
+    }
+    if (fMesCreacion && p.timestamp) {
+      const mes = new Date(p.timestamp).getMonth() + 1;
+      if (mes !== parseInt(fMesCreacion, 10)) return false;
+    }
+    if (fAnioCreacion && p.timestamp) {
+      if (p.timestamp.slice(0,4) !== fAnioCreacion) return false;
+    }
+    return true;
+  });
+
+  const hayFiltros = fCreador || fProducto || fCliente || fRecipiente || fMesEntrega || fAnioEntrega || fMesCreacion || fAnioCreacion;
+
+  function limpiarFiltros() {
+    setFCreador(''); setFProducto(''); setFCliente(''); setFRecipiente('');
+    setFMesEntrega(''); setFAnioEntrega(''); setFMesCreacion(''); setFAnioCreacion('');
   }
 
   // ── CARGA MASIVA ─────────────────────────────────────────────
@@ -217,15 +261,10 @@ function Pedidos({ usuario, onVolver }) {
     } finally { setEnviandoMasivo(false); }
   }
 
-  function descargarPlantilla() {
-    window.open('/plantilla_pedidos_explora.xlsx', '_blank');
-  }
+  function descargarPlantilla() { window.open('/plantilla_pedidos_explora.xlsx', '_blank'); }
 
-  // ── FORMULARIO INDIVIDUAL ────────────────────────────────────
-  function handleAdjuntos(e) {
-    const files = Array.from(e.target.files);
-    setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] }));
-  }
+  // ── FORMULARIO ───────────────────────────────────────────────
+  function handleAdjuntos(e) { const files = Array.from(e.target.files); setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] })); }
   function quitarArchivoNuevo(nombre) { setForm(prev => ({ ...prev, archivosNuevos: prev.archivosNuevos.filter(f => f.name !== nombre) })); }
   function quitarAdjuntoExistente(fileId) { setForm(prev => ({ ...prev, adjuntos: prev.adjuntos.map(a => a.file_id === fileId ? { ...a, _eliminado: true } : a) })); }
   function checkMapsLink(val) { return val.includes('maps.google') || val.includes('goo.gl') || val.includes('maps.app'); }
@@ -308,7 +347,7 @@ function Pedidos({ usuario, onVolver }) {
         await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify({ accion: 'nuevo_pedido', ...pedido }) }).toString(), { mode: 'no-cors' });
         alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
       }
-      setVista('panel'); setBusqueda(''); setVerTodos(false);
+      setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
       setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
@@ -328,8 +367,6 @@ function Pedidos({ usuario, onVolver }) {
 
   const pillColors = { Pendiente: { bg: '#EEEDFE', color: '#3C3489' }, 'prog-parcial': { bg: '#FAEEDA', color: '#633806' }, Programado: { bg: '#E1F5EE', color: '#085041' }, Nominado: { bg: '#E1F5EE', color: '#085041' }, Suspendido: { bg: '#FCEBEB', color: '#791F1F' }, Cumplido: { bg: '#E1F5EE', color: '#085041' } };
   const pillLabel = { Pendiente: 'Pendiente', 'prog-parcial': 'Prog. parcial', Programado: 'Programado', Nominado: 'Nominado', Suspendido: 'Suspendido', Cumplido: 'Cumplido' };
-  const pedidosFiltrados = pedidos.filter(p => { if (!busqueda) return true; const q = busqueda.toLowerCase(); return p.id?.toLowerCase().includes(q) || p.cliente?.toLowerCase().includes(q) || p.producto?.toLowerCase().includes(q); });
-  const pedidosMostrados = busqueda ? pedidosFiltrados : (verTodos ? pedidosFiltrados : pedidosFiltrados.slice(0, 10));
   const filasSinError = filasCarga.filter((_, i) => !erroresCarga[i]);
   const filasConError = filasCarga.filter((_, i) => !!erroresCarga[i]);
 
@@ -347,65 +384,130 @@ function Pedidos({ usuario, onVolver }) {
             <h2 style={styles.titulo}>Pedidos</h2>
             <div style={{ display: 'flex', gap: 8 }}>
               {(rol === 'admin' || rol === 'comercial') && (
-                <button style={styles.btnSecundario} onClick={() => { setVista('carga'); setFilasCarga([]); setErroresCarga({}); setResultadoMasivo(null); }}>
-                  📥 Carga masiva
-                </button>
+                <button style={styles.btnSecundario} onClick={() => { setVista('carga'); setFilasCarga([]); setErroresCarga({}); setResultadoMasivo(null); }}>📥 Carga masiva</button>
               )}
               {(rol === 'admin' || rol === 'comercial') && (
-                <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>
-                  + Nuevo pedido
-                </button>
+                <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>+ Nuevo pedido</button>
               )}
             </div>
           </div>
-          <input style={styles.buscador} type="text" placeholder="Buscar por N° pedido, cliente o producto..." value={busqueda} onChange={e => { setBusqueda(e.target.value); setVerTodos(false); }} />
-          {pedidosMostrados.length === 0 && <div style={styles.empty}>{busqueda ? 'Sin resultados para esa búsqueda.' : 'No hay pedidos aún.'}</div>}
-          {pedidosMostrados.map(p => (
+
+          {/* ── Filtros ── */}
+          <div style={styles.filtrosGrid}>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Creado por</label>
+              <select style={styles.filtroInput} value={fCreador} onChange={e => setFCreador(e.target.value)}>
+                <option value="">Todos</option>
+                {creadores.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Producto</label>
+              <select style={styles.filtroInput} value={fProducto} onChange={e => setFProducto(e.target.value)}>
+                <option value="">Todos</option>
+                {productos.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Cliente</label>
+              <input style={styles.filtroInput} type="text" placeholder="Buscar..." value={fCliente} onChange={e => setFCliente(e.target.value)} />
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Recipiente</label>
+              <select style={styles.filtroInput} value={fRecipiente} onChange={e => setFRecipiente(e.target.value)}>
+                <option value="">Todos</option>
+                <option value="Granel">Granel</option>
+                <option value="IBC">IBC</option>
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Entrega — mes</label>
+              <select style={styles.filtroInput} value={fMesEntrega} onChange={e => setFMesEntrega(e.target.value)}>
+                <option value="">Todos</option>
+                {MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Entrega — año</label>
+              <select style={styles.filtroInput} value={fAnioEntrega} onChange={e => setFAnioEntrega(e.target.value)}>
+                <option value="">Todos</option>
+                {aniosEntrega.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Creación — mes</label>
+              <select style={styles.filtroInput} value={fMesCreacion} onChange={e => setFMesCreacion(e.target.value)}>
+                <option value="">Todos</option>
+                {MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}
+              </select>
+            </div>
+            <div style={styles.filtroField}>
+              <label style={styles.filtroLabel}>Creación — año</label>
+              <select style={styles.filtroInput} value={fAnioCreacion} onChange={e => setFAnioCreacion(e.target.value)}>
+                <option value="">Todos</option>
+                {aniosCreacion.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={styles.filtrosResumen}>
+            <span>{pedidosFiltrados.length} pedido{pedidosFiltrados.length !== 1 ? 's' : ''}</span>
+            {hayFiltros && <button style={styles.btnLimpiar} onClick={limpiarFiltros}>✕ Limpiar filtros</button>}
+          </div>
+
+          {pedidosFiltrados.length === 0 && <div style={styles.empty}>Sin resultados para los filtros aplicados.</div>}
+
+          {pedidosFiltrados.map(p => (
             <div key={p.id} style={styles.card}>
-              <div style={styles.cardHeader}>
+              {/* ── Fila colapsada ── */}
+              <div style={styles.cardRow} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado]||p.estado}</span>
-                {p.es_abierto && <span style={styles.badgeAbierto}>📂 Abierto</span>}
-                {p.editado && <span style={styles.badgeEditado}>Editado</span>}
-                {p.origen === 'carga_masiva' && <span style={styles.badgeMasivo}>📥 Masivo</span>}
-                <span style={styles.cardNro}>{p.id}</span>
-                <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
-                <span style={styles.cardFecha}>{p.editado_en ? `Editado ${p.editado_en}` : `Creado ${p.creado_en}`}</span>
+                {p.es_abierto && <span style={styles.badgeAbierto}>📂</span>}
+                {p.editado && <span style={styles.badgeEditado}>✏</span>}
+                {p.origen === 'carga_masiva' && <span style={styles.badgeMasivo}>📥</span>}
+                <span style={styles.rowCliente}>{p.cliente}</span>
+                <span style={styles.rowProducto}>{p.producto} · {p.volumen} tn</span>
+                <span style={styles.rowFecha}>{p.fecha_entrega}</span>
+                <span style={styles.rowCreador}>{p.creado_por}</span>
+                <span style={styles.rowNro}>{p.id}</span>
+                <span style={styles.rowChevron}>{expandido === p.id ? '▲' : '▼'}</span>
               </div>
-              <div style={styles.cardBody}>
-                <div style={styles.detailGrid}>
-                  <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Volumen</span><span>{p.volumen} tn{p.es_abierto ? ` (despachado: ${p.volumen_despachado||0} tn)` : ''}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
-                  <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono||'—'}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
-                  {p.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria</span><span>{p.banda_horaria}</span></div>}
-                  <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}{p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}</span></div>
-                  {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
-                  {p.motivo_suspension && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Motivo suspensión</span><span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span></div>}
-                </div>
-                {p.adjuntos?.filter(a => !a._eliminado).length > 0 && (
-                  <div style={styles.adjuntosRow}>{p.adjuntos.filter(a => !a._eliminado).map(a => (<a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoChip}>📎 {a.nombre}</a>))}</div>
-                )}
-                <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}{p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}</div>
-                {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
-                  <div style={styles.cardActions}>
-                    {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
-                      <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
-                    )}
-                    {(rol === 'admin' || p.creado_por_email === usuario?.email) && (
-                      <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
-                    )}
+
+              {/* ── Detalle expandido ── */}
+              {expandido === p.id && (
+                <div style={styles.cardBody}>
+                  <div style={styles.detailGrid}>
+                    <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Volumen</span><span>{p.volumen} tn{p.es_abierto ? ` (despachado: ${p.volumen_despachado||0} tn)` : ''}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
+                    <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono||'—'}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
+                    {p.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria</span><span>{p.banda_horaria}</span></div>}
+                    <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}{p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}</span></div>
+                    {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
+                    {p.motivo_suspension && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Motivo suspensión</span><span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span></div>}
                   </div>
-                )}
-              </div>
+                  {p.adjuntos?.filter(a => !a._eliminado).length > 0 && (
+                    <div style={styles.adjuntosRow}>{p.adjuntos.filter(a => !a._eliminado).map(a => (<a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoChip}>📎 {a.nombre}</a>))}</div>
+                  )}
+                  <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}{p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}</div>
+                  {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
+                    <div style={styles.cardActions}>
+                      {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
+                        <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
+                      )}
+                      {(rol === 'admin' || p.creado_por_email === usuario?.email) && (
+                        <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
-          {!busqueda && !verTodos && pedidosFiltrados.length > 10 && (
-            <button style={styles.btnVerTodos} onClick={() => setVerTodos(true)}>Ver todos los pedidos ({pedidosFiltrados.length})</button>
-          )}
         </div>
       )}
 
@@ -418,12 +520,8 @@ function Pedidos({ usuario, onVolver }) {
           </div>
           {resultadoMasivo && (
             <div style={{ marginBottom: 16 }}>
-              {resultadoMasivo.ok.length > 0 && (
-                <div style={styles.bannerOk}>✓ {resultadoMasivo.ok.length} pedido{resultadoMasivo.ok.length > 1 ? 's' : ''} cargado{resultadoMasivo.ok.length > 1 ? 's' : ''} correctamente: {resultadoMasivo.ok.join(', ')}</div>
-              )}
-              {resultadoMasivo.fail.length > 0 && (
-                <div style={styles.bannerError}>✗ {resultadoMasivo.fail.length} pedido{resultadoMasivo.fail.length > 1 ? 's' : ''} con error:<br/>{resultadoMasivo.fail.join('\n')}</div>
-              )}
+              {resultadoMasivo.ok.length > 0 && <div style={styles.bannerOk}>✓ {resultadoMasivo.ok.length} pedido{resultadoMasivo.ok.length > 1 ? 's' : ''} cargado{resultadoMasivo.ok.length > 1 ? 's' : ''} correctamente: {resultadoMasivo.ok.join(', ')}</div>}
+              {resultadoMasivo.fail.length > 0 && <div style={styles.bannerError}>✗ {resultadoMasivo.fail.length} pedido{resultadoMasivo.fail.length > 1 ? 's' : ''} con error:<br/>{resultadoMasivo.fail.join('\n')}</div>}
               <button style={{ ...styles.btnPrimary, marginTop: 10 }} onClick={() => { setResultadoMasivo(null); setVista('panel'); }}>Ver pedidos</button>
             </div>
           )}
@@ -454,8 +552,8 @@ function Pedidos({ usuario, onVolver }) {
                           <span style={{ fontSize: 11, fontWeight: 600, color: errs ? '#B91C1C' : '#085041' }}>{errs ? `✗ Fila ${i+5}` : `✓ Fila ${i+5}`}</span>
                           <span style={{ fontSize: 12, color: '#374151' }}>{fila.cliente} · {fila.producto} {fila.volumen} tn · {fila.fecha_entrega}</span>
                         </div>
-                        {errs && (<ul style={styles.errorList}>{errs.map((e, j) => <li key={j} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</li>)}</ul>)}
-                        {!errs && (<div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>{fila.tipo} · {fila.ov_tipo}-{fila.ov_numero} · {fila.ciudad}, {fila.provincia}</div>)}
+                        {errs && <ul style={styles.errorList}>{errs.map((e, j) => <li key={j} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</li>)}</ul>}
+                        {!errs && <div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>{fila.tipo} · {fila.ov_tipo}-{fila.ov_numero} · {fila.ciudad}, {fila.provincia}</div>}
                       </div>
                     );
                   })}
@@ -591,7 +689,7 @@ function Pedidos({ usuario, onVolver }) {
 }
 
 const styles = {
-  wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
+  wrap: { maxWidth: 900, margin: '0 auto', padding: '1.5rem 1rem' },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
   logoArea: { display: 'flex', alignItems: 'center' },
   logoImg: { height: 36, objectFit: 'contain' },
@@ -600,19 +698,26 @@ const styles = {
   titulo: { fontSize: 18, fontWeight: 500, color: '#111827' },
   btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnSecundario: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer' },
-  buscador: { width: '100%', fontSize: 13, padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', marginBottom: '1rem', boxSizing: 'border-box' },
+  filtrosGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 },
+  filtroField: { display: 'flex', flexDirection: 'column', gap: 3 },
+  filtroLabel: { fontSize: 10, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  filtroInput: { fontSize: 12, padding: '6px 8px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box' },
+  filtrosResumen: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: '#6B7280', marginBottom: 10 },
+  btnLimpiar: { fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', cursor: 'pointer' },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
-  btnVerTodos: { width: '100%', padding: '10px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#F9FAFB', color: '#6B7280', fontSize: 13, cursor: 'pointer', marginTop: 8 },
-  card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
-  cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
+  card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 8 },
+  cardRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', cursor: 'pointer', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
-  badgeAbierto: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#EFF6FF', color: '#1D4ED8', border: '0.5px solid #BFDBFE', flexShrink: 0 },
-  badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
-  badgeMasivo: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#EFF6FF', color: '#1D4ED8', border: '0.5px solid #BFDBFE', flexShrink: 0 },
-  cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
-  cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
-  cardFecha: { fontSize: 11, color: '#9CA3AF', flexShrink: 0 },
-  cardBody: { padding: '12px 14px' },
+  badgeAbierto: { fontSize: 11, flexShrink: 0, color: '#1D4ED8' },
+  badgeEditado: { fontSize: 11, flexShrink: 0, color: '#92400E' },
+  badgeMasivo: { fontSize: 11, flexShrink: 0, color: '#6B7280' },
+  rowCliente: { fontSize: 13, fontWeight: 500, color: '#111827', flex: 2, minWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  rowProducto: { fontSize: 12, color: '#6B7280', flex: 2, minWidth: 80, whiteSpace: 'nowrap' },
+  rowFecha: { fontSize: 11, color: '#6B7280', flexShrink: 0, whiteSpace: 'nowrap' },
+  rowCreador: { fontSize: 11, color: '#9CA3AF', flexShrink: 0, whiteSpace: 'nowrap' },
+  rowNro: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', flexShrink: 0, whiteSpace: 'nowrap' },
+  rowChevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0, marginLeft: 'auto' },
+  cardBody: { padding: '12px 14px', borderTop: '0.5px solid #E5E7EB' },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 },
   field: { display: 'flex', flexDirection: 'column', gap: 3 },
   label: { fontSize: 11, color: '#9CA3AF' },
