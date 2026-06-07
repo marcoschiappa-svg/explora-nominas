@@ -28,8 +28,8 @@ function Coordinador({ usuario, onVolver }) {
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState('todos');
   const [expandido, setExpandido] = useState(null);
-  const [aceptando, setAceptando] = useState({});       // pedidoId → { volumen, fecha_carga, horario_carga }
-  const [asignando, setAsignando] = useState({});       // key (pedidoId-idx) → { transporte_id, transporte, ... }
+  const [aceptando, setAceptando] = useState({});
+  const [asignando, setAsignando] = useState({});
   const [reprogramando, setReprogramando] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
@@ -38,8 +38,9 @@ function Coordinador({ usuario, onVolver }) {
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
-      const data = snap.docs.map(d => ({ docId: d.id, ...d.data(), despachos: d.data().despachos || [] }));
-      data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const data = snap.docs
+        .map(d => ({ docId: d.id, ...d.data(), despachos: d.data().despachos || [] }))
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setPedidos(data);
       setCargando(false);
     });
@@ -54,7 +55,6 @@ function Coordinador({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
   function volAsignado(p) { return (p.despachos || []).reduce((s, d) => s + Number(d.volumen), 0); }
   function saldo(p) { return Number(p.volumen) - volAsignado(p); }
   function pct(p) { return Math.min(100, Math.round(volAsignado(p) / Number(p.volumen) * 100)); }
@@ -82,7 +82,6 @@ function Coordinador({ usuario, onVolver }) {
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { adjuntos: adjuntosActualizados });
   }
 
-  // ── PASO 1: Aceptar pedido → escribir en plan ──────────────────────────────
   async function aceptarDespacho(pedidoId) {
     const ac = aceptando[pedidoId] || {};
     if (!ac.volumen || !ac.fecha_carga) { alert('Completá volumen y fecha de carga.'); return; }
@@ -94,7 +93,6 @@ function Coordinador({ usuario, onVolver }) {
 
     setEnviando(true);
     try {
-      // Subir adjuntos si hay
       let adjuntosActualizados = [...(p.adjuntos || [])];
       const archivosCoord = archivosNuevos[pedidoId] || [];
       if (archivosCoord.length > 0) {
@@ -113,7 +111,7 @@ function Coordinador({ usuario, onVolver }) {
         volumen: Number(ac.volumen),
         fecha_carga: ac.fecha_carga,
         horario_carga: ac.horario_carga || '',
-        estado: 'Aceptado-pendiente',  // pendiente de asignación de transportista
+        estado: 'Aceptado-pendiente',
         aceptado_por: usuario?.nombre || 'Coordinador',
         aceptado_en: now,
         transporte: '', transporte_id: '', email_transportista: '',
@@ -121,16 +119,16 @@ function Coordinador({ usuario, onVolver }) {
       };
 
       const nuevosDespachos = [...(p.despachos || []), despacho];
-      const nuevoSaldo = Number(p.volumen) - nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
-      const nuevoEstado = nuevoSaldo === 0 ? 'prog-parcial' : 'prog-parcial';
+      const volDespachado = nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+      const nuevoEstado = 'prog-parcial';
 
       await updateDoc(doc(db, 'pedidos_portal', p.docId), {
         despachos: nuevosDespachos,
         estado: nuevoEstado,
         adjuntos: adjuntosActualizados,
+        volumen_despachado: volDespachado,
       });
 
-      // Escribir en Plan de Producción vía Apps Script
       const payload = {
         accion: 'programar_despacho',
         pedido_id: p.id,
@@ -156,7 +154,6 @@ function Coordinador({ usuario, onVolver }) {
     } finally { setEnviando(false); setSubiendoArchivos(false); }
   }
 
-  // ── PASO 2: Asignar transportista ──────────────────────────────────────────
   async function asignarTransportista(p, despachoIdx) {
     const key = p.id + '-' + despachoIdx;
     const as = asignando[key] || {};
@@ -180,7 +177,6 @@ function Coordinador({ usuario, onVolver }) {
         asignado_en: now,
       };
 
-      // Estado del pedido: si todos los despachos tienen transportista → Programado
       const hayPendiente = nuevosDespachos.some(dd => dd.estado === 'Aceptado-pendiente');
       const nuevoEstadoPedido = hayPendiente ? 'prog-parcial' : 'Programado';
 
@@ -189,7 +185,6 @@ function Coordinador({ usuario, onVolver }) {
         estado: nuevoEstadoPedido,
       });
 
-      // Notificar al transportista
       const todosEmails = [as.email_transportista, ...(as.emails_extra || [])].filter(Boolean).join(',');
       const payload = {
         accion: 'programar_despacho',
@@ -216,7 +211,6 @@ function Coordinador({ usuario, onVolver }) {
     } finally { setEnviando(false); }
   }
 
-  // ── Reprogramar ────────────────────────────────────────────────────────────
   async function reprogramarDespacho(p, despachoIdx) {
     const key = p.id + '-' + despachoIdx;
     const rd = reprogramando[key] || {};
@@ -250,7 +244,6 @@ function Coordinador({ usuario, onVolver }) {
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
 
-  // ── Colors & labels ────────────────────────────────────────────────────────
   const pillColors = {
     'Pendiente':    { bg: '#EEEDFE', color: '#3C3489' },
     'prog-parcial': { bg: '#FAEEDA', color: '#633806' },
@@ -311,6 +304,7 @@ function Coordinador({ usuario, onVolver }) {
           <div style={styles.cardHeader} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
             <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado] || p.estado}</span>
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
+            {p.es_abierto && <span style={styles.badgeAbierto}>📂 Abierto</span>}
             {tieneNominacionPendiente(p) && <span style={styles.badgeNomPendiente}>⏳ Pend. transporte</span>}
             {tieneDespachoEnEspera(p) && <span style={styles.badgeEspera}>⏸ En espera</span>}
             <span style={styles.cardNro}>{p.id}</span>
@@ -330,7 +324,7 @@ function Coordinador({ usuario, onVolver }) {
               <div style={styles.detailGrid}>
                 <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
                 <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
-                <div style={styles.field}><span style={styles.label}>Volumen total</span><span>{p.volumen} tn</span></div>
+                <div style={styles.field}><span style={styles.label}>Volumen total</span><span>{p.volumen} tn{p.es_abierto ? ` (despachado: ${p.volumen_despachado || 0} tn)` : ''}</span></div>
                 <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
                 <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
@@ -409,7 +403,6 @@ function Coordinador({ usuario, onVolver }) {
                         )}
                       </div>
 
-                      {/* Paso 2: Asignar transportista a despacho aceptado-pendiente */}
                       {d.estado === 'Aceptado-pendiente' && (
                         <div style={styles.asignarBox}>
                           <div style={styles.asignarTitulo}>🚛 Asignar transportista</div>
@@ -436,7 +429,6 @@ function Coordinador({ usuario, onVolver }) {
                         </div>
                       )}
 
-                      {/* Reprogramar */}
                       {d.estado === 'En espera' && (
                         <div style={styles.reprogramarBox}>
                           <div style={styles.reprogramarTitulo}>🔄 Reprogramar despacho</div>
@@ -459,7 +451,6 @@ function Coordinador({ usuario, onVolver }) {
                   );
                 })}
 
-                {/* Paso 1: Aceptar nuevo despacho */}
                 {saldo(p) > 0 && p.estado !== 'Suspendido' && (
                   <div style={styles.nuevoDespacho}>
                     <div style={styles.despachosTitle}>✓ Aceptar pedido — escribir en plan</div>
@@ -546,6 +537,7 @@ const styles = {
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  badgeAbierto: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#EFF6FF', color: '#1D4ED8', border: '0.5px solid #BFDBFE', flexShrink: 0 },
   badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   badgeNomPendiente: { fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   badgeEspera: { fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 20, background: '#F3F4F6', color: '#6B7280', border: '0.5px solid #D1D5DB', flexShrink: 0 },

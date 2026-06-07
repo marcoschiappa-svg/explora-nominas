@@ -66,7 +66,7 @@ function validarFila(fila) {
 }
 
 function Pedidos({ usuario, onVolver }) {
-  const [vista, setVista] = useState('panel');  // 'panel' | 'nuevo' | 'carga'
+  const [vista, setVista] = useState('panel');
   const [pedidos, setPedidos] = useState([]);
   const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -74,13 +74,11 @@ function Pedidos({ usuario, onVolver }) {
   const [busqueda, setBusqueda] = useState('');
   const [verTodos, setVerTodos] = useState(false);
 
-  // Memoria de cliente
   const [sugerenciaCliente, setSugerenciaCliente] = useState(null);
   const [clientesSugeridos, setClientesSugeridos] = useState([]);
   const [mostrarDropCliente, setMostrarDropCliente] = useState(false);
   const clienteRef = useRef();
 
-  // Carga masiva
   const [filasCarga, setFilasCarga] = useState([]);
   const [erroresCarga, setErroresCarga] = useState({});
   const [enviandoMasivo, setEnviandoMasivo] = useState(false);
@@ -96,23 +94,26 @@ function Pedidos({ usuario, onVolver }) {
   });
   const fileRef = useRef();
 
+  const rol = usuario?.rol || '';
+
+  // ── Carga todos los pedidos — filtrado por rol en la vista ──
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const data = snap.docs
         .map(d => ({ docId: d.id, ...d.data() }))
-        .filter(p => p.creado_por_email === usuario?.email)
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setPedidos(data);
     });
     return () => unsub();
-  }, [usuario]);
+  }, []);
 
-  // Memoria de cliente
+  // Memoria de cliente — usa todos los pedidos del usuario actual
   useEffect(() => {
     const q = form.cliente.trim().toLowerCase();
     if (!q || q.length < 2) { setClientesSugeridos([]); setSugerenciaCliente(null); setMostrarDropCliente(false); return; }
+    const misPedidos = pedidos.filter(p => p.creado_por_email === usuario?.email);
     const mapaClientes = {};
-    pedidos.forEach(p => {
+    misPedidos.forEach(p => {
       const nombre = (p.cliente||'').trim();
       if (!nombre) return;
       if (!mapaClientes[nombre] || new Date(p.timestamp) > new Date(mapaClientes[nombre].timestamp)) mapaClientes[nombre] = p;
@@ -122,7 +123,7 @@ function Pedidos({ usuario, onVolver }) {
     setMostrarDropCliente(coincidencias.length > 0);
     const exacto = coincidencias.find(p => p.cliente.toLowerCase() === q);
     setSugerenciaCliente(exacto || null);
-  }, [form.cliente, pedidos]);
+  }, [form.cliente, pedidos, usuario]);
 
   function aplicarMemoria(ref) {
     const ovParts = (ref.ov||'OV-').split('-');
@@ -140,7 +141,7 @@ function Pedidos({ usuario, onVolver }) {
     setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
   }
 
-  // ── CARGA MASIVA ────────────────────────────────────────────────────────────
+  // ── CARGA MASIVA ─────────────────────────────────────────────
   function handleArchivoMasivo(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -151,18 +152,17 @@ function Pedidos({ usuario, onVolver }) {
         const ws = wb.Sheets['Pedidos'];
         if (!ws) { alert('El archivo no tiene una hoja llamada "Pedidos".'); return; }
         const datos = XLSX.utils.sheet_to_json(ws, { header: 1, range: 3 });
-        // fila 4 (idx 0) es ejemplo, desde idx 1 son datos reales
         const filas = datos.slice(1).filter(row => row.some(c => c !== undefined && c !== ''));
         if (filas.length === 0) { alert('El archivo no tiene pedidos (fila 5 en adelante).'); return; }
         if (filas.length > 100) { alert('Máximo 100 pedidos por archivo.'); return; }
-        const pedidos = filas.map(row => {
+        const pedidosLeidos = filas.map(row => {
           const obj = {};
           COLS_ESPERADAS.forEach((col, i) => { obj[col] = row[i] !== undefined ? String(row[i]).trim() : ''; });
           return obj;
         });
         const errores = {};
-        pedidos.forEach((p, i) => { const e = validarFila(p); if (e.length) errores[i] = e; });
-        setFilasCarga(pedidos);
+        pedidosLeidos.forEach((p, i) => { const e = validarFila(p); if (e.length) errores[i] = e; });
+        setFilasCarga(pedidosLeidos);
         setErroresCarga(errores);
         setResultadoMasivo(null);
       } catch (err) { alert('Error leyendo el archivo: ' + err.message); }
@@ -183,6 +183,7 @@ function Pedidos({ usuario, onVolver }) {
           const ahora = new Date().toLocaleString('es-AR');
           const ov = `${fila.ov_tipo}-${fila.ov_numero}`;
           const lugar = [fila.calle, fila.numero_calle, fila.ciudad, fila.provincia, fila.cp].filter(Boolean).join(', ');
+          const esAbierto = (fila.recipiente === 'Granel' || !fila.recipiente) && parseFloat(fila.volumen) > 32;
           const pedido = {
             id, estado: 'Pendiente', editado: false,
             creado_por: usuario?.nombre||'Usuario',
@@ -200,6 +201,9 @@ function Pedidos({ usuario, onVolver }) {
             adjuntos: [], despachos: [],
             timestamp: new Date().toISOString(),
             origen: 'carga_masiva',
+            es_abierto: esAbierto,
+            volumen_original: parseFloat(fila.volumen),
+            volumen_despachado: 0,
           };
           await addDoc(collection(db, 'pedidos_portal'), pedido);
           const payload = { accion: 'nuevo_pedido', ...pedido };
@@ -217,7 +221,7 @@ function Pedidos({ usuario, onVolver }) {
     window.open('/plantilla_pedidos_explora.xlsx', '_blank');
   }
 
-  // ── FORMULARIO INDIVIDUAL ───────────────────────────────────────────────────
+  // ── FORMULARIO INDIVIDUAL ────────────────────────────────────
   function handleAdjuntos(e) {
     const files = Array.from(e.target.files);
     setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] }));
@@ -283,7 +287,23 @@ function Pedidos({ usuario, onVolver }) {
         alert(`✓ Pedido ${pedidoEditando.id} actualizado.`);
         setPedidoEditando(null);
       } else {
-        const pedido = { id, estado: 'Pendiente', editado: false, creado_por: usuario?.nombre||'Usuario', creado_por_email: usuario?.email||'', creado_en: ahora, editado_en: null, editado_por: null, tipo: form.tipo, producto: form.producto, volumen: parseFloat(form.volumen), recipiente: form.recipiente, cliente: form.cliente, ov, telefono, telefono_prefijo: form.telefono_prefijo, telefono_numero: form.telefono_numero, fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria, lugar, calle: form.calle, numero: form.numero, ciudad: form.ciudad, provincia: form.provincia, cp: form.cp, mapsLink: form.mapsLink||'', obs: form.obs||'', adjuntos: adjuntosFinales, despachos: [], timestamp: new Date().toISOString() };
+        const esAbierto = form.recipiente === 'Granel' && parseFloat(form.volumen) > 32;
+        const pedido = {
+          id, estado: 'Pendiente', editado: false,
+          creado_por: usuario?.nombre||'Usuario', creado_por_email: usuario?.email||'',
+          creado_en: ahora, editado_en: null, editado_por: null,
+          tipo: form.tipo, producto: form.producto, volumen: parseFloat(form.volumen),
+          recipiente: form.recipiente, cliente: form.cliente, ov, telefono,
+          telefono_prefijo: form.telefono_prefijo, telefono_numero: form.telefono_numero,
+          fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria,
+          lugar, calle: form.calle, numero: form.numero, ciudad: form.ciudad,
+          provincia: form.provincia, cp: form.cp, mapsLink: form.mapsLink||'',
+          obs: form.obs||'', adjuntos: adjuntosFinales, despachos: [],
+          timestamp: new Date().toISOString(),
+          es_abierto: esAbierto,
+          volumen_original: parseFloat(form.volumen),
+          volumen_despachado: 0,
+        };
         await addDoc(collection(db, 'pedidos_portal'), pedido);
         await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify({ accion: 'nuevo_pedido', ...pedido }) }).toString(), { mode: 'no-cors' });
         alert(`✓ Pedido ${id} registrado. Se notificó al coordinador.`);
@@ -296,6 +316,7 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   async function suspender(p) {
+    if (rol === 'comercial' && p.creado_por_email !== usuario?.email) { alert('Solo podés suspender pedidos propios.'); return; }
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
     const despachosAnteriores = p.despachos||[];
@@ -323,22 +344,27 @@ function Pedidos({ usuario, onVolver }) {
       {vista === 'panel' && (
         <div>
           <div style={styles.panelHeader}>
-            <h2 style={styles.titulo}>Mis pedidos</h2>
+            <h2 style={styles.titulo}>Pedidos</h2>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button style={styles.btnSecundario} onClick={() => { setVista('carga'); setFilasCarga([]); setErroresCarga({}); setResultadoMasivo(null); }}>
-                📥 Carga masiva
-              </button>
-              <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>
-                + Nuevo pedido
-              </button>
+              {(rol === 'admin' || rol === 'comercial') && (
+                <button style={styles.btnSecundario} onClick={() => { setVista('carga'); setFilasCarga([]); setErroresCarga({}); setResultadoMasivo(null); }}>
+                  📥 Carga masiva
+                </button>
+              )}
+              {(rol === 'admin' || rol === 'comercial') && (
+                <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>
+                  + Nuevo pedido
+                </button>
+              )}
             </div>
           </div>
           <input style={styles.buscador} type="text" placeholder="Buscar por N° pedido, cliente o producto..." value={busqueda} onChange={e => { setBusqueda(e.target.value); setVerTodos(false); }} />
-          {pedidosMostrados.length === 0 && <div style={styles.empty}>{busqueda ? 'Sin resultados para esa búsqueda.' : 'No tenés pedidos aún. Creá el primero.'}</div>}
+          {pedidosMostrados.length === 0 && <div style={styles.empty}>{busqueda ? 'Sin resultados para esa búsqueda.' : 'No hay pedidos aún.'}</div>}
           {pedidosMostrados.map(p => (
             <div key={p.id} style={styles.card}>
               <div style={styles.cardHeader}>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado]||p.estado}</span>
+                {p.es_abierto && <span style={styles.badgeAbierto}>📂 Abierto</span>}
                 {p.editado && <span style={styles.badgeEditado}>Editado</span>}
                 {p.origen === 'carga_masiva' && <span style={styles.badgeMasivo}>📥 Masivo</span>}
                 <span style={styles.cardNro}>{p.id}</span>
@@ -349,7 +375,7 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.detailGrid}>
                   <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
                   <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
-                  <div style={styles.field}><span style={styles.label}>Volumen</span><span>{p.volumen} tn</span></div>
+                  <div style={styles.field}><span style={styles.label}>Volumen</span><span>{p.volumen} tn{p.es_abierto ? ` (despachado: ${p.volumen_despachado||0} tn)` : ''}</span></div>
                   <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
                   <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
                   <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
@@ -366,8 +392,12 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}{p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}</div>
                 {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                   <div style={styles.cardActions}>
-                    {puedeEditar(p) && <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>}
-                    <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
+                    {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
+                      <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
+                    )}
+                    {(rol === 'admin' || p.creado_por_email === usuario?.email) && (
+                      <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
+                    )}
                   </div>
                 )}
               </div>
@@ -386,8 +416,6 @@ function Pedidos({ usuario, onVolver }) {
             <h2 style={styles.titulo}>Carga masiva de pedidos</h2>
             <button style={styles.btnVolver} onClick={() => setVista('panel')}>← Volver</button>
           </div>
-
-          {/* Resultado */}
           {resultadoMasivo && (
             <div style={{ marginBottom: 16 }}>
               {resultadoMasivo.ok.length > 0 && (
@@ -396,27 +424,21 @@ function Pedidos({ usuario, onVolver }) {
               {resultadoMasivo.fail.length > 0 && (
                 <div style={styles.bannerError}>✗ {resultadoMasivo.fail.length} pedido{resultadoMasivo.fail.length > 1 ? 's' : ''} con error:<br/>{resultadoMasivo.fail.join('\n')}</div>
               )}
-              <button style={{ ...styles.btnPrimary, marginTop: 10 }} onClick={() => { setResultadoMasivo(null); setVista('panel'); }}>Ver mis pedidos</button>
+              <button style={{ ...styles.btnPrimary, marginTop: 10 }} onClick={() => { setResultadoMasivo(null); setVista('panel'); }}>Ver pedidos</button>
             </div>
           )}
-
           {!resultadoMasivo && (
             <div style={styles.form}>
-              {/* Paso 1: Descargar plantilla */}
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Paso 1 — Descargar plantilla</div>
                 <p style={styles.instruccion}>Descargá la plantilla Excel, completá los pedidos a partir de la fila 5 y guardala. No modifiques el orden de columnas ni los encabezados.</p>
                 <button style={styles.btnDescarga} onClick={descargarPlantilla}>⬇️ Descargar plantilla Excel</button>
               </div>
-
-              {/* Paso 2: Subir archivo */}
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Paso 2 — Subir archivo completado</div>
                 <input ref={fileMasivoRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleArchivoMasivo} />
                 <button style={styles.btnAdjuntar} onClick={() => fileMasivoRef.current.click()}>📂 Seleccionar archivo Excel</button>
               </div>
-
-              {/* Paso 3: Preview y validación */}
               {filasCarga.length > 0 && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Paso 3 — Revisión antes de confirmar</div>
@@ -424,36 +446,21 @@ function Pedidos({ usuario, onVolver }) {
                     <span style={{ color: '#085041' }}>✓ {filasSinError.length} válidos</span>
                     {filasConError.length > 0 && <span style={{ color: '#A32D2D' }}>  ✗ {filasConError.length} con errores (no se cargarán)</span>}
                   </div>
-
                   {filasCarga.map((fila, i) => {
                     const errs = erroresCarga[i];
                     return (
                       <div key={i} style={{ ...styles.filaPreview, borderColor: errs ? '#FCA5A5' : '#5DCAA5', background: errs ? '#FFF5F5' : '#F0FDF4' }}>
                         <div style={styles.filaPreviewHeader}>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: errs ? '#B91C1C' : '#085041' }}>
-                            {errs ? `✗ Fila ${i+5}` : `✓ Fila ${i+5}`}
-                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: errs ? '#B91C1C' : '#085041' }}>{errs ? `✗ Fila ${i+5}` : `✓ Fila ${i+5}`}</span>
                           <span style={{ fontSize: 12, color: '#374151' }}>{fila.cliente} · {fila.producto} {fila.volumen} tn · {fila.fecha_entrega}</span>
                         </div>
-                        {errs && (
-                          <ul style={styles.errorList}>
-                            {errs.map((e, j) => <li key={j} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</li>)}
-                          </ul>
-                        )}
-                        {!errs && (
-                          <div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>
-                            {fila.tipo} · {fila.ov_tipo}-{fila.ov_numero} · {fila.ciudad}, {fila.provincia}
-                          </div>
-                        )}
+                        {errs && (<ul style={styles.errorList}>{errs.map((e, j) => <li key={j} style={{ fontSize: 11, color: '#B91C1C' }}>{e}</li>)}</ul>)}
+                        {!errs && (<div style={{ fontSize: 11, color: '#374151', marginTop: 4 }}>{fila.tipo} · {fila.ov_tipo}-{fila.ov_numero} · {fila.ciudad}, {fila.provincia}</div>)}
                       </div>
                     );
                   })}
-
                   {filasSinError.length > 0 && (
-                    <button
-                      style={{ ...styles.btnPrimary, marginTop: 12, opacity: enviandoMasivo ? 0.7 : 1 }}
-                      disabled={enviandoMasivo}
-                      onClick={confirmarCargaMasiva}>
+                    <button style={{ ...styles.btnPrimary, marginTop: 12, opacity: enviandoMasivo ? 0.7 : 1 }} disabled={enviandoMasivo} onClick={confirmarCargaMasiva}>
                       {enviandoMasivo ? 'Cargando...' : `✓ Confirmar carga de ${filasSinError.length} pedido${filasSinError.length > 1 ? 's' : ''}`}
                     </button>
                   )}
@@ -493,6 +500,9 @@ function Pedidos({ usuario, onVolver }) {
                   <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='IBC' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'IBC' })}>📦 IBC</button>
                 </div>
               </div>
+              {form.recipiente === 'Granel' && parseFloat(form.volumen) > 32 && (
+                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán registrar múltiples despachos parciales hasta completar las {form.volumen} tn.</div>
+              )}
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos comerciales</div>
@@ -596,6 +606,7 @@ const styles = {
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 },
+  badgeAbierto: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#EFF6FF', color: '#1D4ED8', border: '0.5px solid #BFDBFE', flexShrink: 0 },
   badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   badgeMasivo: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#EFF6FF', color: '#1D4ED8', border: '0.5px solid #BFDBFE', flexShrink: 0 },
   cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
@@ -617,6 +628,7 @@ const styles = {
   btnSuspender: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
   form: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.5rem' },
   editandoBanner: { padding: '10px 14px', borderRadius: 8, background: '#FEF3C7', border: '0.5px solid #F59E0B', fontSize: 13, color: '#92400E', marginBottom: 16 },
+  bannerAbierto: { marginTop: 10, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '0.5px solid #BFDBFE', fontSize: 13, color: '#1D4ED8' },
   seccion: { marginBottom: '1.5rem' },
   seccionTitulo: { fontSize: 12, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '0.5px solid #F3F4F6' },
   instruccion: { fontSize: 13, color: '#6B7280', marginBottom: 12, lineHeight: 1.5 },
