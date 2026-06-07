@@ -150,10 +150,13 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   // ── Opciones dinámicas para filtros ─────────────────────────
-  const creadores = [...new Set(pedidos.map(p => p.creado_por).filter(Boolean))].sort();
-  const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
-  const aniosEntrega = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
-  const aniosCreacion = [...new Set(pedidos.map(p => p.timestamp?.slice(0,4)).filter(Boolean))].sort().reverse();
+ <div style={styles.filtroField}>
+  <label style={styles.filtroLabel}>Cliente</label>
+  <select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}>
+    <option value="">Todos</option>
+    {clientes.map(c => <option key={c} value={c}>{c}</option>)}
+  </select>
+</div>
 
   // ── Lógica de filtrado ───────────────────────────────────────
   const pedidosFiltrados = pedidos.filter(p => {
