@@ -74,7 +74,6 @@ function Pedidos({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
 
-  // Filtros
   const [fCreador, setFCreador] = useState('');
   const [fProducto, setFProducto] = useState('');
   const [fCliente, setFCliente] = useState('');
@@ -115,7 +114,6 @@ function Pedidos({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // Memoria de cliente
   useEffect(() => {
     const q = form.cliente.trim().toLowerCase();
     if (!q || q.length < 2) { setClientesSugeridos([]); setSugerenciaCliente(null); setMostrarDropCliente(false); return; }
@@ -149,20 +147,18 @@ function Pedidos({ usuario, onVolver }) {
     setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
   }
 
-  // ── Opciones dinámicas para filtros ─────────────────────────
- <div style={styles.filtroField}>
-  <label style={styles.filtroLabel}>Cliente</label>
-  <select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}>
-    <option value="">Todos</option>
-    {clientes.map(c => <option key={c} value={c}>{c}</option>)}
-  </select>
-</div>
+  // ── Opciones dinámicas para filtros (dentro del componente) ──
+  const creadores = [...new Set(pedidos.map(p => p.creado_por).filter(Boolean))].sort();
+  const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
+  const clientes  = [...new Set(pedidos.map(p => p.cliente).filter(Boolean))].sort();
+  const aniosEntrega  = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
+  const aniosCreacion = [...new Set(pedidos.map(p => p.timestamp?.slice(0,4)).filter(Boolean))].sort().reverse();
 
   // ── Lógica de filtrado ───────────────────────────────────────
   const pedidosFiltrados = pedidos.filter(p => {
     if (fCreador && p.creado_por !== fCreador) return false;
     if (fProducto && p.producto !== fProducto) return false;
-    if (fCliente && !(p.cliente||'').toLowerCase().includes(fCliente.toLowerCase())) return false;
+    if (fCliente && p.cliente !== fCliente) return false;
     if (fRecipiente && p.recipiente !== fRecipiente) return false;
     if (fMesEntrega && p.fecha_entrega) {
       const mes = parseInt(p.fecha_entrega.slice(5,7), 10);
@@ -266,7 +262,6 @@ function Pedidos({ usuario, onVolver }) {
 
   function descargarPlantilla() { window.open('/plantilla_pedidos_explora.xlsx', '_blank'); }
 
-  // ── FORMULARIO ───────────────────────────────────────────────
   function handleAdjuntos(e) { const files = Array.from(e.target.files); setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] })); }
   function quitarArchivoNuevo(nombre) { setForm(prev => ({ ...prev, archivosNuevos: prev.archivosNuevos.filter(f => f.name !== nombre) })); }
   function quitarAdjuntoExistente(fileId) { setForm(prev => ({ ...prev, adjuntos: prev.adjuntos.map(a => a.file_id === fileId ? { ...a, _eliminado: true } : a) })); }
@@ -380,7 +375,6 @@ function Pedidos({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
-      {/* ══ PANEL ══ */}
       {vista === 'panel' && (
         <div>
           <div style={styles.panelHeader}>
@@ -395,7 +389,6 @@ function Pedidos({ usuario, onVolver }) {
             </div>
           </div>
 
-          {/* ── Filtros ── */}
           <div style={styles.filtrosGrid}>
             <div style={styles.filtroField}>
               <label style={styles.filtroLabel}>Creado por</label>
@@ -413,7 +406,10 @@ function Pedidos({ usuario, onVolver }) {
             </div>
             <div style={styles.filtroField}>
               <label style={styles.filtroLabel}>Cliente</label>
-              <input style={styles.filtroInput} type="text" placeholder="Buscar..." value={fCliente} onChange={e => setFCliente(e.target.value)} />
+              <select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}>
+                <option value="">Todos</option>
+                {clientes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div style={styles.filtroField}>
               <label style={styles.filtroLabel}>Recipiente</label>
@@ -462,7 +458,6 @@ function Pedidos({ usuario, onVolver }) {
 
           {pedidosFiltrados.map(p => (
             <div key={p.id} style={styles.card}>
-              {/* ── Fila colapsada ── */}
               <div style={styles.cardRow} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado]||p.estado}</span>
                 {p.es_abierto && <span style={styles.badgeAbierto}>📂</span>}
@@ -476,7 +471,6 @@ function Pedidos({ usuario, onVolver }) {
                 <span style={styles.rowChevron}>{expandido === p.id ? '▲' : '▼'}</span>
               </div>
 
-              {/* ── Detalle expandido ── */}
               {expandido === p.id && (
                 <div style={styles.cardBody}>
                   <div style={styles.detailGrid}>
@@ -514,7 +508,6 @@ function Pedidos({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* ══ CARGA MASIVA ══ */}
       {vista === 'carga' && (
         <div>
           <div style={styles.panelHeader}>
@@ -572,7 +565,6 @@ function Pedidos({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* ══ NUEVO / EDITAR ══ */}
       {vista === 'nuevo' && (
         <div>
           <div style={styles.panelHeader}>
