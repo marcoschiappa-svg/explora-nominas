@@ -54,7 +54,7 @@ const DEFAULT_PW = 'explora2026';
 //   userRole  {string}  — 'admin' | 'coordinador' | 'comercial' | 'transportista'
 //   userEmail {string}  — correo del usuario logueado
 // ════════════════════════════════════════════════════════════
-export default function Tarifario({ userRole, userEmail }) {
+export default function Tarifario({ userRole, userEmail, onVolver }) {
   // ── Estado principal ──────────────────────────────────────
   const [tab, setTab]             = useState('consulta');
   const [rutas, setRutas]         = useState([]);
