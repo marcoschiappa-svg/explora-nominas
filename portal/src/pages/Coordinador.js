@@ -572,7 +572,7 @@ const styles = {
   despachoHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
   despachoNro: { fontSize: 11, fontWeight: 500, color: '#6B7280' },
   despachoPor: { fontSize: 11, color: '#9CA3AF' },
-  despachoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 },
+  despachoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, alignItems: 'end' },
   asignarBox: { marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #F59E0B', background: '#FFFBF2', borderRadius: 8, padding: '10px 12px' },
   asignarTitulo: { fontSize: 11, fontWeight: 500, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 },
   btnAsignar: { marginTop: 10, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
