@@ -127,7 +127,7 @@ function Coordinador({ usuario, onVolver }) {
 
       const nuevosDespachos = [...(p.despachos || []), despacho];
       const volDespachado = nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
-      const nuevoEstado = 'prog-parcial';
+      const nuevoEstado = volDespachado >= Number(p.volumen) ? 'Programado' : 'prog-parcial';
 
       await updateDoc(doc(db, 'pedidos_portal', p.docId), {
         despachos: nuevosDespachos,
@@ -311,7 +311,6 @@ function Coordinador({ usuario, onVolver }) {
           <div style={styles.cardHeader} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
             <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado] || p.estado}</span>
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
-            {p.es_abierto && <span style={styles.badgeAbierto}>📂 Abierto</span>}
             {tieneNominacionPendiente(p) && <span style={styles.badgeNomPendiente}>⏳ Pend. transporte</span>}
             {tieneDespachoEnEspera(p) && <span style={styles.badgeEspera}>⏸ En espera</span>}
             <span style={styles.cardNro}>{p.id}</span>
@@ -331,7 +330,7 @@ function Coordinador({ usuario, onVolver }) {
               <div style={styles.detailGrid}>
                 <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
                 <div style={styles.field}><span style={styles.label}>Producto</span><span>{p.producto}</span></div>
-                <div style={styles.field}><span style={styles.label}>Volumen total</span><span>{p.volumen} tn{p.es_abierto ? ` (despachado: ${p.volumen_despachado || 0} tn)` : ''}</span></div>
+                <div style={styles.field}><span style={styles.label}>Volumen total</span><span>{p.volumen} tn</span></div>
                 <div style={styles.field}><span style={styles.label}>Recipiente</span><span>{p.recipiente}</span></div>
                 <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>

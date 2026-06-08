@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 
-// Segunda instancia de Firebase solo para crear usuarios sin romper la sesión del admin
+// Segunda instancia de Firebase solo para crear/modificar usuarios sin romper la sesión del admin
 const firebaseConfig = {
   apiKey: "AIzaSyA_cmSLuKPVYXjgQu75varhmEBkaY0uwss",
   authDomain: "explora-portal.firebaseapp.com",
@@ -14,7 +14,7 @@ const firebaseConfig = {
   messagingSenderId: "871895783017",
   appId: "1:871895783017:web:9503299046accde84774f8"
 };
-const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
+const secondaryApp  = getApps().find(a => a.name === 'secondary') || initializeApp(firebaseConfig, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
 const FORM_VACIO = {
@@ -22,7 +22,7 @@ const FORM_VACIO = {
   prefijo_1: '', numero_1: '',
   prefijo_2: '', numero_2: '',
   prefijo_3: '', numero_3: '',
-  password: '', rol: 'comercial',
+  password: '', nueva_password: '', rol: 'comercial',
   empresa: '', cuit_empresa: '', estado: 'activo',
 };
 
@@ -32,7 +32,10 @@ function Admin({ usuario, onVolver }) {
   const [editando, setEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [verPassword, setVerPassword] = useState(false);
+  const [verNuevaPassword, setVerNuevaPassword] = useState(false);
   const [credencialCreada, setCredencialCreada] = useState(null);
+  const [resetLink, setResetLink] = useState(null);
+  const [generandoLink, setGenerandoLink] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
 
   useEffect(() => {
@@ -52,6 +55,8 @@ function Admin({ usuario, onVolver }) {
     setEditando(null);
     setCredencialCreada(null);
     setVerPassword(false);
+    setVerNuevaPassword(false);
+    setResetLink(null);
     setForm(FORM_VACIO);
     setVista('form');
   }
@@ -60,22 +65,25 @@ function Admin({ usuario, onVolver }) {
     setEditando(u);
     setCredencialCreada(null);
     setVerPassword(false);
+    setVerNuevaPassword(false);
+    setResetLink(null);
     setForm({
-      nombre:       u.nombre       || '',
-      email_1:      u.email_1      || u.email || '',
-      email_2:      u.email_2      || '',
-      email_3:      u.email_3      || '',
-      prefijo_1:    u.prefijo_1    || '',
-      numero_1:     u.numero_1     || '',
-      prefijo_2:    u.prefijo_2    || '',
-      numero_2:     u.numero_2     || '',
-      prefijo_3:    u.prefijo_3    || '',
-      numero_3:     u.numero_3     || '',
-      password:     '',
-      rol:          u.rol          || 'comercial',
-      empresa:      u.empresa      || '',
-      cuit_empresa: u.cuit_empresa || '',
-      estado:       u.estado       || 'activo',
+      nombre:          u.nombre          || '',
+      email_1:         u.email_1         || u.email || '',
+      email_2:         u.email_2         || '',
+      email_3:         u.email_3         || '',
+      prefijo_1:       u.prefijo_1       || '',
+      numero_1:        u.numero_1        || '',
+      prefijo_2:       u.prefijo_2       || '',
+      numero_2:        u.numero_2        || '',
+      prefijo_3:       u.prefijo_3       || '',
+      numero_3:        u.numero_3        || '',
+      password:        '',
+      nueva_password:  '',
+      rol:             u.rol             || 'comercial',
+      empresa:         u.empresa         || '',
+      cuit_empresa:    u.cuit_empresa    || '',
+      estado:          u.estado          || 'activo',
     });
     setVista('form');
   }
@@ -85,6 +93,30 @@ function Admin({ usuario, onVolver }) {
     const texto = `Portal Explora\nUsuario: ${credencialCreada.email}\nContraseña: ${credencialCreada.password}\nAcceso: https://portal-ivory-zeta.vercel.app`;
     navigator.clipboard.writeText(texto);
     alert('✓ Credenciales copiadas al portapapeles.');
+  }
+
+  function copiarResetLink() {
+    if (!resetLink) return;
+    const texto = `Portal Explora — Recuperación de contraseña\nHacé clic en el siguiente link para establecer tu nueva contraseña:\n${resetLink}`;
+    navigator.clipboard.writeText(texto);
+    alert('✓ Link copiado al portapapeles.');
+  }
+
+  async function generarResetLink(u) {
+    const email = u.email_1 || u.email;
+    if (!email) { alert('El usuario no tiene email registrado.'); return; }
+    setGenerandoLink(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      // Copiamos el link al portapapeles para enviar por WhatsApp
+      const texto = `Portal Explora — Recuperación de contraseña\nUsuario: ${email}\nAccedé al link que te llegó por mail para restablecer tu contraseña, o pedile al administrador que te lo reenvíe.\nAcceso: https://portal-ivory-zeta.vercel.app`;
+      navigator.clipboard.writeText(texto);
+      alert(`✓ Email de recuperación enviado a ${email}.\nEl texto fue copiado al portapapeles para enviarlo por WhatsApp.`);
+    } catch (err) {
+      alert('Error al generar el link: ' + err.message);
+    } finally {
+      setGenerandoLink(false);
+    }
   }
 
   async function guardar(e) {
@@ -99,6 +131,10 @@ function Admin({ usuario, onVolver }) {
     }
     if (!editando && form.password.length < 6) {
       alert('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (editando && form.nueva_password && form.nueva_password.length < 6) {
+      alert('La nueva contraseña debe tener al menos 6 caracteres.');
       return;
     }
     setEnviando(true);
@@ -121,10 +157,27 @@ function Admin({ usuario, onVolver }) {
       };
 
       if (editando) {
+        // Actualizar datos en Firestore
         await updateDoc(doc(db, 'usuarios_portal', editando.docId), datos);
-        alert('✓ Usuario actualizado.');
+
+        // Si se ingresó nueva contraseña, actualizarla vía instancia secundaria
+        if (form.nueva_password) {
+          try {
+            // Para cambiar la contraseña necesitamos re-autenticar al usuario en la instancia secundaria
+            // Esto solo es posible si conocemos la contraseña actual, por eso usamos reset por email
+            await sendPasswordResetEmail(auth, form.email_1);
+            const textoWpp = `Portal Explora — Nueva contraseña\nUsuario: ${form.email_1}\nSe enviará un email de recuperación para que puedas establecer tu nueva contraseña.\nAcceso: https://portal-ivory-zeta.vercel.app`;
+            navigator.clipboard.writeText(textoWpp);
+            alert('✓ Usuario actualizado.\nSe envió un email de recuperación de contraseña al usuario.\nEl mensaje fue copiado al portapapeles para enviarlo por WhatsApp.');
+          } catch (errReset) {
+            alert('✓ Datos actualizados, pero hubo un error al enviar el reset de contraseña: ' + errReset.message);
+          }
+        } else {
+          alert('✓ Usuario actualizado.');
+        }
         setVista('lista');
       } else {
+        // Crear usuario nuevo
         const cred = await createUserWithEmailAndPassword(secondaryAuth, form.email_1, form.password);
         await secondaryAuth.signOut();
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
@@ -153,11 +206,10 @@ function Admin({ usuario, onVolver }) {
     await updateDoc(doc(db, 'usuarios_portal', u.docId), { estado: nuevoEstado });
   }
 
-  async function resetPassword(u) {
-    const email = u.email_1 || u.email;
-    if (!window.confirm(`¿Enviar email de recuperación a ${email}?`)) return;
-    await sendPasswordResetEmail(auth, email);
-    alert('✓ Email de recuperación enviado.');
+  async function eliminarUsuario(u) {
+    if (!window.confirm(`¿Eliminar a ${u.nombre}? Esta acción no se puede deshacer.\n\nNota: el usuario será eliminado del portal. Para eliminarlo completamente de Firebase Authentication, hacelo desde la consola de Firebase.`)) return;
+    await deleteDoc(doc(db, 'usuarios_portal', u.docId));
+    alert('✓ Usuario eliminado del portal.');
   }
 
   const rolColors = {
@@ -171,6 +223,12 @@ function Admin({ usuario, onVolver }) {
     if (!pre && !num) return null;
     if (pre && num) return `(${pre}) ${num}`;
     return pre || num;
+  }
+
+  // Detectar si el usuario usa email+password (no Google OAuth)
+  function esEmailPassword(u) {
+    const email = u.email_1 || u.email || '';
+    return !email.endsWith('@explora.com.ar');
   }
 
   return (
@@ -224,10 +282,17 @@ function Admin({ usuario, onVolver }) {
                 </div>
                 <div style={styles.cardActions}>
                   <button style={styles.btnEditar} onClick={() => abrirEditar(u)}>✏️ Editar</button>
-                  <button style={styles.btnReset} onClick={() => resetPassword(u)}>🔑 Reset contraseña</button>
+                  {esEmailPassword(u) && (
+                    <button style={styles.btnReset} onClick={() => generarResetLink(u)} disabled={generandoLink}>
+                      🔑 Reset contraseña
+                    </button>
+                  )}
                   <button style={{ ...styles.btnToggle, color: u.estado === 'activo' ? '#A32D2D' : '#0F6E56' }}
                     onClick={() => toggleEstado(u)}>
                     {u.estado === 'activo' ? '⏸ Desactivar' : '▶ Activar'}
+                  </button>
+                  <button style={styles.btnEliminar} onClick={() => eliminarUsuario(u)}>
+                    🗑 Eliminar
                   </button>
                 </div>
               </div>
@@ -317,6 +382,7 @@ function Admin({ usuario, onVolver }) {
                 ))}
               </div>
 
+              {/* Contraseña — solo para usuarios nuevos */}
               {!editando && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Contraseña de acceso</div>
@@ -332,6 +398,37 @@ function Admin({ usuario, onVolver }) {
                       </button>
                     </div>
                     <span style={styles.passHint}>La vas a ver una sola vez al confirmar. Guardala para enviársela al usuario.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Nueva contraseña — solo al editar usuarios email+password */}
+              {editando && esEmailPassword(editando) && (
+                <div style={styles.seccion}>
+                  <div style={styles.seccionTitulo}>Cambiar contraseña</div>
+                  <div style={styles.resetInfo}>
+                    <span style={styles.resetInfoText}>
+                      ⚠️ Por seguridad, el cambio de contraseña se realiza enviando un email de recuperación al usuario. Si completás este campo, al guardar se enviará el link automáticamente.
+                    </span>
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>¿Querés resetear la contraseña? (opcional)</label>
+                    <div style={styles.passwordRow}>
+                      <input style={{ ...styles.input, flex: 1 }}
+                        type={verNuevaPassword ? 'text' : 'password'}
+                        placeholder="Dejá vacío para no cambiarla"
+                        value={form.nueva_password} onChange={f('nueva_password')} />
+                      <button type="button" style={styles.btnVerPass} onClick={() => setVerNuevaPassword(!verNuevaPassword)}>
+                        {verNuevaPassword ? '🙈 Ocultar' : '👁 Ver'}
+                      </button>
+                    </div>
+                    <span style={styles.passHint}>Si completás este campo, se enviará un email de recuperación al usuario y el texto se copiará al portapapeles para enviarlo por WhatsApp.</span>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button type="button" style={styles.btnResetDirecto}
+                      onClick={() => generarResetLink(editando)} disabled={generandoLink}>
+                      {generandoLink ? 'Enviando...' : '🔑 Enviar reset ahora y copiar para WhatsApp'}
+                    </button>
                   </div>
                 </div>
               )}
@@ -423,6 +520,7 @@ const styles = {
   btnEditar: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #C8102E', background: '#fff', color: '#C8102E', fontSize: 12, cursor: 'pointer' },
   btnReset: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
   btnToggle: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', fontSize: 12, cursor: 'pointer' },
+  btnEliminar: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #FECACA', background: '#FEF2F2', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
   form: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.5rem' },
   seccion: { marginBottom: '1.5rem' },
   seccionTitulo: { fontSize: 12, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '0.5px solid #F3F4F6' },
@@ -437,6 +535,9 @@ const styles = {
   passwordRow: { display: 'flex', gap: 8, alignItems: 'center' },
   btnVerPass: { padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 },
   passHint: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  resetInfo: { background: '#FFFBEB', border: '0.5px solid #FCD34D', borderRadius: 8, padding: '10px 12px', marginBottom: 12 },
+  resetInfoText: { fontSize: 12, color: '#92400E' },
+  btnResetDirecto: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#F9FAFB', color: '#374151', fontSize: 12, cursor: 'pointer' },
   credencialBanner: { background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' },
   credencialTitulo: { fontSize: 14, fontWeight: 600, color: '#085041', marginBottom: 12 },
   credencialFila: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 },
