@@ -13,51 +13,55 @@ function Transportista({ usuario, onVolver }) {
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
 
+  const rol = usuario?.rol || '';
+  const esAdmin = rol === 'admin';
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const todos = [];
       snap.docs.forEach(d => {
         const pedido = d.data();
         (pedido.despachos || []).forEach((despacho, i) => {
-          if (['Programado', 'Aceptado', 'Nominado', 'En espera'].includes(despacho.estado)) {
-            todos.push({
-              docId: d.id,
-              pedidoId: pedido.id,
-              despachoIdx: i,
-              uid: pedido.id + '-D' + (i + 1),
-              despachoNro: i + 1,
-              estado: despacho.estado,
-              nominacion_pendiente: despacho.nominacion_pendiente || false,
-              producto: pedido.producto,
-              volumen: despacho.volumen,
-              volumenTotal: pedido.volumen,
-              cliente: pedido.cliente,
-              ov: pedido.ov,
-              fecha_carga: despacho.fecha_carga,
-              horario_carga: despacho.horario_carga || '',
-              fecha_entrega: pedido.fecha_entrega,
-              banda_horaria: pedido.banda_horaria || '',
-              lugar: pedido.lugar,
-              recipiente: pedido.recipiente,
-              obs: pedido.obs || '',
-              tipo: pedido.tipo,
-              transporte: despacho.transporte,
-              email_transportista: despacho.email_transportista || '',
-              email_comercial: pedido.creado_por_email || '',
-              programado_por: despacho.programado_por,
-              programado_en: despacho.programado_en,
-              patente_tractor: despacho.patente_tractor || '',
-              patente_semi: despacho.patente_semi || '',
-              chofer: despacho.chofer || '',
-              dni_chofer: despacho.dni_chofer || '',
-              cuit_chofer: despacho.cuit_chofer || '',
-              cuit_transporte: despacho.cuit_transporte || '',
-              tel_prefijo: despacho.tel_prefijo || '',
-              tel_numero: despacho.tel_numero || '',
-              tel_unidad: despacho.tel_unidad || '',
-              adjuntos: (pedido.adjuntos || []).filter(a => a.visible_transportista && !a._eliminado),
-            });
-          }
+          if (!['Programado', 'Aceptado', 'Nominado', 'En espera'].includes(despacho.estado)) return;
+          // Admin ve todos — transportista solo los suyos
+          if (!esAdmin && despacho.email_transportista !== usuario?.email) return;
+          todos.push({
+            docId: d.id,
+            pedidoId: pedido.id,
+            despachoIdx: i,
+            uid: pedido.id + '-D' + (i + 1),
+            despachoNro: i + 1,
+            estado: despacho.estado,
+            nominacion_pendiente: despacho.nominacion_pendiente || false,
+            producto: pedido.producto,
+            volumen: despacho.volumen,
+            volumenTotal: pedido.volumen,
+            cliente: pedido.cliente,
+            ov: pedido.ov,
+            fecha_carga: despacho.fecha_carga,
+            horario_carga: despacho.horario_carga || '',
+            fecha_entrega: pedido.fecha_entrega,
+            banda_horaria: pedido.banda_horaria || '',
+            lugar: pedido.lugar,
+            recipiente: pedido.recipiente,
+            obs: pedido.obs || '',
+            tipo: pedido.tipo,
+            transporte: despacho.transporte,
+            email_transportista: despacho.email_transportista || '',
+            email_comercial: pedido.creado_por_email || '',
+            programado_por: despacho.programado_por || despacho.aceptado_por || '',
+            programado_en: despacho.programado_en || despacho.aceptado_en || '',
+            patente_tractor: despacho.patente_tractor || '',
+            patente_semi: despacho.patente_semi || '',
+            chofer: despacho.chofer || '',
+            dni_chofer: despacho.dni_chofer || '',
+            cuit_chofer: despacho.cuit_chofer || '',
+            cuit_transporte: despacho.cuit_transporte || '',
+            tel_prefijo: despacho.tel_prefijo || '',
+            tel_numero: despacho.tel_numero || '',
+            tel_unidad: despacho.tel_unidad || '',
+            adjuntos: (pedido.adjuntos || []).filter(a => a.visible_transportista && !a._eliminado),
+          });
         });
       });
       todos.sort((a, b) => new Date(a.fecha_carga) - new Date(b.fecha_carga));
@@ -65,7 +69,7 @@ function Transportista({ usuario, onVolver }) {
       setCargando(false);
     });
     return () => unsub();
-  }, []);
+  }, [esAdmin, usuario]);
 
   function handleExpandir(d) {
     const nuevoExpandido = expandido === d.uid ? null : d.uid;
@@ -74,11 +78,8 @@ function Transportista({ usuario, onVolver }) {
       let cuit1 = '', cuit2 = '', cuit3 = '';
       if (d.cuit_chofer) {
         const partes = d.cuit_chofer.split('-');
-        if (partes.length === 3) {
-          cuit1 = partes[0]; cuit2 = partes[1]; cuit3 = partes[2];
-        } else {
-          cuit2 = d.cuit_chofer;
-        }
+        if (partes.length === 3) { cuit1 = partes[0]; cuit2 = partes[1]; cuit3 = partes[2]; }
+        else { cuit2 = d.cuit_chofer; }
       }
       let tel_prefijo = d.tel_prefijo || '';
       let tel_numero = d.tel_numero || '';
@@ -97,8 +98,7 @@ function Transportista({ usuario, onVolver }) {
           cuit1, cuit2, cuit3,
           patente_tractor: d.patente_tractor || '',
           patente_semi: d.patente_semi || '',
-          tel_prefijo,
-          tel_numero,
+          tel_prefijo, tel_numero,
         }
       }));
     }
@@ -107,9 +107,7 @@ function Transportista({ usuario, onVolver }) {
   function updateNom(uid, field, value) {
     setNomData(prev => {
       const updated = { ...prev, [uid]: { ...prev[uid], [field]: value } };
-      if (field === 'dni_chofer') {
-        updated[uid].cuit2 = value;
-      }
+      if (field === 'dni_chofer') updated[uid].cuit2 = value;
       return updated;
     });
   }
@@ -120,7 +118,6 @@ function Transportista({ usuario, onVolver }) {
     'Nominado':   { bg: '#EEEDFE', color: '#3C3489' },
     'En espera':  { bg: '#F3F4F6', color: '#6B7280' },
   };
-
   const pillLabel = {
     'Programado': 'Asignado', 'Aceptado': 'Aceptado',
     'Nominado': 'Nominado', 'En espera': 'En espera',
@@ -142,25 +139,20 @@ function Transportista({ usuario, onVolver }) {
       const confirmadoEn = new Date().toLocaleString('es-AR');
       const payload = {
         accion: 'confirmar_despacho',
-        pedido_id: d.pedidoId,
-        despacho_id: 'D' + d.despachoNro,
-        transporte: d.transporte,
-        email_transportista: d.email_transportista,
+        pedido_id: d.pedidoId, despacho_id: 'D' + d.despachoNro,
+        transporte: d.transporte, email_transportista: d.email_transportista,
         producto: d.producto, volumen: d.volumen,
         cliente: d.cliente, ov: d.ov,
         fecha_carga: d.fecha_carga, horario_carga: d.horario_carga,
         lugar: d.lugar, estado_nominacion: 'pendiente',
         confirmado_en: confirmadoEn,
       };
-      const params = new URLSearchParams({ payload: JSON.stringify(payload) });
-      await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setModalNominacion(d);
     } catch (err) {
       console.error(err);
       alert('Error al aceptar el despacho: ' + err.message);
-    } finally {
-      setEnviando(false);
-    }
+    } finally { setEnviando(false); }
   }
 
   async function responderModalNominacion(elegioAhora) {
@@ -184,8 +176,7 @@ function Transportista({ usuario, onVolver }) {
       volumen: d.volumen, cliente: d.cliente,
       ov: d.ov, fecha_carga: d.fecha_carga, motivo,
     };
-    const params = new URLSearchParams({ payload: JSON.stringify(payload) });
-    await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+    await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
     alert('Despacho rechazado. Se notificó al coordinador.');
   }
 
@@ -195,11 +186,8 @@ function Transportista({ usuario, onVolver }) {
       alert('Completá patente tractor, nombre del chofer, DNI y CUIT de la empresa antes de nominar.');
       return;
     }
-    const cuit_chofer = nd.cuit1 && nd.cuit2 && nd.cuit3
-      ? `${nd.cuit1}-${nd.cuit2}-${nd.cuit3}` : '';
-    const tel_unidad = nd.tel_prefijo && nd.tel_numero
-      ? `(${nd.tel_prefijo}) ${nd.tel_numero}` : nd.tel_numero || '';
-
+    const cuit_chofer = nd.cuit1 && nd.cuit2 && nd.cuit3 ? `${nd.cuit1}-${nd.cuit2}-${nd.cuit3}` : '';
+    const tel_unidad = nd.tel_prefijo && nd.tel_numero ? `(${nd.tel_prefijo}) ${nd.tel_numero}` : nd.tel_numero || '';
     setEnviando(true);
     try {
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
@@ -207,17 +195,12 @@ function Transportista({ usuario, onVolver }) {
       const nuevosDespachos = [...pedido.despachos];
       nuevosDespachos[d.despachoIdx] = {
         ...nuevosDespachos[d.despachoIdx],
-        estado: 'Nominado',
-        nominacion_pendiente: false,
+        estado: 'Nominado', nominacion_pendiente: false,
         patente_tractor: nd.patente_tractor.toUpperCase(),
         patente_semi: (nd.patente_semi || '').toUpperCase(),
-        chofer: nd.chofer,
-        dni_chofer: nd.dni_chofer,
-        cuit_chofer,
-        cuit_transporte: nd.cuit_transporte,
-        tel_unidad,
-        tel_prefijo: nd.tel_prefijo || '',
-        tel_numero: nd.tel_numero || '',
+        chofer: nd.chofer, dni_chofer: nd.dni_chofer,
+        cuit_chofer, cuit_transporte: nd.cuit_transporte,
+        tel_unidad, tel_prefijo: nd.tel_prefijo || '', tel_numero: nd.tel_numero || '',
       };
       await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Nominado' });
       const payload = {
@@ -232,15 +215,12 @@ function Transportista({ usuario, onVolver }) {
         tel_unidad, transporte: d.transporte,
         email_comercial: d.email_comercial || '',
       };
-      const params = new URLSearchParams({ payload: JSON.stringify(payload) });
-      await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       alert('✓ Nominación confirmada. Se notificó a Portería.');
     } catch (err) {
       console.error(err);
       alert('Error al nominar: ' + err.message);
-    } finally {
-      setEnviando(false);
-    }
+    } finally { setEnviando(false); }
   }
 
   const filtrados = despachos.filter(d => filtro === 'todos' || d.estado === filtro);
@@ -273,17 +253,19 @@ function Transportista({ usuario, onVolver }) {
       <div style={styles.topbar}>
         <div style={styles.logoArea}>
           <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
-          <span style={styles.portalText}>Mis despachos</span>
+          <span style={styles.portalText}>{esAdmin ? 'Despachos — Vista admin' : 'Mis despachos'}</span>
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
       <div style={styles.intro}>
-        ℹ️ Solo ves los despachos asignados a tu empresa. Aceptá cada despacho y completá los datos de la unidad.
+        {esAdmin
+          ? 'ℹ️ Vista administrador — todos los despachos de todos los transportistas.'
+          : 'ℹ️ Solo ves los despachos asignados a tu empresa. Aceptá cada despacho y completá los datos de la unidad.'}
       </div>
 
       <div style={styles.metrics}>
-        {[['Asignados', '#BA7517', 'Programado'], ['Aceptados', '#0F6E56', 'Aceptado'], ['Nominados', '#534AB7', 'Nominado'], ['En espera', '#6B7280', 'En espera']].map(([label, color, estado]) => (
+        {[['Asignados','#BA7517','Programado'],['Aceptados','#0F6E56','Aceptado'],['Nominados','#534AB7','Nominado'],['En espera','#6B7280','En espera']].map(([label, color, estado]) => (
           <div key={estado} style={styles.metric}>
             <div style={styles.metricLabel}>{label}</div>
             <div style={{ ...styles.metricValue, color }}>{despachos.filter(d => d.estado === estado).length}</div>
@@ -292,10 +274,8 @@ function Transportista({ usuario, onVolver }) {
       </div>
 
       <div style={styles.filtros}>
-        {['todos', 'Programado', 'Aceptado', 'Nominado', 'En espera'].map(f => (
-          <button key={f}
-            style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }}
-            onClick={() => setFiltro(f)}>
+        {['todos','Programado','Aceptado','Nominado','En espera'].map(f => (
+          <button key={f} style={{ ...styles.filtroBtnBase, ...(filtro === f ? styles.filtroBtnActive : {}) }} onClick={() => setFiltro(f)}>
             {f === 'todos' ? 'Todos' : pillLabel[f] || f}
           </button>
         ))}
@@ -314,7 +294,10 @@ function Transportista({ usuario, onVolver }) {
               <span style={styles.pillPendiente}>Nominación pendiente</span>
             )}
             <span style={styles.cardNro}>{d.pedidoId} · D{d.despachoNro}</span>
-            <span style={styles.cardResumen}>{d.producto} {d.volumen} tn · {d.cliente}</span>
+            <span style={styles.cardResumen}>
+              {d.producto} {d.volumen} tn · {d.cliente}
+              {esAdmin && d.transporte && <span style={{ color: '#9CA3AF' }}> · {d.transporte}</span>}
+            </span>
             <div style={styles.cardMeta}>
               <span style={styles.cardFechaLabel}>Carga</span>
               <span style={styles.cardFechaVal}>{d.fecha_carga}</span>
@@ -340,7 +323,7 @@ function Transportista({ usuario, onVolver }) {
               </div>
               {d.volumenTotal > d.volumen && (
                 <div style={styles.contextBanner}>
-                  Este despacho es parte de un pedido de <strong>{d.volumenTotal} tn</strong> — tu asignación es <strong>{d.volumen} tn</strong>.
+                  Este despacho es parte de un pedido de <strong>{d.volumenTotal} tn</strong> — asignación: <strong>{d.volumen} tn</strong>.
                 </div>
               )}
               <div style={styles.detailGrid}>
@@ -352,6 +335,8 @@ function Transportista({ usuario, onVolver }) {
                 {d.horario_carga && <div style={styles.field}><span style={styles.label}>Horario sugerido</span><span style={styles.hiVal}>{d.horario_carga}</span></div>}
                 <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{d.fecha_entrega}</span></div>
                 {d.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria descarga</span><span>{d.banda_horaria}</span></div>}
+                {esAdmin && d.transporte && <div style={styles.field}><span style={styles.label}>Transportista</span><span>{d.transporte}</span></div>}
+                {esAdmin && d.email_transportista && <div style={styles.field}><span style={styles.label}>Email transportista</span><span>{d.email_transportista}</span></div>}
                 <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{d.lugar}</span></div>
                 {d.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{d.obs}</span></div>}
               </div>
@@ -361,9 +346,7 @@ function Transportista({ usuario, onVolver }) {
                   <div style={styles.adjuntosTitle}>Documentación adjunta</div>
                   <div style={styles.adjuntosGrid}>
                     {d.adjuntos.map(a => (
-                      <a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoLink}>
-                        📎 {a.nombre}
-                      </a>
+                      <a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoLink}>📎 {a.nombre}</a>
                     ))}
                   </div>
                 </div>
@@ -479,7 +462,7 @@ function Transportista({ usuario, onVolver }) {
               )}
 
               <div style={styles.cardActions}>
-                {d.estado === 'Programado' && (
+                {d.estado === 'Programado' && !esAdmin && (
                   <>
                     <button style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }}
                       disabled={enviando} onClick={() => aceptar(d)}>
@@ -488,7 +471,7 @@ function Transportista({ usuario, onVolver }) {
                     <button style={styles.btnRechazar} onClick={() => rechazar(d)}>✕ Rechazar</button>
                   </>
                 )}
-                {d.estado === 'Aceptado' && (
+                {d.estado === 'Aceptado' && !esAdmin && (
                   <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
                     disabled={enviando} onClick={() => nominar(d)}>
                     {enviando ? 'Enviando...' : '✓ Confirmar nominación'}

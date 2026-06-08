@@ -968,10 +968,15 @@ export default function Tarifario({ userRole, userEmail }) {
     <div style={S.wrap}>
       {/* Sub-header del módulo */}
       <div style={{ background: '#fff', borderBottom: '1px solid #e2dfd6', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#9b9890', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Módulo</span>
-          <span style={{ marginLeft: 8, fontSize: 14, fontWeight: 500, color: '#1a3a2a' }}>Tarifario de Fletes</span>
-          <span style={{ marginLeft: 12, fontSize: 11, color: '#9b9890', fontFamily: 'monospace' }}>Abr 2026 · +9.26% CATAMP</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {onVolver && (
+            <button style={{ ...S.btn(), borderRadius: 6, fontSize: 12 }} onClick={onVolver}>← Inicio</button>
+          )}
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#9b9890', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Módulo</span>
+            <span style={{ marginLeft: 8, fontSize: 14, fontWeight: 500, color: '#1a3a2a' }}>Tarifario de Fletes</span>
+            <span style={{ marginLeft: 12, fontSize: 11, color: '#9b9890', fontFamily: 'monospace' }}>Abr 2026 · +9.26% CATAMP</span>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {catacVer && <span style={{ fontSize: 11, color: '#6b6760' }}>CATAC: {catacVer.desc}</span>}
