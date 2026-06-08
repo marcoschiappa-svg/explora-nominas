@@ -34,7 +34,6 @@ function Admin({ usuario, onVolver }) {
   const [verPassword, setVerPassword] = useState(false);
   const [verNuevaPassword, setVerNuevaPassword] = useState(false);
   const [credencialCreada, setCredencialCreada] = useState(null);
-  const [resetLink, setResetLink] = useState(null);
   const [generandoLink, setGenerandoLink] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
 
@@ -56,7 +55,6 @@ function Admin({ usuario, onVolver }) {
     setCredencialCreada(null);
     setVerPassword(false);
     setVerNuevaPassword(false);
-    setResetLink(null);
     setForm(FORM_VACIO);
     setVista('form');
   }
@@ -66,7 +64,6 @@ function Admin({ usuario, onVolver }) {
     setCredencialCreada(null);
     setVerPassword(false);
     setVerNuevaPassword(false);
-    setResetLink(null);
     setForm({
       nombre:          u.nombre          || '',
       email_1:         u.email_1         || u.email || '',
@@ -95,12 +92,6 @@ function Admin({ usuario, onVolver }) {
     alert('✓ Credenciales copiadas al portapapeles.');
   }
 
-  function copiarResetLink() {
-    if (!resetLink) return;
-    const texto = `Portal Explora — Recuperación de contraseña\nHacé clic en el siguiente link para establecer tu nueva contraseña:\n${resetLink}`;
-    navigator.clipboard.writeText(texto);
-    alert('✓ Link copiado al portapapeles.');
-  }
 
   async function generarResetLink(u) {
     const email = u.email_1 || u.email;
