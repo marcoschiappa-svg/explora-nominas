@@ -48,8 +48,11 @@ function Coordinador({ usuario, onVolver }) {
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'transportistas_portal'), (snap) => {
-      const data = snap.docs.map(d => ({ docId: d.id, ...d.data() })).filter(t => t.estado === 'activo').sort((a, b) => a.empresa?.localeCompare(b.empresa));
+    const unsub = onSnapshot(collection(db, 'usuarios_portal'), (snap) => {
+      const data = snap.docs
+        .map(d => ({ docId: d.id, ...d.data() }))
+        .filter(t => t.rol === 'transportista' && t.estado === 'activo')
+        .sort((a, b) => (a.empresa || a.nombre)?.localeCompare(b.empresa || b.nombre));
       setTransportistas(data);
     });
     return () => unsub();
@@ -66,8 +69,12 @@ function Coordinador({ usuario, onVolver }) {
     const t = transportistas.find(x => x.docId === docId);
     if (!t) { setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
     const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
-    const telefonos = [t.telefono_1, t.telefono_2, t.telefono_3].filter(Boolean);
-    setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
+    const telefonos = [
+      t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
+      t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
+      t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
+    ].filter(Boolean);
+    setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa || t.nombre, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
   }
 
   function handleArchivosNuevos(pedidoId, files) {
@@ -411,7 +418,7 @@ function Coordinador({ usuario, onVolver }) {
                               <label style={styles.formLabel}>Empresa transportista *</label>
                               <select style={styles.input} value={as.transporte_id || ''} onChange={e => seleccionarTransportista(key, p.id, e.target.value)}>
                                 <option value="">Seleccionar transportista...</option>
-                                {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa}</option>)}
+                                {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
                               </select>
                             </div>
                             {as.transporte && (
