@@ -192,11 +192,13 @@ function Coordinador({ usuario, onVolver }) {
         estado: nuevoEstadoPedido,
       });
 
+      // Solo notifica al transportista — NO escribe en el Plan de Producción
+      // El plan ya fue escrito cuando el coordinador aceptó el pedido (aceptarDespacho)
       const todosEmails = [as.email_transportista, ...(as.emails_extra || [])].filter(Boolean).join(',');
       const payload = {
-        accion: 'programar_despacho',
+        accion: 'asignar_transportista',
         pedido_id: p.id,
-        programado_por: usuario?.nombre || 'Coordinador',
+        asignado_por: usuario?.nombre || 'Coordinador',
         fecha_carga: d.fecha_carga,
         horario_carga: d.horario_carga || '',
         transporte: as.transporte,
