@@ -95,7 +95,7 @@ function Pedidos({ usuario, onVolver }) {
   const fileMasivoRef = useRef();
 
   const [form, setForm] = useState({
-    tipo: 'Retiro del cliente', producto: '', volumen: '', recipiente: 'Granel',
+    tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
     cliente: '', telefono_prefijo: '', telefono_numero: '',
     ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '',
     calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '',
@@ -278,7 +278,7 @@ function Pedidos({ usuario, onVolver }) {
   function abrirEditar(p) {
     setPedidoEditando(p);
     const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Retiro del cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [] });
+    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [] });
     setVista('nuevo');
   }
 
@@ -344,7 +344,7 @@ function Pedidos({ usuario, onVolver }) {
       }
       setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
-      setForm({ tipo: 'Retiro del cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
+      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); setSubiendoArchivos(false); }
   }
@@ -523,8 +523,8 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
               </div>
             </div>
             <div style={styles.seccion}>
