@@ -6,7 +6,7 @@ import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firesto
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 const PRODUCTOS_VALIDOS  = ['Biodiesel','EMAG','Glicerina','Sebo','HFFA Vegetal','Aceite','Otro'];
-const TIPOS_VALIDOS      = ['Entrega al cliente','Retiro de proveedor'];
+const TIPOS_VALIDOS      = ['Retiro del cliente','Entrega al cliente'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
@@ -95,7 +95,7 @@ function Pedidos({ usuario, onVolver }) {
   const fileMasivoRef = useRef();
 
   const [form, setForm] = useState({
-    tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel',
+    tipo: 'Retiro del cliente', producto: '', volumen: '', recipiente: 'Granel',
     cliente: '', telefono_prefijo: '', telefono_numero: '',
     ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '',
     calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '',
@@ -147,14 +147,12 @@ function Pedidos({ usuario, onVolver }) {
     setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
   }
 
-  // ── Opciones dinámicas para filtros (dentro del componente) ──
   const creadores = [...new Set(pedidos.map(p => p.creado_por).filter(Boolean))].sort();
   const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
   const clientes  = [...new Set(pedidos.map(p => p.cliente).filter(Boolean))].sort();
   const aniosEntrega  = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
   const aniosCreacion = [...new Set(pedidos.map(p => p.timestamp?.slice(0,4)).filter(Boolean))].sort().reverse();
 
-  // ── Lógica de filtrado ───────────────────────────────────────
   const pedidosFiltrados = pedidos.filter(p => {
     if (fCreador && p.creado_por !== fCreador) return false;
     if (fProducto && p.producto !== fProducto) return false;
@@ -184,7 +182,6 @@ function Pedidos({ usuario, onVolver }) {
     setFMesEntrega(''); setFAnioEntrega(''); setFMesCreacion(''); setFAnioCreacion('');
   }
 
-  // ── CARGA MASIVA ─────────────────────────────────────────────
   function handleArchivoMasivo(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -281,7 +278,7 @@ function Pedidos({ usuario, onVolver }) {
   function abrirEditar(p) {
     setPedidoEditando(p);
     const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [] });
+    setForm({ tipo: p.tipo||'Retiro del cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [] });
     setVista('nuevo');
   }
 
@@ -347,7 +344,7 @@ function Pedidos({ usuario, onVolver }) {
       }
       setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
-      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
+      setForm({ tipo: 'Retiro del cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); setSubiendoArchivos(false); }
   }
@@ -390,63 +387,14 @@ function Pedidos({ usuario, onVolver }) {
           </div>
 
           <div style={styles.filtrosGrid}>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Creado por</label>
-              <select style={styles.filtroInput} value={fCreador} onChange={e => setFCreador(e.target.value)}>
-                <option value="">Todos</option>
-                {creadores.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Producto</label>
-              <select style={styles.filtroInput} value={fProducto} onChange={e => setFProducto(e.target.value)}>
-                <option value="">Todos</option>
-                {productos.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Cliente</label>
-              <select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}>
-                <option value="">Todos</option>
-                {clientes.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Recipiente</label>
-              <select style={styles.filtroInput} value={fRecipiente} onChange={e => setFRecipiente(e.target.value)}>
-                <option value="">Todos</option>
-                <option value="Granel">Granel</option>
-                <option value="IBC">IBC</option>
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Entrega — mes</label>
-              <select style={styles.filtroInput} value={fMesEntrega} onChange={e => setFMesEntrega(e.target.value)}>
-                <option value="">Todos</option>
-                {MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Entrega — año</label>
-              <select style={styles.filtroInput} value={fAnioEntrega} onChange={e => setFAnioEntrega(e.target.value)}>
-                <option value="">Todos</option>
-                {aniosEntrega.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Creación — mes</label>
-              <select style={styles.filtroInput} value={fMesCreacion} onChange={e => setFMesCreacion(e.target.value)}>
-                <option value="">Todos</option>
-                {MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}
-              </select>
-            </div>
-            <div style={styles.filtroField}>
-              <label style={styles.filtroLabel}>Creación — año</label>
-              <select style={styles.filtroInput} value={fAnioCreacion} onChange={e => setFAnioCreacion(e.target.value)}>
-                <option value="">Todos</option>
-                {aniosCreacion.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Creado por</label><select style={styles.filtroInput} value={fCreador} onChange={e => setFCreador(e.target.value)}><option value="">Todos</option>{creadores.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Producto</label><select style={styles.filtroInput} value={fProducto} onChange={e => setFProducto(e.target.value)}><option value="">Todos</option>{productos.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Cliente</label><select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}><option value="">Todos</option>{clientes.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Recipiente</label><select style={styles.filtroInput} value={fRecipiente} onChange={e => setFRecipiente(e.target.value)}><option value="">Todos</option><option value="Granel">Granel</option><option value="IBC">IBC</option></select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Entrega — mes</label><select style={styles.filtroInput} value={fMesEntrega} onChange={e => setFMesEntrega(e.target.value)}><option value="">Todos</option>{MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Entrega — año</label><select style={styles.filtroInput} value={fAnioEntrega} onChange={e => setFAnioEntrega(e.target.value)}><option value="">Todos</option>{aniosEntrega.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Creación — mes</label><select style={styles.filtroInput} value={fMesCreacion} onChange={e => setFMesCreacion(e.target.value)}><option value="">Todos</option>{MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}</select></div>
+            <div style={styles.filtroField}><label style={styles.filtroLabel}>Creación — año</label><select style={styles.filtroInput} value={fAnioCreacion} onChange={e => setFAnioCreacion(e.target.value)}><option value="">Todos</option>{aniosCreacion.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
           </div>
 
           <div style={styles.filtrosResumen}>
@@ -470,7 +418,6 @@ function Pedidos({ usuario, onVolver }) {
                 <span style={styles.rowNro}>{p.id}</span>
                 <span style={styles.rowChevron}>{expandido === p.id ? '▲' : '▼'}</span>
               </div>
-
               {expandido === p.id && (
                 <div style={styles.cardBody}>
                   <div style={styles.detailGrid}>
@@ -576,8 +523,8 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de proveedor' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de proveedor' })}>Retiro de proveedor</button>
               </div>
             </div>
             <div style={styles.seccion}>
