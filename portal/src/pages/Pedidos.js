@@ -6,7 +6,7 @@ import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firesto
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 const PRODUCTOS_VALIDOS  = ['Biodiesel','EMAG','Glicerina','Sebo','HFFA Vegetal','Aceite','Otro'];
-const TIPOS_VALIDOS      = ['Retiro del cliente','Retiro de proveedor'];
+const TIPOS_VALIDOS      = ['Entrega al Cliente','Retiro del Cliente'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
