@@ -6,7 +6,7 @@ import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firesto
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 const PRODUCTOS_VALIDOS  = ['Biodiesel','EMAG','Glicerina','Sebo','HFFA Vegetal','Aceite','Otro'];
-const TIPOS_VALIDOS      = ['Retiro del cliente','Entrega al cliente'];
+const TIPOS_VALIDOS      = ['Retiro del cliente','Retiro de proveedor'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
@@ -524,7 +524,7 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de proveedor' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de proveedor' })}>Retiro de proveedor</button>
               </div>
             </div>
             <div style={styles.seccion}>
