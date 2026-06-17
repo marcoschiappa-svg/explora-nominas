@@ -8,6 +8,7 @@ import Home from './pages/Home';
 import Pedidos from './pages/Pedidos';
 import Coordinador from './pages/Coordinador';
 import Transportista from './pages/Transportista';
+import Chofer from './pages/Chofer';
 import Admin from './pages/Admin';
 import Tarifario from './Tarifario';
 
@@ -20,9 +21,6 @@ function App() {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const snap = await getDoc(doc(db, 'usuarios_portal', firebaseUser.uid));
-        console.log('UID Firebase:', firebaseUser.uid);
-        console.log('Documento existe:', snap.exists());
-        console.log('Datos:', snap.data());
         if (snap.exists() && snap.data().estado === 'activo') {
           setUsuario({ uid: firebaseUser.uid, email: firebaseUser.email, ...snap.data() });
         } else {
@@ -68,6 +66,9 @@ function App() {
   }
   if (modulo === 'transportista' && (rol === 'admin' || rol === 'transportista')) {
     return <Transportista usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'chofer' && (rol === 'admin' || rol === 'chofer')) {
+    return <Chofer usuario={usuario} onVolver={() => setModulo('home')} />;
   }
   if (modulo === 'admin' && rol === 'admin') {
     return <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
