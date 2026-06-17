@@ -4,6 +4,21 @@ import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firesto
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
+const HEADER_COLORS = {
+  libre:     { from: '#1a1a2e', to: '#0f3460', badge: null },
+  recibido:  { from: '#0C447C', to: '#185FA5', badge: '#378ADD' },
+  iniciado:  { from: '#085041', to: '#0F6E56', badge: '#1D9E75' },
+  demorado:  { from: '#633806', to: '#BA7517', badge: '#EF9F27' },
+  finalizado:{ from: '#085041', to: '#0F6E56', badge: '#1D9E75' },
+};
+
+const ESTADO_LABEL = {
+  recibido:  'Viaje recibido',
+  iniciado:  'En ruta',
+  demorado:  'Demorado',
+  finalizado: 'Finalizado',
+};
+
 function Chofer({ usuario, onVolver }) {
   const [viajes, setViajes] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -104,7 +119,7 @@ function Chofer({ usuario, onVolver }) {
   function formatFecha(str) {
     if (!str) return '—';
     const [y, m, d] = str.split('-');
-    return d ? `${d}/${m}/${y}` : str;
+    return d ? `${d}/${m}` : str;
   }
 
   function tiempoDesde(isoStr) {
@@ -116,18 +131,17 @@ function Chofer({ usuario, onVolver }) {
     return `hace ${m} min`;
   }
 
-  const estadoConfig = {
-    recibido:  { label: 'Viaje recibido', bg: '#E6F1FB', color: '#0C447C', dot: '#378ADD' },
-    iniciado:  { label: 'En ruta',        bg: '#EAF3DE', color: '#27500A', dot: '#639922' },
-    demorado:  { label: 'Demorado',       bg: '#FAEEDA', color: '#633806', dot: '#BA7517' },
-    finalizado:{ label: 'Finalizado',     bg: '#E1F5EE', color: '#085041', dot: '#1D9E75' },
-  };
+  const nombreCorto = usuario?.nombre?.split(' ')[0] || 'Chofer';
+  const viajeActivo = viajes[0] || null;
+  const estadoActual = viajeActivo?.estado_chofer || 'libre';
+  const hc = HEADER_COLORS[estadoActual] || HEADER_COLORS.libre;
 
   return (
     <div style={s.wrap}>
 
+      {/* Modal demora */}
       {modalDemora && (
-        <div style={s.overlay}>
+        <div style={s.overlayWrap}>
           <div style={s.modal}>
             <div style={s.modalIco}>⚠️</div>
             <div style={s.modalTit}>Reportar demora</div>
@@ -151,8 +165,9 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
+      {/* Modal finalizar */}
       {modalFinalizar && (
-        <div style={s.overlay}>
+        <div style={s.overlayWrap}>
           <div style={s.modal}>
             <div style={s.modalIco}>✅</div>
             <div style={s.modalTit}>Confirmar entrega</div>
@@ -161,7 +176,7 @@ function Chofer({ usuario, onVolver }) {
               {modalFinalizar.lugar}
             </div>
             <div style={{ fontSize: 13, color: '#6B7280', margin: '12px 0', lineHeight: 1.5 }}>
-              Al confirmar, el coordinador recibirá la notificación de entrega y quedás disponible para un nuevo viaje.
+              Al confirmar, el coordinador recibirá la notificación y quedás libre para un nuevo viaje.
             </div>
             <div style={s.modalActions}>
               <button style={s.btnVerde} onClick={confirmarFinalizar} disabled={procesando}>
@@ -175,73 +190,104 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
-      <div style={s.topbar}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
-          <span style={s.topbarSub}>Mis viajes</span>
+      {/* Header degradé */}
+      <div style={{
+        ...s.header,
+        background: `linear-gradient(135deg, ${hc.from} 0%, ${hc.to} 100%)`,
+      }}>
+        <div style={s.headerTop}>
+          <img src="/logo.png" alt="Explora" style={s.logoHeader} />
+          <button style={s.btnVolverHeader} onClick={onVolver}>← Inicio</button>
         </div>
-        <button style={s.btnVolver} onClick={onVolver}>← Inicio</button>
+
+        {cargando ? (
+          <div style={s.headerContent}>
+            <div style={s.headerSub}>Cargando...</div>
+          </div>
+        ) : viajeActivo ? (
+          <div style={s.headerContent}>
+            <div style={s.headerSub}>{ESTADO_LABEL[estadoActual]}</div>
+            <div style={s.headerTitulo}>{viajeActivo.producto} · {viajeActivo.cliente}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <span style={{ ...s.badge, background: 'rgba(255,255,255,0.18)' }}>{viajeActivo.volumen} tn</span>
+              <span style={{ ...s.badge, background: hc.badge || 'rgba(255,255,255,0.18)' }}>OV {viajeActivo.ov}</span>
+              {viajeActivo.estado_chofer_ts && (
+                <span style={{ ...s.badge, background: 'rgba(255,255,255,0.12)' }}>{tiempoDesde(viajeActivo.estado_chofer_ts)}</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={s.headerContent}>
+            <div style={s.headerSub}>Sin viajes activos</div>
+            <div style={s.headerTitulo}>Hola, {nombreCorto}</div>
+            <div style={{ marginTop: 8 }}>
+              <span style={{ ...s.badge, background: 'rgba(255,255,255,0.2)' }}>🟢 Libre</span>
+            </div>
+          </div>
+        )}
+
+        {/* Curva inferior */}
+        <div style={s.headerCurve} />
       </div>
 
-      {cargando && <div style={s.empty}>Cargando viajes...</div>}
+      {/* Cuerpo */}
+      <div style={s.body}>
 
-      {!cargando && !dniUsuario && (
-        <div style={s.alerta}>
-          ⚠️ Tu perfil no tiene DNI registrado. Contactá al administrador para habilitarlo.
-        </div>
-      )}
+        {!cargando && !dniUsuario && (
+          <div style={s.alerta}>
+            ⚠️ Tu perfil no tiene DNI registrado. Contactá al administrador.
+          </div>
+        )}
 
-      {!cargando && dniUsuario && viajes.length === 0 && (
-        <div style={s.libreWrap}>
-          <div style={s.libreIco}>🟢</div>
-          <div style={s.libreTit}>Libre</div>
-          <div style={s.libreSub}>No tenés viajes activos en este momento.<br />Cuando el transportista te nomine, el viaje aparecerá acá.</div>
-        </div>
-      )}
+        {/* Estado LIBRE */}
+        {!cargando && dniUsuario && viajes.length === 0 && (
+          <div style={s.libreWrap}>
+            <div style={s.libreIco}>🟢</div>
+            <div style={s.libreTit}>Libre</div>
+            <div style={s.libreSub}>Cuando el transportista te nomine, el viaje aparecerá acá automáticamente.</div>
+          </div>
+        )}
 
-      {!cargando && viajes.map(v => {
-        const cfg = estadoConfig[v.estado_chofer] || estadoConfig.recibido;
-        return (
+        {/* Viajes activos */}
+        {!cargando && viajes.map(v => (
           <div key={v.uid} style={s.card}>
-            <div style={{ ...s.cardHeader, background: cfg.bg }}>
-              <span style={{ ...s.dot, background: cfg.dot }} />
-              <span style={{ ...s.estadoLabel, color: cfg.color }}>{cfg.label}</span>
-              {v.estado_chofer_ts && (
-                <span style={s.ts}>{tiempoDesde(v.estado_chofer_ts)}</span>
-              )}
-            </div>
-            <div style={s.cardBody}>
-              <div style={s.productoRow}>
-                <span style={s.producto}>{v.producto}</span>
-                <span style={s.volumen}>{v.volumen} tn</span>
+
+            {/* Datos del viaje */}
+            <div style={s.grid2}>
+              <div style={s.field}>
+                <span style={s.lbl}>Destino</span>
+                <span style={s.val}>{v.lugar}</span>
               </div>
-              <div style={s.grid2}>
-                <div style={s.field}><span style={s.lbl}>Cliente</span><span style={s.val}>{v.cliente}</span></div>
-                <div style={s.field}><span style={s.lbl}>OV</span><span style={s.val}>{v.ov}</span></div>
-                <div style={s.field}><span style={s.lbl}>Destino</span><span style={s.val}>{v.lugar}</span></div>
-                <div style={s.field}>
-                  <span style={s.lbl}>Fecha carga</span>
-                  <span style={s.val}>{formatFecha(v.fecha_carga)}{v.horario_carga ? ' · ' + v.horario_carga : ''}</span>
-                </div>
-                {v.fecha_entrega && (
-                  <div style={s.field}>
-                    <span style={s.lbl}>Entrega</span>
-                    <span style={s.val}>{formatFecha(v.fecha_entrega)}{v.banda_horaria ? ' · ' + v.banda_horaria : ''}</span>
-                  </div>
-                )}
-                <div style={s.field}>
-                  <span style={s.lbl}>Unidad</span>
-                  <span style={s.val}>{v.patente_tractor}{v.patente_semi ? ' / ' + v.patente_semi : ''}</span>
-                </div>
+              <div style={s.field}>
+                <span style={s.lbl}>Fecha carga</span>
+                <span style={s.val}>{formatFecha(v.fecha_carga)}{v.horario_carga ? ' · ' + v.horario_carga : ''}</span>
               </div>
-              {v.obs && <div style={s.obsBanner}>📋 {v.obs}</div>}
-              {v.estado_chofer === 'demorado' && v.demora_motivo && (
-                <div style={s.demoraBanner}>⚠️ Demora reportada: {v.demora_motivo}</div>
+              {v.fecha_entrega && (
+                <div style={s.field}>
+                  <span style={s.lbl}>Entrega</span>
+                  <span style={s.val}>{formatFecha(v.fecha_entrega)}{v.banda_horaria ? ' · ' + v.banda_horaria : ''}</span>
+                </div>
               )}
+              <div style={s.field}>
+                <span style={s.lbl}>Unidad</span>
+                <span style={s.val}>{v.patente_tractor}{v.patente_semi ? ' / ' + v.patente_semi : ''}</span>
+              </div>
+              <div style={s.field}>
+                <span style={s.lbl}>Transporte</span>
+                <span style={s.val}>{v.transporte}</span>
+              </div>
             </div>
-            <div style={s.cardActions}>
+
+            {v.obs && <div style={s.obsBanner}>📋 {v.obs}</div>}
+            {v.estado_chofer === 'demorado' && v.demora_motivo && (
+              <div style={s.demoraBanner}>⚠️ {v.demora_motivo}</div>
+            )}
+
+            {/* Acciones */}
+            <div style={s.actions}>
               {v.estado_chofer === 'recibido' && (
-                <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                <button
+                  style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
                   disabled={procesando}
                   onClick={() => cambiarEstado(v, 'iniciado', { chofer_inicio_ts: new Date().toISOString() })}>
                   {procesando ? 'Procesando...' : '🚛 Iniciar viaje'}
@@ -249,75 +295,81 @@ function Chofer({ usuario, onVolver }) {
               )}
               {v.estado_chofer === 'iniciado' && (
                 <>
-                  <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando} onClick={() => setModalFinalizar(v)}>
+                  <button
+                    style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando}
+                    onClick={() => setModalFinalizar(v)}>
                     ✓ Finalizar viaje
                   </button>
-                  <button style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando} onClick={() => setModalDemora(v)}>
+                  <button
+                    style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando}
+                    onClick={() => setModalDemora(v)}>
                     ⚠️ Reportar demora
                   </button>
                 </>
               )}
               {v.estado_chofer === 'demorado' && (
                 <>
-                  <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando} onClick={() => setModalFinalizar(v)}>
+                  <button
+                    style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando}
+                    onClick={() => setModalFinalizar(v)}>
                     ✓ Finalizar viaje
                   </button>
-                  <button style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando} onClick={() => cambiarEstado(v, 'iniciado')}>
+                  <button
+                    style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando}
+                    onClick={() => cambiarEstado(v, 'iniciado')}>
                     ▶ Continuar viaje
                   </button>
                 </>
               )}
             </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
 
 const s = {
-  wrap: { maxWidth: 480, margin: '0 auto', padding: '1rem', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
+  wrap: { minHeight: '100vh', fontFamily: "'DM Sans', system-ui, sans-serif", background: '#F8F8F8' },
+  header: { position: 'relative', paddingBottom: 28 },
+  headerTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 0' },
+  logoHeader: { height: 28, objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.9 },
+  btnVolverHeader: { padding: '5px 12px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: 12, cursor: 'pointer' },
+  headerContent: { padding: '16px 16px 0' },
+  headerSub: { fontSize: 11, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 },
+  headerTitulo: { fontSize: 20, fontWeight: 600, color: '#fff', letterSpacing: '-0.3px' },
+  badge: { display: 'inline-block', fontSize: 11, fontWeight: 500, color: '#fff', padding: '3px 9px', borderRadius: 20 },
+  headerCurve: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 28, background: '#F8F8F8', borderRadius: '14px 14px 0 0' },
+  body: { padding: '4px 14px 24px' },
+  alerta: { padding: '12px 14px', borderRadius: 10, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 13, color: '#633806', marginBottom: 14 },
+  libreWrap: { textAlign: 'center', padding: '3rem 1rem' },
+  libreIco: { fontSize: 40, marginBottom: 12 },
+  libreTit: { fontSize: 22, fontWeight: 600, color: '#111827', marginBottom: 8 },
+  libreSub: { fontSize: 14, color: '#9CA3AF', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' },
+  card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 14, padding: '14px', marginBottom: 12 },
+  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', marginBottom: 12 },
+  field: { display: 'flex', flexDirection: 'column', gap: 2 },
+  lbl: { fontSize: 11, color: '#9CA3AF' },
+  val: { fontSize: 13, color: '#111827', fontWeight: 500 },
+  obsBanner: { padding: '8px 10px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', fontSize: 12, color: '#6B7280', marginBottom: 10, lineHeight: 1.5 },
+  demoraBanner: { padding: '8px 10px', borderRadius: 8, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 12, color: '#633806', marginBottom: 10 },
+  actions: { display: 'flex', flexDirection: 'column', gap: 8 },
+  btnPrimario: { padding: '14px', borderRadius: 10, border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
+  btnSecundario: { padding: '12px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
+  btnVerde: { padding: '12px', borderRadius: 10, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  btnRojo: { padding: '12px', borderRadius: 10, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  btnGris: { padding: '12px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer' },
+  overlayWrap: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
   modal: { background: '#fff', borderRadius: 16, padding: '1.75rem 1.5rem', maxWidth: 380, width: '100%', textAlign: 'center' },
   modalIco: { fontSize: 32, marginBottom: 10 },
   modalTit: { fontSize: 17, fontWeight: 600, color: '#111827', marginBottom: 4 },
   modalSub: { fontSize: 13, color: '#6B7280', marginBottom: 14, lineHeight: 1.5 },
   modalActions: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 },
   textarea: { width: '100%', boxSizing: 'border-box', fontSize: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid #E5E7EB', resize: 'none', fontFamily: 'inherit', color: '#111827' },
-  topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.25rem' },
-  topbarSub: { fontSize: 13, color: '#9CA3AF' },
-  btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
-  empty: { textAlign: 'center', padding: '3rem 1rem', color: '#9CA3AF', fontSize: 14 },
-  alerta: { padding: '12px 14px', borderRadius: 10, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 13, color: '#633806', marginBottom: 16 },
-  libreWrap: { textAlign: 'center', padding: '4rem 1rem' },
-  libreIco: { fontSize: 40, marginBottom: 12 },
-  libreTit: { fontSize: 22, fontWeight: 600, color: '#111827', marginBottom: 8 },
-  libreSub: { fontSize: 14, color: '#9CA3AF', lineHeight: 1.6 },
-  card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 14, overflow: 'hidden', marginBottom: 12 },
-  cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' },
-  dot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
-  estadoLabel: { fontSize: 12, fontWeight: 600, flex: 1 },
-  ts: { fontSize: 11, color: '#9CA3AF' },
-  cardBody: { padding: '12px 14px' },
-  productoRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 },
-  producto: { fontSize: 17, fontWeight: 600, color: '#111827' },
-  volumen: { fontSize: 14, color: '#6B7280' },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: 10 },
-  field: { display: 'flex', flexDirection: 'column', gap: 2 },
-  lbl: { fontSize: 11, color: '#9CA3AF' },
-  val: { fontSize: 13, color: '#111827', fontWeight: 500 },
-  obsBanner: { padding: '8px 10px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', fontSize: 12, color: '#6B7280', marginTop: 8, lineHeight: 1.5 },
-  demoraBanner: { padding: '8px 10px', borderRadius: 8, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 12, color: '#633806', marginTop: 8 },
-  cardActions: { display: 'flex', flexDirection: 'column', gap: 8, padding: '0 14px 14px' },
-  btnPrimario: { padding: '13px', borderRadius: 10, border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
-  btnSecundario: { padding: '11px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
-  btnVerde: { padding: '12px', borderRadius: 10, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  btnRojo: { padding: '12px', borderRadius: 10, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  btnGris: { padding: '12px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 14, cursor: 'pointer' },
 };
 
 export default Chofer;
