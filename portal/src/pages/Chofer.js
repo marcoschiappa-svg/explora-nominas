@@ -68,8 +68,6 @@ function Chofer({ usuario, onVolver }) {
         ...extras,
       };
       await updateDoc(doc(db, 'pedidos_portal', viaje.docId), { despachos: nuevosDespachos });
-
-      // Notificar coordinadores si hay demora o finalización
       if (nuevoEstado === 'demorado' || nuevoEstado === 'finalizado') {
         const payload = {
           accion: nuevoEstado === 'demorado' ? 'chofer_demora' : 'chofer_finalizo',
@@ -103,8 +101,6 @@ function Chofer({ usuario, onVolver }) {
     setModalFinalizar(null);
   }
 
-  // ── helpers ──────────────────────────────────────────────────────────────
-
   function formatFecha(str) {
     if (!str) return '—';
     const [y, m, d] = str.split('-');
@@ -121,18 +117,15 @@ function Chofer({ usuario, onVolver }) {
   }
 
   const estadoConfig = {
-    recibido:  { label: 'Viaje recibido',  bg: '#E6F1FB', color: '#0C447C', dot: '#378ADD' },
-    iniciado:  { label: 'En ruta',         bg: '#EAF3DE', color: '#27500A', dot: '#639922' },
-    demorado:  { label: 'Demorado',        bg: '#FAEEDA', color: '#633806', dot: '#BA7517' },
-    finalizado:{ label: 'Finalizado',      bg: '#E1F5EE', color: '#085041', dot: '#1D9E75' },
+    recibido:  { label: 'Viaje recibido', bg: '#E6F1FB', color: '#0C447C', dot: '#378ADD' },
+    iniciado:  { label: 'En ruta',        bg: '#EAF3DE', color: '#27500A', dot: '#639922' },
+    demorado:  { label: 'Demorado',       bg: '#FAEEDA', color: '#633806', dot: '#BA7517' },
+    finalizado:{ label: 'Finalizado',     bg: '#E1F5EE', color: '#085041', dot: '#1D9E75' },
   };
-
-  // ── render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={s.wrap}>
 
-      {/* Modal demora */}
       {modalDemora && (
         <div style={s.overlay}>
           <div style={s.modal}>
@@ -158,7 +151,6 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* Modal finalizar */}
       {modalFinalizar && (
         <div style={s.overlay}>
           <div style={s.modal}>
@@ -183,7 +175,6 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* Topbar */}
       <div style={s.topbar}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src="/logo.png" alt="Explora" style={{ height: 32, objectFit: 'contain' }} />
@@ -200,7 +191,6 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* Estado LIBRE */}
       {!cargando && dniUsuario && viajes.length === 0 && (
         <div style={s.libreWrap}>
           <div style={s.libreIco}>🟢</div>
@@ -209,13 +199,10 @@ function Chofer({ usuario, onVolver }) {
         </div>
       )}
 
-      {/* Viajes activos */}
       {!cargando && viajes.map(v => {
         const cfg = estadoConfig[v.estado_chofer] || estadoConfig.recibido;
         return (
           <div key={v.uid} style={s.card}>
-
-            {/* Header estado */}
             <div style={{ ...s.cardHeader, background: cfg.bg }}>
               <span style={{ ...s.dot, background: cfg.dot }} />
               <span style={{ ...s.estadoLabel, color: cfg.color }}>{cfg.label}</span>
@@ -223,27 +210,15 @@ function Chofer({ usuario, onVolver }) {
                 <span style={s.ts}>{tiempoDesde(v.estado_chofer_ts)}</span>
               )}
             </div>
-
-            {/* Datos del viaje */}
             <div style={s.cardBody}>
               <div style={s.productoRow}>
                 <span style={s.producto}>{v.producto}</span>
                 <span style={s.volumen}>{v.volumen} tn</span>
               </div>
-
               <div style={s.grid2}>
-                <div style={s.field}>
-                  <span style={s.lbl}>Cliente</span>
-                  <span style={s.val}>{v.cliente}</span>
-                </div>
-                <div style={s.field}>
-                  <span style={s.lbl}>OV</span>
-                  <span style={s.val}>{v.ov}</span>
-                </div>
-                <div style={s.field}>
-                  <span style={s.lbl}>Destino</span>
-                  <span style={s.val}>{v.lugar}</span>
-                </div>
+                <div style={s.field}><span style={s.lbl}>Cliente</span><span style={s.val}>{v.cliente}</span></div>
+                <div style={s.field}><span style={s.lbl}>OV</span><span style={s.val}>{v.ov}</span></div>
+                <div style={s.field}><span style={s.lbl}>Destino</span><span style={s.val}>{v.lugar}</span></div>
                 <div style={s.field}>
                   <span style={s.lbl}>Fecha carga</span>
                   <span style={s.val}>{formatFecha(v.fecha_carga)}{v.horario_carga ? ' · ' + v.horario_carga : ''}</span>
@@ -259,21 +234,14 @@ function Chofer({ usuario, onVolver }) {
                   <span style={s.val}>{v.patente_tractor}{v.patente_semi ? ' / ' + v.patente_semi : ''}</span>
                 </div>
               </div>
-
-              {v.obs && (
-                <div style={s.obsBanner}>📋 {v.obs}</div>
-              )}
-
+              {v.obs && <div style={s.obsBanner}>📋 {v.obs}</div>}
               {v.estado_chofer === 'demorado' && v.demora_motivo && (
                 <div style={s.demoraBanner}>⚠️ Demora reportada: {v.demora_motivo}</div>
               )}
             </div>
-
-            {/* Acciones */}
             <div style={s.cardActions}>
               {v.estado_chofer === 'recibido' && (
-                <button
-                  style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
                   disabled={procesando}
                   onClick={() => cambiarEstado(v, 'iniciado', { chofer_inicio_ts: new Date().toISOString() })}>
                   {procesando ? 'Procesando...' : '🚛 Iniciar viaje'}
@@ -281,32 +249,24 @@ function Chofer({ usuario, onVolver }) {
               )}
               {v.estado_chofer === 'iniciado' && (
                 <>
-                  <button
-                    style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando}
-                    onClick={() => setModalFinalizar(v)}>
+                  <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando} onClick={() => setModalFinalizar(v)}>
                     ✓ Finalizar viaje
                   </button>
-                  <button
-                    style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando}
-                    onClick={() => setModalDemora(v)}>
+                  <button style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando} onClick={() => setModalDemora(v)}>
                     ⚠️ Reportar demora
                   </button>
                 </>
               )}
               {v.estado_chofer === 'demorado' && (
                 <>
-                  <button
-                    style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando}
-                    onClick={() => setModalFinalizar(v)}>
+                  <button style={{ ...s.btnPrimario, background: '#0F6E56', opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando} onClick={() => setModalFinalizar(v)}>
                     ✓ Finalizar viaje
                   </button>
-                  <button
-                    style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
-                    disabled={procesando}
-                    onClick={() => cambiarEstado(v, 'iniciado')}>
+                  <button style={{ ...s.btnSecundario, opacity: procesando ? 0.7 : 1 }}
+                    disabled={procesando} onClick={() => cambiarEstado(v, 'iniciado')}>
                     ▶ Continuar viaje
                   </button>
                 </>
