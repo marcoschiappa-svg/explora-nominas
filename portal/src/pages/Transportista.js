@@ -201,6 +201,8 @@ function Transportista({ usuario, onVolver }) {
         chofer: nd.chofer, dni_chofer: nd.dni_chofer,
         cuit_chofer, cuit_transporte: nd.cuit_transporte,
         tel_unidad, tel_prefijo: nd.tel_prefijo || '', tel_numero: nd.tel_numero || '',
+        estado_chofer: 'recibido',
+        estado_chofer_ts: new Date().toISOString(),
       };
       await updateDoc(doc(db, 'pedidos_portal', d.docId), { despachos: nuevosDespachos, estado: 'Nominado' });
       const payload = {

@@ -26,6 +26,7 @@ function Home({ usuario, onModulo, onLogout }) {
     { id: 'pedidos',       emoji: '📋', titulo: 'Pedidos',          desc: 'Crear y gestionar pedidos de entrega y retiro',       roles: ['admin','comercial','coordinador'], acento: '#C8102E' },
     { id: 'coordinador',   emoji: '📅', titulo: 'Programación',     desc: 'Programar despachos y gestionar transportistas',      roles: ['admin','coordinador'],             acento: '#0F6E56' },
     { id: 'transportista', emoji: '🚛', titulo: 'Mis despachos',    desc: 'Ver y gestionar los despachos asignados',             roles: ['admin','transportista'],           acento: '#1D4ED8' },
+    { id: 'chofer',        emoji: '🗺️', titulo: 'Mis viajes',       desc: 'Iniciá, reportá y finalizá tus viajes asignados',     roles: ['chofer'],                          acento: '#0F6E56' },
     { id: 'tarifario',     emoji: '💲', titulo: 'Tarifario',        desc: 'Consulta y gestión de tarifas de flete por ruta',     roles: ['admin','comercial','coordinador'], acento: '#7C4A12' },
     { id: 'admin',         emoji: '⚙️', titulo: 'Administración',   desc: 'Gestión de usuarios, roles y configuración',          roles: ['admin'],                           acento: '#374151' },
   ].filter(m => m.roles.includes(rol));
@@ -53,7 +54,7 @@ function Home({ usuario, onModulo, onLogout }) {
   }
 
   const t = oscuro ? dark : light;
-  const rolLabel = { admin: 'Administrador', coordinador: 'Coordinador', comercial: 'Comercial', transportista: 'Transportista' };
+  const rolLabel = { admin: 'Administrador', coordinador: 'Coordinador', comercial: 'Comercial', transportista: 'Transportista', chofer: 'Chofer' };
 
   return (
     <div style={{ ...base.wrap, background: t.bg, color: t.texto }}>

@@ -24,6 +24,7 @@ const FORM_VACIO = {
   prefijo_3: '', numero_3: '',
   password: '', nueva_password: '', rol: 'comercial',
   empresa: '', cuit_empresa: '', estado: 'activo',
+  dni: '',
 };
 
 function Admin({ usuario, onVolver }) {
@@ -81,6 +82,7 @@ function Admin({ usuario, onVolver }) {
       empresa:         u.empresa         || '',
       cuit_empresa:    u.cuit_empresa    || '',
       estado:          u.estado          || 'activo',
+      dni:             u.dni             || '',
     });
     setVista('form');
   }
@@ -145,6 +147,7 @@ function Admin({ usuario, onVolver }) {
         empresa:      form.empresa      || '',
         cuit_empresa: form.cuit_empresa || '',
         estado:       form.estado,
+        dni:          form.dni          || '',
       };
 
       if (editando) {
@@ -208,6 +211,7 @@ function Admin({ usuario, onVolver }) {
     coordinador:   { bg: '#E1F5EE', color: '#085041' },
     comercial:     { bg: '#EEEDFE', color: '#3C3489' },
     transportista: { bg: '#FAEEDA', color: '#633806' },
+    chofer:        { bg: '#EAF3DE', color: '#27500A' },
   };
 
   function telFormateado(pre, num) {
@@ -240,10 +244,10 @@ function Admin({ usuario, onVolver }) {
             <button style={styles.btnPrimary} onClick={abrirNuevo}>+ Nuevo usuario</button>
           </div>
           <div style={styles.metrics}>
-            {['admin', 'coordinador', 'comercial', 'transportista'].map(rol => (
+            {['admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(rol => (
               <div key={rol} style={styles.metric}>
                 <div style={styles.metricLabel}>{rol}</div>
-                <div style={{ ...styles.metricValue, color: rol === 'admin' ? '#111827' : rol === 'coordinador' ? '#0F6E56' : rol === 'comercial' ? '#534AB7' : '#BA7517' }}>
+                <div style={{ ...styles.metricValue, color: rol === 'admin' ? '#111827' : rol === 'coordinador' ? '#0F6E56' : rol === 'comercial' ? '#534AB7' : rol === 'chofer' ? '#27500A' : '#BA7517' }}>
                   {usuarios.filter(u => u.rol === rol).length}
                 </div>
               </div>
@@ -434,6 +438,7 @@ function Admin({ usuario, onVolver }) {
                       <option value="coordinador">Coordinador</option>
                       <option value="comercial">Comercial</option>
                       <option value="transportista">Transportista</option>
+                      <option value="chofer">Chofer</option>
                     </select>
                   </div>
                   <div style={styles.formField}>
@@ -459,6 +464,25 @@ function Admin({ usuario, onVolver }) {
                       <label style={styles.formLabel}>CUIT empresa</label>
                       <input style={styles.input} type="text" placeholder="20-00000000-0"
                         value={form.cuit_empresa} onChange={f('cuit_empresa')} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {form.rol === 'chofer' && (
+                <div style={styles.seccion}>
+                  <div style={styles.seccionTitulo}>Datos del chofer</div>
+                  <div style={styles.grid2}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>DNI *</label>
+                      <input style={styles.input} type="text" placeholder="12345678"
+                        value={form.dni} onChange={f('dni')} maxLength={8} />
+                      <span style={styles.passHint}>Se usa para vincular al chofer con los despachos nominados.</span>
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Empresa transportista</label>
+                      <input style={styles.input} type="text" placeholder="Nombre de la empresa"
+                        value={form.empresa} onChange={f('empresa')} />
                     </div>
                   </div>
                 </div>
