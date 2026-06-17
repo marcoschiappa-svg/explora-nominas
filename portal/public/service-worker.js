@@ -1,4 +1,4 @@
-const CACHE_NAME = 'explora-portal-v1';
+const CACHE_NAME = 'explora-portal-v2';
 
 const ASSETS = [
   '/',
