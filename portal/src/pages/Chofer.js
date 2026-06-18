@@ -327,6 +327,43 @@ function Chofer({ usuario, onVolver }) {
               <div style={s.demoraBanner}>⚠️ {v.demora_motivo}</div>
             )}
 
+            {/* Navegación — solo cuando está en ruta o demorado */}
+            {(v.estado_chofer === 'iniciado' || v.estado_chofer === 'demorado') && v.lugar && (
+              <div style={s.navWrap}>
+                <div style={s.navLbl}>📍 {v.lugar}</div>
+                <div style={s.navBtns}>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v.lugar)}&travelmode=driving`}
+                    target="_blank" rel="noreferrer"
+                    style={s.btnGoogleMaps}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#EA4335"/>
+                      <circle cx="12" cy="9" r="2.5" fill="#fff"/>
+                    </svg>
+                    Google Maps
+                  </a>
+                  <a
+                    href={`waze://?q=${encodeURIComponent(v.lugar)}&navigate=yes`}
+                    target="_blank" rel="noreferrer"
+                    style={s.btnWaze}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="11" r="8" fill="#33CCFF"/>
+                      <circle cx="9.5" cy="10" r="1.2" fill="#fff"/>
+                      <circle cx="14.5" cy="10" r="1.2" fill="#fff"/>
+                      <path d="M9 13.5c1 1.5 5 1.5 6 0" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
+                    </svg>
+                    Waze
+                  </a>
+                </div>
+                <iframe
+                  title="mapa-destino"
+                  style={s.mapaEmbed}
+                  loading="lazy"
+                  src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw&q=${encodeURIComponent(v.lugar)}&zoom=13`}
+                />
+              </div>
+            )}
+
             {/* Acciones */}
             <div style={s.actions}>
               {v.estado_chofer === 'recibido' && (
@@ -401,6 +438,12 @@ const s = {
   val: { fontSize: 13, color: '#111827', fontWeight: 500 },
   obsBanner: { padding: '8px 10px', borderRadius: 8, background: '#F9FAFB', border: '0.5px solid #E5E7EB', fontSize: 12, color: '#6B7280', marginBottom: 10, lineHeight: 1.5 },
   demoraBanner: { padding: '8px 10px', borderRadius: 8, background: '#FAEEDA', border: '0.5px solid #EF9F27', fontSize: 12, color: '#633806', marginBottom: 10 },
+  navWrap: { background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 10, padding: '10px 12px', marginBottom: 10 },
+  navLbl: { fontSize: 12, color: '#6B7280', marginBottom: 8, lineHeight: 1.4 },
+  navBtns: { display: 'flex', gap: 8, marginBottom: 10 },
+  btnGoogleMaps: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', borderRadius: 8, background: '#fff', border: '0.5px solid #E5E7EB', fontSize: 13, fontWeight: 500, color: '#111827', textDecoration: 'none' },
+  btnWaze: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', borderRadius: 8, background: '#33CCFF', border: 'none', fontSize: 13, fontWeight: 500, color: '#fff', textDecoration: 'none' },
+  mapaEmbed: { width: '100%', height: 200, borderRadius: 8, border: 'none' },
   actions: { display: 'flex', flexDirection: 'column', gap: 8 },
   btnPrimario: { padding: '14px', borderRadius: 10, border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
   btnSecundario: { padding: '12px', borderRadius: 10, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
