@@ -8,9 +8,12 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
+const CHOFER_DOMAIN = '@explora-portal.com';
+
 function Login({ onLogin }) {
   const [modo, setModo] = useState('selector');
   const [email, setEmail] = useState('');
+  const [dni, setDni] = useState('');
   const [password, setPassword] = useState('');
   const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +63,27 @@ function Login({ onLogin }) {
     } finally { setCargando(false); }
   }
 
+  async function loginChofer(e) {
+    e.preventDefault();
+    const dniLimpio = dni.trim().replace(/\D/g, '');
+    if (!dniLimpio || !password) { setError('Ingresá tu DNI y contraseña.'); return; }
+    if (dniLimpio.length < 7 || dniLimpio.length > 8) { setError('El DNI debe tener 7 u 8 dígitos.'); return; }
+    setCargando(true); setError('');
+    try {
+      const emailInterno = dniLimpio + CHOFER_DOMAIN;
+      const result = await signInWithEmailAndPassword(auth, emailInterno, password);
+      const perfil = await obtenerPerfil(result.user.uid, emailInterno);
+      if (!perfil) { setError('Tu DNI no está habilitado. Contactá al transportista.'); await auth.signOut(); return; }
+      if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva. Contactá al transportista.'); await auth.signOut(); return; }
+      onLogin({ uid: result.user.uid, email: emailInterno, ...perfil });
+    } catch (err) {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') setError('DNI o contraseña incorrectos.');
+      else if (err.code === 'auth/user-not-found') setError('No existe una cuenta con ese DNI.');
+      else if (err.code === 'auth/too-many-requests') setError('Demasiados intentos. Esperá unos minutos.');
+      else setError('Error al iniciar sesión. Intentá de nuevo.');
+    } finally { setCargando(false); }
+  }
+
   async function resetPassword() {
     if (!email) { setError('Ingresá tu email primero.'); return; }
     setCargando(true); setError('');
@@ -68,9 +92,18 @@ function Login({ onLogin }) {
     finally { setCargando(false); }
   }
 
+  function volver() {
+    setModo('selector');
+    setError('');
+    setResetEnviado(false);
+    setDni('');
+    setEmail('');
+    setPassword('');
+    setVerPassword(false);
+  }
+
   return (
     <div style={s.wrap}>
-      {/* Foto de fondo izquierda */}
       <div style={s.fotoWrap}>
         <img src="/planta_bg.jpg" alt="" style={s.foto} />
         <div style={s.fotoOverlay} />
@@ -80,7 +113,6 @@ function Login({ onLogin }) {
         </div>
       </div>
 
-      {/* Panel derecho blanco */}
       <div style={s.panel}>
         <div style={s.panelInner}>
           <div style={s.logoArea}>
@@ -90,6 +122,7 @@ function Login({ onLogin }) {
           <div style={s.heading}>Portal Operativo</div>
           <div style={s.subheading}>Iniciá sesión para continuar</div>
 
+          {/* Selector */}
           {modo === 'selector' && (
             <div style={s.formWrap}>
               <button style={s.btnGoogle} onClick={() => setModo('google')}>
@@ -103,9 +136,13 @@ function Login({ onLogin }) {
               <button style={s.btnEmail} onClick={() => setModo('email')}>
                 ✉ Ingresar con email y contraseña
               </button>
+              <button style={s.btnChofer} onClick={() => setModo('chofer')}>
+                🚛 Ingresar como chofer (DNI)
+              </button>
             </div>
           )}
 
+          {/* Google */}
           {modo === 'google' && (
             <div style={s.formWrap}>
               <p style={s.modoDesc}>Cuentas corporativas @explora.com.ar</p>
@@ -113,10 +150,11 @@ function Login({ onLogin }) {
               <button style={s.btnGoogle} onClick={loginGoogle} disabled={cargando}>
                 <GoogleIcon /> {cargando ? 'Ingresando...' : 'Continuar con Google'}
               </button>
-              <button style={s.btnVolver} onClick={() => { setModo('selector'); setError(''); }}>← Volver</button>
+              <button style={s.btnVolver} onClick={volver}>← Volver</button>
             </div>
           )}
 
+          {/* Email */}
           {modo === 'email' && (
             <div style={s.formWrap}>
               {error && <div style={s.error}>{error}</div>}
@@ -143,7 +181,43 @@ function Login({ onLogin }) {
                 </button>
               </form>
               <button style={s.btnReset} onClick={resetPassword} disabled={cargando}>Olvidé mi contraseña</button>
-              <button style={s.btnVolver} onClick={() => { setModo('selector'); setError(''); setResetEnviado(false); }}>← Volver</button>
+              <button style={s.btnVolver} onClick={volver}>← Volver</button>
+            </div>
+          )}
+
+          {/* Chofer — DNI */}
+          {modo === 'chofer' && (
+            <div style={s.formWrap}>
+              <div style={s.choferBanner}>
+                🚛 Acceso para choferes
+              </div>
+              {error && <div style={s.error}>{error}</div>}
+              <form onSubmit={loginChofer} style={s.form}>
+                <div style={s.field}>
+                  <label style={s.label}>Número de DNI</label>
+                  <input style={s.input} type="text" placeholder="26401217"
+                    value={dni}
+                    onChange={e => setDni(e.target.value.replace(/\D/g, ''))}
+                    maxLength={8}
+                    inputMode="numeric"
+                    autoComplete="username" />
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Contraseña</label>
+                  <div style={s.passRow}>
+                    <input style={{ ...s.input, flex: 1 }}
+                      type={verPassword ? 'text' : 'password'} placeholder="••••••••"
+                      value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+                    <button type="button" style={s.btnVer} onClick={() => setVerPassword(!verPassword)}>
+                      {verPassword ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" style={{ ...s.btnPrimary, background: '#0F6E56', opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
+                  {cargando ? 'Ingresando...' : 'Ingresar'}
+                </button>
+              </form>
+              <button style={s.btnVolver} onClick={volver}>← Volver</button>
             </div>
           )}
 
@@ -167,31 +241,18 @@ function GoogleIcon() {
 
 const s = {
   wrap: { minHeight: '100vh', display: 'flex', fontFamily: "'DM Sans', system-ui, sans-serif" },
-
-  // Foto lado izquierdo
-  fotoWrap: { flex: 1, position: "relative", overflow: "hidden" },
+  fotoWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
   foto: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%', display: 'block' },
   fotoOverlay: { position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 60%)' },
   fotoBadge: { position: 'absolute', bottom: 32, left: 32 },
   fotoBadgeTitulo: { fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4, letterSpacing: '-0.3px' },
   fotoBadgeSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
-
-  // Panel derecho blanco
-  panel: {
-    width: '100%', maxWidth: 440,
-    minHeight: '100vh',
-    background: '#FFFFFF',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: '2.5rem 2rem',
-    boxShadow: '-8px 0 32px rgba(0,0,0,0.08)',
-    boxSizing: 'border-box',
-  },
+  panel: { width: '100%', maxWidth: 440, minHeight: '100vh', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2.5rem 2rem', boxShadow: '-8px 0 32px rgba(0,0,0,0.08)', boxSizing: 'border-box' },
   panelInner: { width: '100%', display: 'flex', flexDirection: 'column', gap: 0 },
   logoArea: { marginBottom: 32 },
   logo: { height: 40, objectFit: 'contain' },
   heading: { fontSize: 24, fontWeight: 700, color: '#111827', letterSpacing: '-0.5px', marginBottom: 6 },
   subheading: { fontSize: 14, color: '#9CA3AF', marginBottom: 32 },
-
   formWrap: { display: 'flex', flexDirection: 'column', gap: 12 },
   modoDesc: { fontSize: 12, color: '#9CA3AF', margin: '0 0 4px', textAlign: 'center' },
   form: { display: 'flex', flexDirection: 'column', gap: 14 },
@@ -203,6 +264,8 @@ const s = {
   btnPrimary: { padding: '12px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.02em' },
   btnGoogle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
   btnEmail: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
+  btnChofer: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #0F6E56', background: '#F0FDF4', color: '#0F6E56', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  choferBanner: { padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 13, color: '#0F6E56', fontWeight: 500, textAlign: 'center' },
   divider: { display: 'flex', alignItems: 'center', gap: 10 },
   dividerLine: { flex: 1, height: 1, background: '#E5E7EB' },
   dividerText: { fontSize: 12, color: '#9CA3AF' },
@@ -213,7 +276,6 @@ const s = {
   footer: { marginTop: 48, fontSize: 11, color: '#D1D5DB', textAlign: 'center' },
 };
 
-// Mostrar foto en pantallas grandes
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = '@media (min-width: 768px) { .login-foto { display: block !important; } }';

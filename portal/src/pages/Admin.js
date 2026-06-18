@@ -17,6 +17,8 @@ const firebaseConfig = {
 const secondaryApp  = getApps().find(a => a.name === 'secondary') || initializeApp(firebaseConfig, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
+const CHOFER_DOMAIN = '@explora-portal.com';
+
 const FORM_VACIO = {
   nombre: '', email_1: '', email_2: '', email_3: '',
   prefijo_1: '', numero_1: '',
@@ -89,7 +91,12 @@ function Admin({ usuario, onVolver }) {
 
   function copiarCredencial() {
     if (!credencialCreada) return;
-    const texto = `Portal Explora\nUsuario: ${credencialCreada.email}\nContraseña: ${credencialCreada.password}\nAcceso: https://portal-ivory-zeta.vercel.app`;
+    let texto;
+    if (credencialCreada.esChofer) {
+      texto = `Portal Explora — Acceso Chofer\nDNI: ${credencialCreada.dni}\nContraseña: ${credencialCreada.password}\nAcceso: https://portal-ivory-zeta.vercel.app\n\nIngresá tocando "Ingresar como chofer (DNI)"`;
+    } else {
+      texto = `Portal Explora\nUsuario: ${credencialCreada.email}\nContraseña: ${credencialCreada.password}\nAcceso: https://portal-ivory-zeta.vercel.app`;
+    }
     navigator.clipboard.writeText(texto);
     alert('✓ Credenciales copiadas al portapapeles.');
   }
@@ -114,29 +121,29 @@ function Admin({ usuario, onVolver }) {
 
   async function guardar(e) {
     e.preventDefault();
-    if (!form.nombre || !form.email_1 || !form.rol) {
-      alert('Completá nombre, email principal y rol.');
-      return;
-    }
-    if (!editando && !form.password) {
-      alert('Ingresá una contraseña para el usuario.');
-      return;
-    }
-    if (!editando && form.password.length < 6) {
-      alert('La contraseña debe tener al menos 6 caracteres.');
-      return;
-    }
-    if (editando && form.nueva_password && form.nueva_password.length < 6) {
-      alert('La nueva contraseña debe tener al menos 6 caracteres.');
-      return;
-    }
+    const esChofer = form.rol === 'chofer';
+
+    // Validaciones
+    if (!form.nombre || !form.rol) { alert('Completá nombre y rol.'); return; }
+    if (!esChofer && !form.email_1) { alert('Completá el email principal.'); return; }
+    if (esChofer && !form.dni) { alert('Ingresá el DNI del chofer.'); return; }
+    if (!editando && !form.password) { alert('Ingresá una contraseña.'); return; }
+    if (!editando && form.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
+    if (editando && form.nueva_password && form.nueva_password.length < 6) { alert('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
+
+    // Email interno para choferes
+    const emailAuth = esChofer
+      ? form.dni.trim().replace(/\D/g, '') + CHOFER_DOMAIN
+      : form.email_1;
+
     setEnviando(true);
     try {
       const datos = {
         nombre:       form.nombre,
-        email_1:      form.email_1,
+        email_1:      esChofer ? '' : form.email_1,
         email_2:      form.email_2      || '',
         email_3:      form.email_3      || '',
+        email:        emailAuth,
         prefijo_1:    form.prefijo_1    || '',
         numero_1:     form.numero_1     || '',
         prefijo_2:    form.prefijo_2    || '',
@@ -172,16 +179,21 @@ function Admin({ usuario, onVolver }) {
         setVista('lista');
       } else {
         // Crear usuario nuevo
-        const cred = await createUserWithEmailAndPassword(secondaryAuth, form.email_1, form.password);
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, form.password);
         await secondaryAuth.signOut();
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
           uid: cred.user.uid,
-          email: form.email_1,
+          email: emailAuth,
           ...datos,
           creado_por: usuario?.nombre || 'Admin',
           creado_en: new Date().toLocaleString('es-AR'),
         });
-        setCredencialCreada({ email: form.email_1, password: form.password });
+        setCredencialCreada({
+          esChofer: form.rol === 'chofer',
+          dni: form.dni,
+          email: emailAuth,
+          password: form.password,
+        });
         setForm(FORM_VACIO);
       }
     } catch (err) {
@@ -307,14 +319,30 @@ function Admin({ usuario, onVolver }) {
           {credencialCreada && (
             <div style={styles.credencialBanner}>
               <div style={styles.credencialTitulo}>✓ Usuario creado correctamente</div>
-              <div style={styles.credencialFila}>
-                <span style={styles.credencialLabel}>Email</span>
-                <span style={styles.credencialValor}>{credencialCreada.email}</span>
-              </div>
-              <div style={styles.credencialFila}>
-                <span style={styles.credencialLabel}>Contraseña</span>
-                <span style={styles.credencialValor}>{credencialCreada.password}</span>
-              </div>
+              {credencialCreada.esChofer ? (
+                <>
+                  <div style={styles.credencialFila}>
+                    <span style={styles.credencialLabel}>DNI (usuario)</span>
+                    <span style={styles.credencialValor}>{credencialCreada.dni}</span>
+                  </div>
+                  <div style={styles.credencialFila}>
+                    <span style={styles.credencialLabel}>Contraseña</span>
+                    <span style={styles.credencialValor}>{credencialCreada.password}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#0F6E56', marginTop: 4 }}>El chofer ingresa con DNI desde "Ingresar como chofer"</div>
+                </>
+              ) : (
+                <>
+                  <div style={styles.credencialFila}>
+                    <span style={styles.credencialLabel}>Email</span>
+                    <span style={styles.credencialValor}>{credencialCreada.email}</span>
+                  </div>
+                  <div style={styles.credencialFila}>
+                    <span style={styles.credencialLabel}>Contraseña</span>
+                    <span style={styles.credencialValor}>{credencialCreada.password}</span>
+                  </div>
+                </>
+              )}
               <div style={styles.credencialAcciones}>
                 <button style={styles.btnCopiar} onClick={copiarCredencial}>📋 Copiar para WhatsApp</button>
                 <button style={styles.btnNuevoUsuario} onClick={abrirNuevo}>+ Crear otro usuario</button>
@@ -339,19 +367,20 @@ function Admin({ usuario, onVolver }) {
                 <div style={styles.seccionTitulo}>Emails</div>
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
-                    <label style={styles.formLabel}>Email 1 *{editando ? ' (no editable)' : ''}</label>
+                    <label style={styles.formLabel}>Email 1 {form.rol !== 'chofer' ? '*' : ''}{editando ? ' (no editable)' : ''}</label>
                     <input style={styles.input} type="email" placeholder="usuario@email.com"
-                      value={form.email_1} onChange={f('email_1')} disabled={!!editando} />
+                      value={form.email_1} onChange={f('email_1')} disabled={!!editando || form.rol === 'chofer'} />
+                    {form.rol === 'chofer' && <span style={styles.passHint}>Los choferes ingresan con DNI, no con email.</span>}
                   </div>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Email 2</label>
                     <input style={styles.input} type="email" placeholder="alternativo@email.com"
-                      value={form.email_2} onChange={f('email_2')} />
+                      value={form.email_2} onChange={f('email_2')} disabled={form.rol === 'chofer'} />
                   </div>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Email 3</label>
                     <input style={styles.input} type="email" placeholder="otro@email.com"
-                      value={form.email_3} onChange={f('email_3')} />
+                      value={form.email_3} onChange={f('email_3')} disabled={form.rol === 'chofer'} />
                   </div>
                 </div>
               </div>
