@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
+const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
+
+const ESTADO_GPS = {
+  recibido: { color: '#378ADD', label: 'Viaje recibido' },
+  iniciado: { color: '#1D9E75', label: 'En ruta' },
+  demorado: { color: '#BA7517', label: 'Demorado' },
+};
+
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 async function subirArchivo(file, pedidoId, subidoPor) {
@@ -38,7 +46,14 @@ function Coordinador({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
   const [archivosNuevos, setArchivosNuevos] = useState({});
+  const [tabActivo, setTabActivo] = useState('despachos');
+  const [choferes, setChoferes] = useState([]);
+  const [choferSel, setChoferSel] = useState(null);
   const fileRefs = useRef({});
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef({});
+  const infoWindowRef = useRef(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
@@ -61,6 +76,90 @@ function Coordinador({ usuario, onVolver }) {
     });
     return () => unsub();
   }, []);
+
+  // Choferes activos para el mapa
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
+      const activos = [];
+      snap.docs.forEach(d => {
+        const pedido = d.data();
+        (pedido.despachos || []).forEach((despacho, i) => {
+          const estado = despacho.estado_chofer || '';
+          if (!['recibido', 'iniciado', 'demorado'].includes(estado)) return;
+          activos.push({
+            uid: pedido.id + '-D' + (i + 1),
+            chofer: despacho.chofer || 'Sin nombre',
+            transporte: despacho.transporte || '',
+            producto: pedido.producto,
+            cliente: pedido.cliente,
+            lugar: pedido.lugar,
+            patente_tractor: despacho.patente_tractor || '',
+            tel_unidad: despacho.tel_unidad || '',
+            estado_chofer: estado,
+            gps_lat: despacho.gps_lat || null,
+            gps_lng: despacho.gps_lng || null,
+            gps_ts: despacho.gps_ts || null,
+          });
+        });
+      });
+      setChoferes(activos);
+    });
+    return () => unsub();
+  }, []);
+
+  // Inicializar Google Maps cuando se activa el tab
+  useEffect(() => {
+    if (tabActivo !== 'seguimiento') return;
+    const initMap = () => {
+      if (!mapRef.current || mapInstanceRef.current) return;
+      mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
+        center: { lat: -32.7, lng: -60.5 },
+        zoom: 6,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      });
+      infoWindowRef.current = new window.google.maps.InfoWindow();
+    };
+    if (window.google) { setTimeout(initMap, 100); return; }
+    if (document.querySelector(`script[src*="maps.googleapis.com"]`)) {
+      const interval = setInterval(() => { if (window.google) { clearInterval(interval); setTimeout(initMap, 100); } }, 200);
+      return () => clearInterval(interval);
+    }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}`;
+    script.async = true;
+    script.onload = () => setTimeout(initMap, 100);
+    document.head.appendChild(script);
+  }, [tabActivo]);
+
+  // Actualizar markers
+  useEffect(() => {
+    if (tabActivo !== 'seguimiento' || !mapInstanceRef.current || !window.google) return;
+    const uidsActuales = new Set(choferes.map(c => c.uid));
+    Object.keys(markersRef.current).forEach(uid => {
+      if (!uidsActuales.has(uid)) { markersRef.current[uid].setMap(null); delete markersRef.current[uid]; }
+    });
+    choferes.forEach(c => {
+      if (!c.gps_lat || !c.gps_lng) return;
+      const pos = { lat: c.gps_lat, lng: c.gps_lng };
+      const cfg = ESTADO_GPS[c.estado_chofer] || ESTADO_GPS.iniciado;
+      if (markersRef.current[c.uid]) {
+        markersRef.current[c.uid].setPosition(pos);
+      } else {
+        const marker = new window.google.maps.Marker({
+          position: pos, map: mapInstanceRef.current, title: c.chofer,
+          icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: cfg.color, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+        });
+        marker.addListener('click', () => {
+          setChoferSel(c.uid);
+          infoWindowRef.current.setContent(`<div style="font-family:sans-serif;padding:4px 6px;min-width:160px"><div style="font-weight:600;font-size:13px;margin-bottom:3px">${c.chofer}</div><div style="font-size:12px;color:#6B7280">${c.producto} · ${c.cliente}</div><div style="font-size:11px;color:#9CA3AF;margin-top:2px">${cfg.label}</div></div>`);
+          infoWindowRef.current.open(mapInstanceRef.current, marker);
+        });
+        markersRef.current[c.uid] = marker;
+      }
+    });
+  }, [choferes, tabActivo]);
 
   function volAsignado(p) { return (p.despachos || []).reduce((s, d) => s + Number(d.volumen), 0); }
   function saldo(p) { return Number(p.volumen) - volAsignado(p); }
@@ -263,6 +362,61 @@ function Coordinador({ usuario, onVolver }) {
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
+
+      {/* Tabs */}
+      <div style={stylesTab.tabRow}>
+        <button style={{ ...stylesTab.tab, ...(tabActivo === 'despachos' ? stylesTab.tabActive : {}) }} onClick={() => setTabActivo('despachos')}>
+          📋 Despachos
+        </button>
+        <button style={{ ...stylesTab.tab, ...(tabActivo === 'seguimiento' ? stylesTab.tabActive : {}) }} onClick={() => setTabActivo('seguimiento')}>
+          📡 Seguimiento {choferes.length > 0 && <span style={stylesTab.badge}>{choferes.length}</span>}
+        </button>
+      </div>
+
+      {/* Tab Seguimiento */}
+      {tabActivo === 'seguimiento' && (
+        <div style={stylesTab.seguimientoWrap}>
+          <div style={stylesTab.panel}>
+            {choferes.length === 0 && <div style={styles.empty}>No hay choferes activos en este momento.</div>}
+            {choferes.map(c => {
+              const cfg = ESTADO_GPS[c.estado_chofer] || ESTADO_GPS.iniciado;
+              return (
+                <div key={c.uid}
+                  style={{ ...stylesTab.choferCard, borderColor: choferSel === c.uid ? cfg.color : '#E5E7EB' }}
+                  onClick={() => {
+                    setChoferSel(c.uid);
+                    if (c.gps_lat && c.gps_lng && mapInstanceRef.current) {
+                      mapInstanceRef.current.panTo({ lat: c.gps_lat, lng: c.gps_lng });
+                      mapInstanceRef.current.setZoom(12);
+                    }
+                  }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, flexShrink: 0, display: 'inline-block' }} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827', flex: 1 }}>{c.chofer}</span>
+                    <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 20, background: cfg.color + '22', color: cfg.color, fontWeight: 500 }}>{cfg.label}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px' }}>
+                    <div><div style={{ fontSize: 10, color: '#9CA3AF' }}>Producto</div><div style={{ fontSize: 12, fontWeight: 500 }}>{c.producto}</div></div>
+                    <div><div style={{ fontSize: 10, color: '#9CA3AF' }}>Cliente</div><div style={{ fontSize: 12, fontWeight: 500 }}>{c.cliente}</div></div>
+                    <div><div style={{ fontSize: 10, color: '#9CA3AF' }}>Destino</div><div style={{ fontSize: 12, fontWeight: 500 }}>{c.lugar}</div></div>
+                    <div><div style={{ fontSize: 10, color: '#9CA3AF' }}>GPS</div><div style={{ fontSize: 12, fontWeight: 500, color: c.gps_ts ? '#0F6E56' : '#9CA3AF' }}>{c.gps_ts ? 'Activo' : 'Sin señal'}</div></div>
+                  </div>
+                  {c.tel_unidad && <a href={`tel:${c.tel_unidad}`} style={{ display: 'block', fontSize: 12, color: '#0C447C', marginTop: 6, textDecoration: 'none' }}>📞 {c.tel_unidad}</a>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={stylesTab.mapaWrap}>
+            <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+            {choferes.filter(c => c.gps_lat).length === 0 && (
+              <div style={stylesTab.sinGps}>Sin posición GPS disponible.<br /><span style={{ fontSize: 12, color: '#9CA3AF' }}>Los choferes aparecen al iniciar el viaje.</span></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab Despachos */}
+      {tabActivo === 'despachos' && (<>
 
       <div style={styles.metrics}>
         {[['Pendientes','#534AB7','Pendiente'],['Prog. parcial','#BA7517','prog-parcial'],['Programados','#0F6E56','Programado'],['Aceptados','#065F46','Aceptado'],['Nominados','#3C3489','Nominado'],['Suspendidos','#A32D2D','Suspendido']].map(([label, color, estado]) => (
@@ -500,9 +654,22 @@ function Coordinador({ usuario, onVolver }) {
           )}
         </div>
       ))}
+      </>)}
     </div>
   );
 }
+
+const stylesTab = {
+  tabRow: { display: 'flex', gap: 4, padding: '0 1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem', background: '#fff' },
+  tab: { padding: '10px 18px', fontSize: 13, fontWeight: 500, background: 'none', border: 'none', borderBottom: '2px solid transparent', color: '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 },
+  tabActive: { color: '#C8102E', borderBottomColor: '#C8102E' },
+  badge: { fontSize: 10, background: '#C8102E', color: '#fff', borderRadius: 20, padding: '1px 6px', fontWeight: 600 },
+  seguimientoWrap: { display: 'flex', height: 'calc(100vh - 120px)', overflow: 'hidden' },
+  panel: { width: 300, flexShrink: 0, overflowY: 'auto', padding: '10px', borderRight: '0.5px solid #E5E7EB' },
+  choferCard: { border: '0.5px solid', borderRadius: 10, padding: '10px 12px', marginBottom: 8, cursor: 'pointer', transition: 'border-color 0.15s', background: '#fff' },
+  mapaWrap: { flex: 1, position: 'relative' },
+  sinGps: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', fontSize: 14, color: '#6B7280', lineHeight: 1.7, background: 'rgba(255,255,255,0.9)', padding: '16px 20px', borderRadius: 12 },
+};
 
 const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
