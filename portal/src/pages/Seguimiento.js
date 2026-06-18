@@ -4,7 +4,13 @@ import { collection, onSnapshot } from 'firebase/firestore';
 
 const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
 
-function Seguimiento({ usuario, onVolver }) {
+const ESTADO_CONFIG = {
+  recibido: { color: '#378ADD', label: 'Viaje recibido' },
+  iniciado: { color: '#1D9E75', label: 'En ruta' },
+  demorado: { color: '#BA7517', label: 'Demorado' },
+};
+
+function Seguimiento({ onVolver }) {
   const [choferes, setChoferes] = useState([]);
   const [seleccionado, setSeleccionado] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -13,13 +19,6 @@ function Seguimiento({ usuario, onVolver }) {
   const markersRef = useRef({});
   const infoWindowRef = useRef(null);
 
-  const ESTADO_CONFIG = {
-    recibido:  { color: '#378ADD', label: 'Viaje recibido', emoji: '🔵' },
-    iniciado:  { color: '#1D9E75', label: 'En ruta',        emoji: '🟢' },
-    demorado:  { color: '#BA7517', label: 'Demorado',       emoji: '🟠' },
-  };
-
-  // ── Cargar datos desde Firestore ─────────────────────────────────────────
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
       const activos = [];
@@ -30,10 +29,7 @@ function Seguimiento({ usuario, onVolver }) {
           if (!['recibido', 'iniciado', 'demorado'].includes(estado)) return;
           activos.push({
             uid: pedido.id + '-D' + (i + 1),
-            docId: d.id,
-            despachoIdx: i,
             chofer: despacho.chofer || 'Sin nombre',
-            dni_chofer: despacho.dni_chofer || '',
             transporte: despacho.transporte || '',
             producto: pedido.producto,
             volumen: despacho.volumen,
@@ -58,7 +54,6 @@ function Seguimiento({ usuario, onVolver }) {
     return () => unsub();
   }, []);
 
-  // ── Cargar Google Maps script ─────────────────────────────────────────────
   useEffect(() => {
     if (window.google) { initMap(); return; }
     const script = document.createElement('script');
@@ -66,17 +61,13 @@ function Seguimiento({ usuario, onVolver }) {
     script.async = true;
     script.onload = initMap;
     document.head.appendChild(script);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function initMap() {
     if (!mapRef.current || mapInstanceRef.current) return;
     mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-      center: { lat: -32.7, lng: -60.5 }, // Centro Argentina
+      center: { lat: -32.7, lng: -60.5 },
       zoom: 6,
-      styles: [
-        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-        { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-      ],
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
@@ -84,25 +75,19 @@ function Seguimiento({ usuario, onVolver }) {
     infoWindowRef.current = new window.google.maps.InfoWindow();
   }
 
-  // ── Actualizar markers cuando cambian los choferes ───────────────────────
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google) return;
-
     const uidsActuales = new Set(choferes.map(c => c.uid));
-
-    // Eliminar markers de choferes que ya no están
     Object.keys(markersRef.current).forEach(uid => {
       if (!uidsActuales.has(uid)) {
         markersRef.current[uid].setMap(null);
         delete markersRef.current[uid];
       }
     });
-
     choferes.forEach(c => {
       if (!c.gps_lat || !c.gps_lng) return;
       const pos = { lat: c.gps_lat, lng: c.gps_lng };
       const cfg = ESTADO_CONFIG[c.estado_chofer] || ESTADO_CONFIG.iniciado;
-
       if (markersRef.current[c.uid]) {
         markersRef.current[c.uid].setPosition(pos);
       } else {
@@ -135,7 +120,6 @@ function Seguimiento({ usuario, onVolver }) {
     });
   }, [choferes]);
 
-  // ── helpers ───────────────────────────────────────────────────────────────
   function tiempoDesde(isoStr) {
     if (!isoStr) return '—';
     const diff = Date.now() - new Date(isoStr).getTime();
@@ -147,8 +131,8 @@ function Seguimiento({ usuario, onVolver }) {
 
   function formatFecha(str) {
     if (!str) return '—';
-    const [y, m, d] = str.split('-');
-    return d ? `${d}/${m}/${y}` : str;
+    const partes = str.split('-');
+    return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : str;
   }
 
   function centrarEnChofer(c) {
@@ -161,23 +145,21 @@ function Seguimiento({ usuario, onVolver }) {
     }
   }
 
-  const choferSeleccionado = choferes.find(c => c.uid === seleccionado);
-
-  // ── alertas automáticas ───────────────────────────────────────────────────
   function getAlertas() {
     const alertas = [];
     choferes.forEach(c => {
-      if (!c.gps_ts) return;
-      const minSinSenal = Math.floor((Date.now() - new Date(c.gps_ts).getTime()) / 60000);
-      if (c.estado_chofer === 'iniciado' && minSinSenal > 30) {
-        alertas.push({ uid: c.uid, chofer: c.chofer, msg: `Sin movimiento hace ${minSinSenal} min`, tipo: 'amber' });
+      if (c.estado_chofer === 'demorado') {
+        alertas.push({ uid: c.uid, chofer: c.chofer, msg: 'Viaje demorado', tipo: 'red' });
       }
-      if (minSinSenal > 60) {
-        alertas.push({ uid: c.uid, chofer: c.chofer, msg: `Sin señal GPS hace ${minSinSenal} min`, tipo: 'red' });
+      if (c.gps_ts) {
+        const min = Math.floor((Date.now() - new Date(c.gps_ts).getTime()) / 60000);
+        if (c.estado_chofer === 'iniciado' && min > 30) {
+          alertas.push({ uid: c.uid, chofer: c.chofer, msg: `Sin movimiento hace ${min} min`, tipo: 'amber' });
+        }
+        if (min > 60) {
+          alertas.push({ uid: c.uid, chofer: c.chofer, msg: `Sin señal GPS hace ${min} min`, tipo: 'red' });
+        }
       }
-    });
-    choferes.filter(c => c.estado_chofer === 'demorado').forEach(c => {
-      alertas.push({ uid: c.uid, chofer: c.chofer, msg: 'Viaje demorado', tipo: 'red' });
     });
     return alertas;
   }
@@ -186,8 +168,6 @@ function Seguimiento({ usuario, onVolver }) {
 
   return (
     <div style={s.wrap}>
-
-      {/* Topbar */}
       <div style={s.topbar}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <img src="/logo.png" alt="Explora" style={{ height: 28, objectFit: 'contain' }} />
@@ -198,17 +178,14 @@ function Seguimiento({ usuario, onVolver }) {
       </div>
 
       <div style={s.layout}>
-
-        {/* Panel izquierdo */}
         <div style={s.panel}>
-
-          {/* Alertas */}
           {alertas.length > 0 && (
-            <div style={s.alertasWrap}>
+            <div style={{ marginBottom: 10 }}>
               {alertas.map((a, i) => (
-                <div key={i} style={{ ...s.alerta, background: a.tipo === 'red' ? '#FCEBEB' : '#FAEEDA', borderColor: a.tipo === 'red' ? '#F09595' : '#EF9F27' }}
+                <div key={i}
+                  style={{ ...s.alerta, background: a.tipo === 'red' ? '#FCEBEB' : '#FAEEDA', borderColor: a.tipo === 'red' ? '#F09595' : '#EF9F27' }}
                   onClick={() => { const c = choferes.find(x => x.uid === a.uid); if (c) centrarEnChofer(c); }}>
-                  <span style={{ fontSize: 13 }}>{a.tipo === 'red' ? '🔴' : '🟠'}</span>
+                  <span>{a.tipo === 'red' ? '🔴' : '🟠'}</span>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 500, color: a.tipo === 'red' ? '#A32D2D' : '#633806' }}>{a.chofer}</div>
                     <div style={{ fontSize: 11, color: a.tipo === 'red' ? '#A32D2D' : '#633806' }}>{a.msg}</div>
@@ -218,7 +195,6 @@ function Seguimiento({ usuario, onVolver }) {
             </div>
           )}
 
-          {/* Lista choferes */}
           {cargando && <div style={s.empty}>Cargando...</div>}
           {!cargando && choferes.length === 0 && (
             <div style={s.empty}>No hay choferes activos en este momento.</div>
@@ -234,7 +210,7 @@ function Seguimiento({ usuario, onVolver }) {
                 <div style={s.choferHeader}>
                   <span style={{ ...s.dot, background: cfg.color }} />
                   <span style={s.choferNombre}>{c.chofer}</span>
-                  <span style={{ ...s.estadoBadge, background: cfg.color + '22', color: cfg.color }}>{cfg.label}</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20, background: cfg.color + '22', color: cfg.color }}>{cfg.label}</span>
                 </div>
                 <div style={s.choferGrid}>
                   <div style={s.cf}><span style={s.cl}>Producto</span><span style={s.cv}>{c.producto}</span></div>
@@ -257,17 +233,15 @@ function Seguimiento({ usuario, onVolver }) {
           })}
         </div>
 
-        {/* Mapa */}
         <div style={s.mapaWrap}>
           <div ref={mapRef} style={s.mapa} />
           {!cargando && choferes.filter(c => c.gps_lat).length === 0 && (
             <div style={s.sinGps}>
               Sin posición GPS disponible todavía.<br />
-              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Los choferes deben iniciar el viaje para aparecer en el mapa.</span>
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Los choferes aparecen en el mapa al iniciar el viaje.</span>
             </div>
           )}
         </div>
-
       </div>
     </div>
   );
@@ -281,14 +255,12 @@ const s = {
   btnVolver: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
   layout: { display: 'flex', flex: 1, overflow: 'hidden', height: 'calc(100vh - 49px)' },
   panel: { width: 320, flexShrink: 0, overflowY: 'auto', padding: '12px', borderRight: '0.5px solid #E5E7EB', background: '#fff' },
-  alertasWrap: { marginBottom: 10 },
   alerta: { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, border: '0.5px solid', marginBottom: 6, cursor: 'pointer' },
   empty: { textAlign: 'center', padding: '2rem 1rem', color: '#9CA3AF', fontSize: 13 },
   choferCard: { border: '0.5px solid', borderRadius: 12, padding: '10px 12px', marginBottom: 8, cursor: 'pointer', transition: 'border-color 0.15s' },
   choferHeader: { display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 },
   dot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
   choferNombre: { fontSize: 13, fontWeight: 600, color: '#111827', flex: 1 },
-  estadoBadge: { fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20 },
   choferGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', marginBottom: 8 },
   cf: { display: 'flex', flexDirection: 'column', gap: 1 },
   cl: { fontSize: 10, color: '#9CA3AF' },
