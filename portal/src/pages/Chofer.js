@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 
@@ -28,6 +28,8 @@ function Chofer({ usuario, onVolver }) {
   const [modalFinalizar, setModalFinalizar] = useState(null);
 
   const dniUsuario = usuario?.dni || '';
+  const gpsIntervalRef = useRef(null);
+  const viajeActivoRef = useRef(null);
 
   useEffect(() => {
     if (!dniUsuario) { setCargando(false); return; }
@@ -69,6 +71,48 @@ function Chofer({ usuario, onVolver }) {
     });
     return () => unsub();
   }, [dniUsuario]);
+
+  // Mantener ref del viaje activo para el GPS
+  useEffect(() => {
+    const iniciado = viajes.find(v => v.estado_chofer === 'iniciado' || v.estado_chofer === 'demorado');
+    viajeActivoRef.current = iniciado || null;
+  }, [viajes]);
+
+  // GPS — arranca al montar, se limpia al desmontar
+  useEffect(() => {
+    function enviarGPS() {
+      const viaje = viajeActivoRef.current;
+      if (!viaje) return;
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const snap = await getDoc(doc(db, 'pedidos_portal', viaje.docId));
+            const pedido = snap.data();
+            const nuevosDespachos = [...pedido.despachos];
+            nuevosDespachos[viaje.despachoIdx] = {
+              ...nuevosDespachos[viaje.despachoIdx],
+              gps_lat: pos.coords.latitude,
+              gps_lng: pos.coords.longitude,
+              gps_ts: new Date().toISOString(),
+            };
+            await updateDoc(doc(db, 'pedidos_portal', viaje.docId), { despachos: nuevosDespachos });
+          } catch (err) {
+            console.error('Error GPS:', err);
+          }
+        },
+        (err) => console.warn('GPS no disponible:', err.message),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    gpsIntervalRef.current = setInterval(enviarGPS, 60000);
+    enviarGPS(); // Primera lectura inmediata
+
+    return () => {
+      if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cambiarEstado(viaje, nuevoEstado, extras = {}) {
     setProcesando(true);
