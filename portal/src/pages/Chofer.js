@@ -118,8 +118,8 @@ function Chofer({ usuario, onVolver }) {
 
   function formatFecha(str) {
     if (!str) return '—';
-    const [y, m, d] = str.split('-');
-    return d ? `${d}/${m}` : str;
+    const partes = str.split('-');
+    return partes.length === 3 ? `${partes[2]}/${partes[1]}` : str;
   }
 
   function tiempoDesde(isoStr) {

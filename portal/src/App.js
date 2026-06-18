@@ -9,6 +9,7 @@ import Pedidos from './pages/Pedidos';
 import Coordinador from './pages/Coordinador';
 import Transportista from './pages/Transportista';
 import Chofer from './pages/Chofer';
+import Seguimiento from './pages/Seguimiento';
 import Admin from './pages/Admin';
 import Tarifario from './Tarifario';
 
@@ -69,6 +70,9 @@ function App() {
   }
   if (modulo === 'chofer' && (rol === 'admin' || rol === 'chofer')) {
     return <Chofer usuario={usuario} onVolver={() => setModulo('home')} />;
+  }
+  if (modulo === 'seguimiento' && (rol === 'admin' || rol === 'coordinador')) {
+    return <Seguimiento usuario={usuario} onVolver={() => setModulo('home')} />;
   }
   if (modulo === 'admin' && rol === 'admin') {
     return <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
