@@ -351,7 +351,10 @@ function Coordinador({ usuario, onVolver }) {
   const pillLabel = { 'Pendiente': 'Pendiente', 'prog-parcial': 'Prog. parcial', 'Programado': 'Programado', 'Aceptado': 'Aceptado', 'Nominado': 'Nominado', 'Suspendido': 'Suspendido' };
   const despachoColors = { 'Programado': { bg: '#FAEEDA', color: '#633806' }, 'Aceptado-pendiente': { bg: '#FEF3C7', color: '#92400E' }, 'Aceptado': { bg: '#E1F5EE', color: '#085041' }, 'Nominado': { bg: '#EEEDFE', color: '#3C3489' }, 'En espera': { bg: '#F3F4F6', color: '#6B7280' }, 'Rechazado': { bg: '#FCEBEB', color: '#791F1F' } };
   const despachoLabel = { 'Programado': 'Programado', 'Aceptado-pendiente': '⏳ Pendiente transporte', 'Aceptado': 'Aceptado', 'Nominado': 'Nominado', 'En espera': 'En espera', 'Rechazado': 'Rechazado' };
-  const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
+  const filtrados = pedidos.filter(p => {
+    if (filtro === 'todos') return ['Pendiente', 'prog-parcial', 'Programado'].includes(p.estado) || tieneNominacionPendiente(p);
+    return p.estado === filtro;
+  });
 
   return (
     <div style={styles.wrap}>
@@ -445,9 +448,12 @@ function Coordinador({ usuario, onVolver }) {
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
             {tieneNominacionPendiente(p) && <span style={styles.badgeNomPendiente}>⏳ Pend. transporte</span>}
             {tieneDespachoEnEspera(p) && <span style={styles.badgeEspera}>⏸ En espera</span>}
-            <span style={styles.cardNro}>{p.id}</span>
+            <span style={styles.cardNro}>{p.ov || p.id}</span>
             <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
             {proximaCarga(p) && <span style={styles.cardFechaCarga}>📦 {proximaCarga(p)}</span>}
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {p.editado_en ? new Date(p.editado_en).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : p.creado_en || ''}
+            </span>
             <span style={styles.cardFecha}>Creado {p.creado_en}</span>
             <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
           </div>
