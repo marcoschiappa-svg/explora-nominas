@@ -352,7 +352,7 @@ function Coordinador({ usuario, onVolver }) {
   const despachoColors = { 'Programado': { bg: '#FAEEDA', color: '#633806' }, 'Aceptado-pendiente': { bg: '#FEF3C7', color: '#92400E' }, 'Aceptado': { bg: '#E1F5EE', color: '#085041' }, 'Nominado': { bg: '#EEEDFE', color: '#3C3489' }, 'En espera': { bg: '#F3F4F6', color: '#6B7280' }, 'Rechazado': { bg: '#FCEBEB', color: '#791F1F' } };
   const despachoLabel = { 'Programado': 'Programado', 'Aceptado-pendiente': '⏳ Pendiente transporte', 'Aceptado': 'Aceptado', 'Nominado': 'Nominado', 'En espera': 'En espera', 'Rechazado': 'Rechazado' };
   const filtrados = pedidos.filter(p => {
-    if (filtro === 'todos') return ['Pendiente', 'prog-parcial', 'Programado'].includes(p.estado) || tieneNominacionPendiente(p);
+    if (filtro === 'todos') return ['Pendiente', 'prog-parcial'].includes(p.estado) || tieneNominacionPendiente(p);
     return p.estado === filtro;
   });
 
