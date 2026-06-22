@@ -10,6 +10,24 @@ const ESTADO_CONFIG = {
   demorado: { color: '#BA7517', label: 'Demorado' },
 };
 
+// SVG de camión codificado como URL para el marker
+function getCamionIcon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="28" viewBox="0 0 40 28">
+    <rect x="0" y="8" width="26" height="14" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
+    <rect x="26" y="12" width="12" height="10" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
+    <rect x="28" y="13" width="8" height="6" rx="1" fill="rgba(255,255,255,0.35)"/>
+    <circle cx="7" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
+    <circle cx="19" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
+    <circle cx="32" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
+    <rect x="2" y="10" width="10" height="7" rx="1" fill="rgba(255,255,255,0.25)"/>
+  </svg>`;
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: { width: 40, height: 28 },
+    anchor: { x: 20, y: 14 },
+  };
+}
+
 function Seguimiento({ onVolver }) {
   const [choferes, setChoferes] = useState([]);
   const [seleccionado, setSeleccionado] = useState(null);
@@ -88,29 +106,34 @@ function Seguimiento({ onVolver }) {
       if (!c.gps_lat || !c.gps_lng) return;
       const pos = { lat: c.gps_lat, lng: c.gps_lng };
       const cfg = ESTADO_CONFIG[c.estado_chofer] || ESTADO_CONFIG.iniciado;
+      const iconData = getCamionIcon(cfg.color);
       if (markersRef.current[c.uid]) {
         markersRef.current[c.uid].setPosition(pos);
+        markersRef.current[c.uid].setIcon({
+          url: iconData.url,
+          scaledSize: new window.google.maps.Size(iconData.scaledSize.width, iconData.scaledSize.height),
+          anchor: new window.google.maps.Point(iconData.anchor.x, iconData.anchor.y),
+        });
       } else {
         const marker = new window.google.maps.Marker({
           position: pos,
           map: mapInstanceRef.current,
           title: c.chofer,
           icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 10,
-            fillColor: cfg.color,
-            fillOpacity: 1,
-            strokeColor: '#fff',
-            strokeWeight: 2,
+            url: iconData.url,
+            scaledSize: new window.google.maps.Size(iconData.scaledSize.width, iconData.scaledSize.height),
+            anchor: new window.google.maps.Point(iconData.anchor.x, iconData.anchor.y),
           },
         });
         marker.addListener('click', () => {
           setSeleccionado(c.uid);
+          mapInstanceRef.current.panTo(pos);
           infoWindowRef.current.setContent(`
-            <div style="font-family:sans-serif;padding:4px 6px;min-width:180px">
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">${c.chofer}</div>
+            <div style="font-family:sans-serif;padding:6px 8px;min-width:200px">
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${c.chofer}</div>
               <div style="font-size:12px;color:#6B7280">${c.producto} · ${c.cliente}</div>
-              <div style="font-size:11px;color:#9CA3AF;margin-top:2px">${cfg.label}</div>
+              <div style="font-size:12px;color:#6B7280;margin-top:2px">${c.patente_tractor}${c.patente_semi ? ' / ' + c.patente_semi : ''}</div>
+              <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${cfg.label}</div>
             </div>
           `);
           infoWindowRef.current.open(mapInstanceRef.current, marker);
@@ -138,7 +161,7 @@ function Seguimiento({ onVolver }) {
   function centrarEnChofer(c) {
     if (!c.gps_lat || !c.gps_lng || !mapInstanceRef.current) return;
     mapInstanceRef.current.panTo({ lat: c.gps_lat, lng: c.gps_lng });
-    mapInstanceRef.current.setZoom(12);
+    mapInstanceRef.current.setZoom(13);
     setSeleccionado(c.uid);
     if (markersRef.current[c.uid]) {
       window.google.maps.event.trigger(markersRef.current[c.uid], 'click');
