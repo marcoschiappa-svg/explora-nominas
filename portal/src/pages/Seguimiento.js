@@ -10,21 +10,11 @@ const ESTADO_CONFIG = {
   demorado: { color: '#BA7517', label: 'Demorado' },
 };
 
-// SVG de camión codificado como URL para el marker
 function getCamionIcon(color) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="28" viewBox="0 0 40 28">
-    <rect x="0" y="8" width="26" height="14" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
-    <rect x="26" y="12" width="12" height="10" rx="2" fill="${color}" stroke="white" stroke-width="1.5"/>
-    <rect x="28" y="13" width="8" height="6" rx="1" fill="rgba(255,255,255,0.35)"/>
-    <circle cx="7" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
-    <circle cx="19" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
-    <circle cx="32" cy="23" r="3.5" fill="#222" stroke="white" stroke-width="1.5"/>
-    <rect x="2" y="10" width="10" height="7" rx="1" fill="rgba(255,255,255,0.25)"/>
-  </svg>`;
   return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: { width: 40, height: 28 },
-    anchor: { x: 20, y: 14 },
+    url: '/camion.webp',
+    scaledSize: { width: 56, height: 36 },
+    anchor: { x: 28, y: 18 },
   };
 }
 
