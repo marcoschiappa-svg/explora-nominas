@@ -10,11 +10,26 @@ const ESTADO_CONFIG = {
   demorado: { color: '#BA7517', label: 'Demorado' },
 };
 
-function getCamionIcon(color) {
+function calcularAngulo(lat1, lng1, lat2, lng2) {
+  if (!lat1 || !lng1 || !lat2 || !lng2) return 0;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const lat1r = lat1 * Math.PI / 180;
+  const lat2r = lat2 * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2r);
+  const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function getFlechaIcon(color, angulo) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+    <g transform="rotate(${angulo} 16 16)">
+      <polygon points="16,2 28,30 16,23 4,30" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+  </svg>`;
   return {
-    url: '/camion.webp',
-    scaledSize: { width: 56, height: 36 },
-    anchor: { x: 28, y: 18 },
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new window.google.maps.Size(32, 32),
+    anchor: new window.google.maps.Point(16, 16),
   };
 }
 
@@ -51,6 +66,8 @@ function Seguimiento({ onVolver }) {
             estado_chofer_ts: despacho.estado_chofer_ts || '',
             gps_lat: despacho.gps_lat || null,
             gps_lng: despacho.gps_lng || null,
+            gps_lat_prev: despacho.gps_lat_prev || null,
+            gps_lng_prev: despacho.gps_lng_prev || null,
             gps_ts: despacho.gps_ts || null,
             fecha_carga: despacho.fecha_carga || '',
           });
@@ -96,24 +113,17 @@ function Seguimiento({ onVolver }) {
       if (!c.gps_lat || !c.gps_lng) return;
       const pos = { lat: c.gps_lat, lng: c.gps_lng };
       const cfg = ESTADO_CONFIG[c.estado_chofer] || ESTADO_CONFIG.iniciado;
-      const iconData = getCamionIcon(cfg.color);
+      const angulo = calcularAngulo(c.gps_lat_prev, c.gps_lng_prev, c.gps_lat, c.gps_lng);
+      const icon = getFlechaIcon(cfg.color, angulo);
       if (markersRef.current[c.uid]) {
         markersRef.current[c.uid].setPosition(pos);
-        markersRef.current[c.uid].setIcon({
-          url: iconData.url,
-          scaledSize: new window.google.maps.Size(iconData.scaledSize.width, iconData.scaledSize.height),
-          anchor: new window.google.maps.Point(iconData.anchor.x, iconData.anchor.y),
-        });
+        markersRef.current[c.uid].setIcon(icon);
       } else {
         const marker = new window.google.maps.Marker({
           position: pos,
           map: mapInstanceRef.current,
           title: c.chofer,
-          icon: {
-            url: iconData.url,
-            scaledSize: new window.google.maps.Size(iconData.scaledSize.width, iconData.scaledSize.height),
-            anchor: new window.google.maps.Point(iconData.anchor.x, iconData.anchor.y),
-          },
+          icon,
         });
         marker.addListener('click', () => {
           setSeleccionado(c.uid);
