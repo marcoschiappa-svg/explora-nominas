@@ -20,17 +20,38 @@ function calcularAngulo(lat1, lng1, lat2, lng2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function getFlechaIcon(color, angulo) {
+// Cache para no re-generar el mismo PNG dos veces
+const pngCache = {};
+
+function getFlechaIconUrl(color, angulo, callback) {
+  const key = `${color}_${Math.round(angulo)}`;
+  if (pngCache[key]) {
+    callback(pngCache[key]);
+    return;
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <g transform="rotate(${angulo} 16 16)">
       <polygon points="16,2 28,30 16,23 4,30" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/>
     </g>
   </svg>`;
-  return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: new window.google.maps.Size(32, 32),
-    anchor: new window.google.maps.Point(16, 16),
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    const url = canvas.toDataURL('image/png');
+    pngCache[key] = url;
+    callback(url);
   };
+  img.onerror = () => {
+    // Fallback: usar el SVG directo si canvas falla
+    const url = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+    callback(url);
+  };
+  img.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }
 
 function Seguimiento({ onVolver }) {
@@ -102,6 +123,7 @@ function Seguimiento({ onVolver }) {
 
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google) return;
+
     const uidsActuales = new Set(choferes.map(c => c.uid));
     Object.keys(markersRef.current).forEach(uid => {
       if (!uidsActuales.has(uid)) {
@@ -109,37 +131,46 @@ function Seguimiento({ onVolver }) {
         delete markersRef.current[uid];
       }
     });
+
     choferes.forEach(c => {
       if (!c.gps_lat || !c.gps_lng) return;
       const pos = { lat: c.gps_lat, lng: c.gps_lng };
       const cfg = ESTADO_CONFIG[c.estado_chofer] || ESTADO_CONFIG.iniciado;
       const angulo = calcularAngulo(c.gps_lat_prev, c.gps_lng_prev, c.gps_lat, c.gps_lng);
-      const icon = getFlechaIcon(cfg.color, angulo);
-      if (markersRef.current[c.uid]) {
-        markersRef.current[c.uid].setPosition(pos);
-        markersRef.current[c.uid].setIcon(icon);
-      } else {
-        const marker = new window.google.maps.Marker({
-          position: pos,
-          map: mapInstanceRef.current,
-          title: c.chofer,
-          icon,
-        });
-        marker.addListener('click', () => {
-          setSeleccionado(c.uid);
-          mapInstanceRef.current.panTo(pos);
-          infoWindowRef.current.setContent(`
-            <div style="font-family:sans-serif;padding:6px 8px;min-width:200px">
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${c.chofer}</div>
-              <div style="font-size:12px;color:#6B7280">${c.producto} · ${c.cliente}</div>
-              <div style="font-size:12px;color:#6B7280;margin-top:2px">${c.patente_tractor}${c.patente_semi ? ' / ' + c.patente_semi : ''}</div>
-              <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${cfg.label}</div>
-            </div>
-          `);
-          infoWindowRef.current.open(mapInstanceRef.current, marker);
-        });
-        markersRef.current[c.uid] = marker;
-      }
+
+      getFlechaIconUrl(cfg.color, angulo, (iconUrl) => {
+        const icon = {
+          url: iconUrl,
+          scaledSize: new window.google.maps.Size(32, 32),
+          anchor: new window.google.maps.Point(16, 16),
+        };
+
+        if (markersRef.current[c.uid]) {
+          markersRef.current[c.uid].setPosition(pos);
+          markersRef.current[c.uid].setIcon(icon);
+        } else {
+          const marker = new window.google.maps.Marker({
+            position: pos,
+            map: mapInstanceRef.current,
+            title: c.chofer,
+            icon,
+          });
+          marker.addListener('click', () => {
+            setSeleccionado(c.uid);
+            mapInstanceRef.current.panTo(pos);
+            infoWindowRef.current.setContent(`
+              <div style="font-family:sans-serif;padding:6px 8px;min-width:200px">
+                <div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${c.chofer}</div>
+                <div style="font-size:12px;color:#6B7280">${c.producto} · ${c.cliente}</div>
+                <div style="font-size:12px;color:#6B7280;margin-top:2px">${c.patente_tractor}${c.patente_semi ? ' / ' + c.patente_semi : ''}</div>
+                <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${cfg.label}</div>
+              </div>
+            `);
+            infoWindowRef.current.open(mapInstanceRef.current, marker);
+          });
+          markersRef.current[c.uid] = marker;
+        }
+      });
     });
   }, [choferes]);
 
