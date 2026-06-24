@@ -31,6 +31,7 @@ const FORM_VACIO = {
 
 function Admin({ usuario, onVolver }) {
   const [usuarios, setUsuarios] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -38,6 +39,7 @@ function Admin({ usuario, onVolver }) {
   const [verNuevaPassword, setVerNuevaPassword] = useState(false);
   const [credencialCreada, setCredencialCreada] = useState(null);
   const [generandoLink, setGenerandoLink] = useState(false);
+  const [finalizando, setFinalizando] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
 
   useEffect(() => {
@@ -48,6 +50,61 @@ function Admin({ usuario, onVolver }) {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
+      setPedidos(snap.docs.map(d => ({ docId: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  // Viajes activos: despachos con estado_chofer en recibido/iniciado/demorado
+  const viajesActivos = [];
+  pedidos.forEach(p => {
+    (p.despachos || []).forEach((d, i) => {
+      const ec = d.estado_chofer || '';
+      if (!['recibido', 'iniciado', 'demorado'].includes(ec)) return;
+      viajesActivos.push({
+        docId: p.docId,
+        pedidoId: p.id,
+        despachoIdx: i,
+        uid: p.id + '-D' + (i + 1),
+        chofer: d.chofer || 'Sin nombre',
+        dni_chofer: d.dni_chofer || '',
+        transporte: d.transporte || '',
+        producto: p.producto,
+        cliente: p.cliente,
+        fecha_carga: d.fecha_carga || '',
+        estado_chofer: ec,
+        patente_tractor: d.patente_tractor || '',
+      });
+    });
+  });
+
+  async function finalizarViaje(v) {
+    if (!window.confirm(`¿Finalizar manualmente el viaje de ${v.chofer}?\nEsto limpiará el estado GPS y marcará el viaje como finalizado.`)) return;
+    setFinalizando(v.uid);
+    try {
+      const pedido = pedidos.find(p => p.docId === v.docId);
+      const nuevosDespachos = [...pedido.despachos];
+      nuevosDespachos[v.despachoIdx] = {
+        ...nuevosDespachos[v.despachoIdx],
+        estado_chofer: 'finalizado',
+        chofer_fin_ts: new Date().toLocaleString('es-AR'),
+        gps_lat: null,
+        gps_lng: null,
+        gps_ts: null,
+        gps_lat_prev: null,
+        gps_lng_prev: null,
+      };
+      await updateDoc(doc(db, 'pedidos_portal', v.docId), { despachos: nuevosDespachos });
+      alert(`✓ Viaje de ${v.chofer} finalizado.`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setFinalizando(null);
+    }
+  }
 
   function f(field) {
     return e => setForm(prev => ({ ...prev, [field]: e.target.value }));
@@ -101,14 +158,12 @@ function Admin({ usuario, onVolver }) {
     alert('✓ Credenciales copiadas al portapapeles.');
   }
 
-
   async function generarResetLink(u) {
     const email = u.email_1 || u.email;
     if (!email) { alert('El usuario no tiene email registrado.'); return; }
     setGenerandoLink(true);
     try {
       await sendPasswordResetEmail(auth, email);
-      // Copiamos el link al portapapeles para enviar por WhatsApp
       const texto = `Portal Explora — Recuperación de contraseña\nUsuario: ${email}\nAccedé al link que te llegó por mail para restablecer tu contraseña, o pedile al administrador que te lo reenvíe.\nAcceso: https://portal-ivory-zeta.vercel.app`;
       navigator.clipboard.writeText(texto);
       alert(`✓ Email de recuperación enviado a ${email}.\nEl texto fue copiado al portapapeles para enviarlo por WhatsApp.`);
@@ -122,8 +177,6 @@ function Admin({ usuario, onVolver }) {
   async function guardar(e) {
     e.preventDefault();
     const esChofer = form.rol === 'chofer';
-
-    // Validaciones
     if (!form.nombre || !form.rol) { alert('Completá nombre y rol.'); return; }
     if (!esChofer && !form.email_1) { alert('Completá el email principal.'); return; }
     if (esChofer && !form.dni) { alert('Ingresá el DNI del chofer.'); return; }
@@ -131,7 +184,6 @@ function Admin({ usuario, onVolver }) {
     if (!editando && form.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
     if (editando && form.nueva_password && form.nueva_password.length < 6) { alert('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
 
-    // Email interno para choferes
     const emailAuth = esChofer
       ? form.dni.trim().replace(/\D/g, '') + CHOFER_DOMAIN
       : form.email_1;
@@ -158,14 +210,9 @@ function Admin({ usuario, onVolver }) {
       };
 
       if (editando) {
-        // Actualizar datos en Firestore
         await updateDoc(doc(db, 'usuarios_portal', editando.docId), datos);
-
-        // Si se ingresó nueva contraseña, actualizarla vía instancia secundaria
         if (form.nueva_password) {
           try {
-            // Para cambiar la contraseña necesitamos re-autenticar al usuario en la instancia secundaria
-            // Esto solo es posible si conocemos la contraseña actual, por eso usamos reset por email
             await sendPasswordResetEmail(auth, form.email_1);
             const textoWpp = `Portal Explora — Nueva contraseña\nUsuario: ${form.email_1}\nSe enviará un email de recuperación para que puedas establecer tu nueva contraseña.\nAcceso: https://portal-ivory-zeta.vercel.app`;
             navigator.clipboard.writeText(textoWpp);
@@ -178,7 +225,6 @@ function Admin({ usuario, onVolver }) {
         }
         setVista('lista');
       } else {
-        // Crear usuario nuevo
         const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, form.password);
         await secondaryAuth.signOut();
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
@@ -226,13 +272,23 @@ function Admin({ usuario, onVolver }) {
     chofer:        { bg: '#EAF3DE', color: '#27500A' },
   };
 
+  const estadoChoferColors = {
+    recibido: { bg: '#EFF6FF', color: '#1D4ED8' },
+    iniciado: { bg: '#E1F5EE', color: '#085041' },
+    demorado: { bg: '#FAEEDA', color: '#633806' },
+  };
+  const estadoChoferLabel = {
+    recibido: 'Viaje recibido',
+    iniciado: 'En ruta',
+    demorado: 'Demorado',
+  };
+
   function telFormateado(pre, num) {
     if (!pre && !num) return null;
     if (pre && num) return `(${pre}) ${num}`;
     return pre || num;
   }
 
-  // Detectar si el usuario usa email+password (no Google OAuth)
   function esEmailPassword(u) {
     const email = u.email_1 || u.email || '';
     return !email.endsWith('@explora.com.ar');
@@ -265,6 +321,40 @@ function Admin({ usuario, onVolver }) {
               </div>
             ))}
           </div>
+
+          {/* ══ VIAJES ACTIVOS ══ */}
+          {viajesActivos.length > 0 && (
+            <div style={styles.viajesSection}>
+              <div style={styles.viajesTitulo}>🚛 Viajes activos — {viajesActivos.length} en curso</div>
+              <p style={styles.viajesDesc}>Choferes con viaje iniciado desde la app. Podés finalizar manualmente si el chofer no cerró el viaje.</p>
+              {viajesActivos.map(v => (
+                <div key={v.uid} style={styles.viajeCard}>
+                  <div style={styles.viajeHeader}>
+                    <span style={{ ...styles.pill, background: estadoChoferColors[v.estado_chofer]?.bg, color: estadoChoferColors[v.estado_chofer]?.color }}>
+                      {estadoChoferLabel[v.estado_chofer] || v.estado_chofer}
+                    </span>
+                    <span style={styles.viajeChofer}>{v.chofer}</span>
+                    {v.dni_chofer && <span style={styles.viajeDni}>DNI {v.dni_chofer}</span>}
+                    <span style={styles.viajeId}>{v.pedidoId}</span>
+                  </div>
+                  <div style={styles.viajeGrid}>
+                    <div style={styles.field}><span style={styles.label}>Producto</span><span>{v.producto}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Cliente</span><span>{v.cliente}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Transportista</span><span>{v.transporte || '—'}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Patente</span><span>{v.patente_tractor || '—'}</span></div>
+                    <div style={styles.field}><span style={styles.label}>Fecha carga</span><span>{v.fecha_carga || '—'}</span></div>
+                  </div>
+                  <button
+                    style={{ ...styles.btnFinalizarViaje, opacity: finalizando === v.uid ? 0.7 : 1 }}
+                    disabled={finalizando === v.uid}
+                    onClick={() => finalizarViaje(v)}>
+                    {finalizando === v.uid ? 'Finalizando...' : '✓ Finalizar viaje manualmente'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {usuarios.length === 0 && <div style={styles.empty}>No hay usuarios aún.</div>}
           {usuarios.map(u => (
             <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
@@ -353,7 +443,6 @@ function Admin({ usuario, onVolver }) {
 
           {!credencialCreada && (
             <form onSubmit={guardar} style={styles.form}>
-
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Datos personales</div>
                 <div style={styles.formField}>
@@ -406,7 +495,6 @@ function Admin({ usuario, onVolver }) {
                 ))}
               </div>
 
-              {/* Contraseña — solo para usuarios nuevos */}
               {!editando && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Contraseña de acceso</div>
@@ -426,7 +514,6 @@ function Admin({ usuario, onVolver }) {
                 </div>
               )}
 
-              {/* Nueva contraseña — solo al editar usuarios email+password */}
               {editando && esEmailPassword(editando) && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Cambiar contraseña</div>
@@ -550,6 +637,16 @@ const styles = {
   metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4, textTransform: 'capitalize' },
   metricValue: { fontSize: 20, fontWeight: 500 },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
+  viajesSection: { marginBottom: '1.5rem', padding: '14px', background: '#FFF7ED', border: '0.5px solid #FCD34D', borderRadius: 12 },
+  viajesTitulo: { fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 4 },
+  viajesDesc: { fontSize: 12, color: '#B45309', marginBottom: 12 },
+  viajeCard: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 10, padding: '10px 12px', marginBottom: 8 },
+  viajeHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+  viajeChofer: { fontSize: 13, fontWeight: 600, color: '#111827', flex: 1 },
+  viajeDni: { fontSize: 11, color: '#6B7280' },
+  viajeId: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' },
+  viajeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 10 },
+  btnFinalizarViaje: { padding: '7px 14px', borderRadius: 8, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0, textTransform: 'capitalize' },
