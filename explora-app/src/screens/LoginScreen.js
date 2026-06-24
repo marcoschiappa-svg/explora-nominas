@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image
 } from 'react-native';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,10 +22,22 @@ export default function LoginScreen({ onLogin }) {
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [faceIDDisponible, setFaceIDDisponible] = useState(false);
+  const [authListo, setAuthListo] = useState(false);
 
+  // Esperar a que Firebase Auth inicialice antes de cualquier cosa
   useEffect(() => {
-    verificarFaceID();
+    const unsub = onAuthStateChanged(auth, () => {
+      setAuthListo(true);
+    });
+    return () => unsub();
   }, []);
+
+  // Recién cuando Firebase está listo, verificar Face ID
+  useEffect(() => {
+    if (authListo) {
+      verificarFaceID();
+    }
+  }, [authListo]);
 
   async function verificarFaceID() {
     const habilitado = await AsyncStorage.getItem(FACEID_KEY);
@@ -74,7 +86,6 @@ export default function LoginScreen({ onLogin }) {
       if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva.'); await auth.signOut(); return; }
       const usuario = { uid: result.user.uid, email: emailInterno, ...perfil };
 
-      // Guardar para Face ID y ofrecer habilitarlo
       await AsyncStorage.setItem(LAST_USER_KEY, JSON.stringify(usuario));
       const faceIDYaHabilitado = await AsyncStorage.getItem(FACEID_KEY);
       if (faceIDYaHabilitado !== 'true') {
@@ -119,6 +130,15 @@ export default function LoginScreen({ onLogin }) {
       else if (err.code === 'auth/too-many-requests') setError('Demasiados intentos. Esperá unos minutos.');
       else setError('Error al iniciar sesión.');
     } finally { setCargando(false); }
+  }
+
+  // Pantalla de carga mientras Firebase inicializa
+  if (!authListo) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#C8102E" />
+      </View>
+    );
   }
 
   return (
