@@ -31,6 +31,7 @@ function Coordinador({ usuario, onVolver }) {
   const [transportistas, setTransportistas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState('todos');
+  const [busqueda, setBusqueda] = useState('');
   const [expandido, setExpandido] = useState(null);
   const [aceptando, setAceptando] = useState({});
   const [asignando, setAsignando] = useState({});
@@ -252,7 +253,15 @@ function Coordinador({ usuario, onVolver }) {
   const pillLabel = { 'Pendiente': 'Pendiente', 'prog-parcial': 'Prog. parcial', 'Programado': 'Programado', 'Aceptado': 'Aceptado', 'Nominado': 'Nominado', 'Suspendido': 'Suspendido' };
   const despachoColors = { 'Programado': { bg: '#FAEEDA', color: '#633806' }, 'Aceptado-pendiente': { bg: '#FEF3C7', color: '#92400E' }, 'Aceptado': { bg: '#E1F5EE', color: '#085041' }, 'Nominado': { bg: '#EEEDFE', color: '#3C3489' }, 'En espera': { bg: '#F3F4F6', color: '#6B7280' }, 'Rechazado': { bg: '#FCEBEB', color: '#791F1F' } };
   const despachoLabel = { 'Programado': 'Programado', 'Aceptado-pendiente': '⏳ Pendiente transporte', 'Aceptado': 'Aceptado', 'Nominado': 'Nominado', 'En espera': 'En espera', 'Rechazado': 'Rechazado' };
-  const filtrados = pedidos.filter(p => filtro === 'todos' || p.estado === filtro);
+
+  const busquedaLower = busqueda.toLowerCase();
+  const filtrados = pedidos.filter(p => {
+    const matchEstado = filtro === 'todos' || p.estado === filtro;
+    const matchBusqueda = !busqueda ||
+      (p.cliente || '').toLowerCase().includes(busquedaLower) ||
+      (p.ov || '').toLowerCase().includes(busquedaLower);
+    return matchEstado && matchBusqueda;
+  });
 
   return (
     <div style={styles.wrap}>
@@ -281,6 +290,19 @@ function Coordinador({ usuario, onVolver }) {
         ))}
       </div>
 
+      <div style={styles.buscadorWrap}>
+        <input
+          style={styles.buscador}
+          type="text"
+          placeholder="Buscar por cliente o OV/OC..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+        />
+        {busqueda && (
+          <button style={styles.btnLimpiar} onClick={() => setBusqueda('')}>✕</button>
+        )}
+      </div>
+
       {cargando && <div style={styles.empty}>Cargando pedidos...</div>}
       {!cargando && filtrados.length === 0 && <div style={styles.empty}>Sin pedidos para mostrar.</div>}
 
@@ -291,10 +313,17 @@ function Coordinador({ usuario, onVolver }) {
             {p.editado && <span style={styles.badgeEditado}>Editado</span>}
             {tieneNominacionPendiente(p) && <span style={styles.badgeNomPendiente}>⏳ Pend. transporte</span>}
             {tieneDespachoEnEspera(p) && <span style={styles.badgeEspera}>⏸ En espera</span>}
-            <span style={styles.cardNro}>{p.id}</span>
-            <span style={styles.cardResumen}>{p.cliente} · {p.producto} {p.volumen} tn</span>
+            <div style={styles.cardInfo}>
+              <span style={styles.cardOV}>{p.ov}</span>
+              <div style={styles.cardSecundario}>
+                <span style={styles.cardCliente}>{p.cliente}</span>
+                <span style={styles.cardDot}>·</span>
+                <span style={styles.cardProducto}>{p.producto} {p.volumen} tn</span>
+                <span style={styles.cardDot}>·</span>
+                <span style={styles.cardEntrega}>Entrega: {p.fecha_entrega}</span>
+              </div>
+            </div>
             {proximaCarga(p) && <span style={styles.cardFechaCarga}>📦 {proximaCarga(p)}</span>}
-            <span style={styles.cardFecha}>Creado {p.creado_en}</span>
             <span style={styles.chevron}>{expandido === p.id ? '▲' : '▼'}</span>
           </div>
 
@@ -514,9 +543,12 @@ const styles = {
   metric: { background: '#F9FAFB', borderRadius: 8, padding: '12px 14px' },
   metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
   metricValue: { fontSize: 20, fontWeight: 500 },
-  filtros: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' },
+  filtros: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '0.75rem' },
   filtroBtnBase: { padding: '6px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
   filtroBtnActive: { background: '#FDECEA', borderColor: '#C8102E', color: '#C8102E', fontWeight: 500 },
+  buscadorWrap: { position: 'relative', marginBottom: '1rem' },
+  buscador: { width: '100%', fontSize: 13, padding: '8px 32px 8px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', background: '#fff', boxSizing: 'border-box' },
+  btnLimpiar: { position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 13, padding: '0 4px' },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap', background: '#F9FAFB' },
@@ -524,10 +556,14 @@ const styles = {
   badgeEditado: { fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   badgeNomPendiente: { fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
   badgeEspera: { fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 20, background: '#F3F4F6', color: '#6B7280', border: '0.5px solid #D1D5DB', flexShrink: 0 },
-  cardNro: { fontSize: 13, fontWeight: 500, color: '#111827', flexShrink: 0 },
-  cardResumen: { fontSize: 12, color: '#6B7280', flex: 1 },
+  cardInfo: { display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 },
+  cardOV: { fontSize: 14, fontWeight: 500, color: '#185FA5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  cardSecundario: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
+  cardCliente: { fontSize: 12, color: '#111827' },
+  cardProducto: { fontSize: 12, color: '#6B7280' },
+  cardEntrega: { fontSize: 11, color: '#9CA3AF' },
+  cardDot: { fontSize: 11, color: '#D1D5DB' },
   cardFechaCarga: { fontSize: 11, color: '#085041', background: '#E1F5EE', padding: '2px 8px', borderRadius: 20, flexShrink: 0 },
-  cardFecha: { fontSize: 11, color: '#9CA3AF' },
   chevron: { fontSize: 10, color: '#9CA3AF', flexShrink: 0 },
   cardBody: { padding: '12px 14px' },
   origen: { fontSize: 12, color: '#6B7280', padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, marginBottom: 12 },
@@ -576,3 +612,4 @@ const styles = {
 };
 
 export default Coordinador;
+
