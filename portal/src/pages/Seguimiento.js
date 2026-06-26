@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 
 const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
 
@@ -62,6 +62,8 @@ function Seguimiento({ onVolver }) {
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
   const infoWindowRef = useRef(null);
+  const polylineRef = useRef(null);
+  const tracksRef = useRef({});
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
@@ -73,6 +75,8 @@ function Seguimiento({ onVolver }) {
           if (!['recibido', 'iniciado', 'demorado'].includes(estado)) return;
           activos.push({
             uid: pedido.id + '-D' + (i + 1),
+            docId: d.id,
+            despachoIdx: i,
             chofer: despacho.chofer || 'Sin nombre',
             transporte: despacho.transporte || '',
             producto: pedido.producto,
@@ -94,6 +98,17 @@ function Seguimiento({ onVolver }) {
           });
         });
       });
+      // Guardar tracks disponibles en ref
+      const newTracks = {};
+      snap.docs.forEach(d => {
+        const pedido = d.data();
+        (pedido.despachos || []).forEach((despacho, i) => {
+          const trackKey = pedido.id + '-D' + (i + 1);
+          const track = pedido[`gps_track_${i}`] || [];
+          if (track.length > 0) newTracks[trackKey] = track;
+        });
+      });
+      tracksRef.current = newTracks;
       setChoferes(activos);
       setCargando(false);
     });
@@ -189,11 +204,34 @@ function Seguimiento({ onVolver }) {
     return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : str;
   }
 
+  function limpiarPolyline() {
+    if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
+    }
+  }
+
+  function dibujarTraza(uid) {
+    limpiarPolyline();
+    const track = tracksRef.current[uid] || [];
+    if (track.length < 2 || !mapInstanceRef.current || !window.google) return;
+    const path = track.map(p => ({ lat: p.lat, lng: p.lng }));
+    polylineRef.current = new window.google.maps.Polyline({
+      path,
+      geodesic: true,
+      strokeColor: '#C8102E',
+      strokeOpacity: 0.7,
+      strokeWeight: 3,
+      map: mapInstanceRef.current,
+    });
+  }
+
   function centrarEnChofer(c) {
     if (!c.gps_lat || !c.gps_lng || !mapInstanceRef.current) return;
     mapInstanceRef.current.panTo({ lat: c.gps_lat, lng: c.gps_lng });
     mapInstanceRef.current.setZoom(13);
     setSeleccionado(c.uid);
+    dibujarTraza(c.uid);
     if (markersRef.current[c.uid]) {
       window.google.maps.event.trigger(markersRef.current[c.uid], 'click');
     }
@@ -260,7 +298,7 @@ function Seguimiento({ onVolver }) {
             return (
               <div key={c.uid}
                 style={{ ...s.choferCard, borderColor: activo ? cfg.color : '#E5E7EB', background: activo ? '#F9FAFB' : '#fff' }}
-                onClick={() => centrarEnChofer(c)}>
+                onClick={() => { if (seleccionado === c.uid) { limpiarPolyline(); setSeleccionado(null); } else { centrarEnChofer(c); } }}>
                 <div style={s.choferHeader}>
                   <span style={{ ...s.dot, background: cfg.color }} />
                   <span style={s.choferNombre}>{c.chofer}</span>
