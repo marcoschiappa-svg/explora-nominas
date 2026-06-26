@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, getDoc, getDocs, query, where } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
@@ -110,6 +110,34 @@ function Transportista({ usuario, onVolver }) {
       if (field === 'dni_chofer') updated[uid].cuit2 = value;
       return updated;
     });
+  }
+
+  async function buscarChoferPorDni(uid, dni) {
+    if (!dni || dni.length < 7) return;
+    try {
+      const q = query(collection(db, 'usuarios_portal'), where('dni', '==', dni), where('rol', '==', 'chofer'));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const chofer = snap.docs[0].data();
+        const cuitRaw = (chofer.cuit_chofer || '').replace(/\D/g, '');
+        const cuit1 = cuitRaw.slice(0, 2);
+        const cuit2 = cuitRaw.slice(2, 10);
+        const cuit3 = cuitRaw.slice(10);
+        setNomData(prev => ({
+          ...prev,
+          [uid]: {
+            ...prev[uid],
+            chofer: chofer.nombre || prev[uid]?.chofer || '',
+            dni_chofer: dni,
+            cuit1: cuit1 || prev[uid]?.cuit1 || '',
+            cuit2: cuit2 || dni,
+            cuit3: cuit3 || prev[uid]?.cuit3 || '',
+          }
+        }));
+      }
+    } catch (err) {
+      console.error('Error buscando chofer por DNI:', err);
+    }
   }
 
   const pillColors = {
@@ -390,7 +418,11 @@ function Transportista({ usuario, onVolver }) {
                       <input style={styles.input} type="text" placeholder="00000000" maxLength={8}
                         value={nomData[d.uid]?.dni_chofer || ''}
                         disabled={d.estado === 'Nominado'}
-                        onChange={e => updateNom(d.uid, 'dni_chofer', e.target.value.replace(/\D/g, ''))} />
+                        onChange={e => {
+                          const val = e.target.value.replace(/\D/g, '');
+                          updateNom(d.uid, 'dni_chofer', val);
+                          if (val.length >= 7) buscarChoferPorDni(d.uid, val);
+                        }} />
                     </div>
                   </div>
 

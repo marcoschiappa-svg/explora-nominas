@@ -27,6 +27,7 @@ const FORM_VACIO = {
   password: '', nueva_password: '', rol: 'comercial',
   empresa: '', cuit_empresa: '', estado: 'activo',
   dni: '',
+  cuit_chofer: '',
 };
 
 function Admin({ usuario, onVolver }) {
@@ -142,6 +143,7 @@ function Admin({ usuario, onVolver }) {
       cuit_empresa:    u.cuit_empresa    || '',
       estado:          u.estado          || 'activo',
       dni:             u.dni             || '',
+      cuit_chofer:     u.cuit_chofer     || '',
     });
     setVista('form');
   }
@@ -180,6 +182,7 @@ function Admin({ usuario, onVolver }) {
     if (!form.nombre || !form.rol) { alert('Completá nombre y rol.'); return; }
     if (!esChofer && !form.email_1) { alert('Completá el email principal.'); return; }
     if (esChofer && !form.dni) { alert('Ingresá el DNI del chofer.'); return; }
+    if (esChofer && !form.cuit_chofer) { alert('El CUIT del chofer es obligatorio.'); return; }
     if (!editando && !form.password) { alert('Ingresá una contraseña.'); return; }
     if (!editando && form.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
     if (editando && form.nueva_password && form.nueva_password.length < 6) { alert('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
@@ -207,6 +210,7 @@ function Admin({ usuario, onVolver }) {
         cuit_empresa: form.cuit_empresa || '',
         estado:       form.estado,
         dni:          form.dni          || '',
+        cuit_chofer:  form.cuit_chofer  || '',
       };
 
       if (editando) {
@@ -599,6 +603,12 @@ function Admin({ usuario, onVolver }) {
                       <label style={styles.formLabel}>Empresa transportista</label>
                       <input style={styles.input} type="text" placeholder="Nombre de la empresa"
                         value={form.empresa} onChange={f('empresa')} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>CUIT chofer * (sin guiones)</label>
+                      <input style={styles.input} type="text" placeholder="20123456789" maxLength={11}
+                        value={form.cuit_chofer} onChange={e => setForm(prev => ({ ...prev, cuit_chofer: e.target.value.replace(/\D/g, '') }))} />
+                      <span style={styles.passHint}>Requerido para autocompletar en la nominación del transportista.</span>
                     </div>
                   </div>
                 </div>
