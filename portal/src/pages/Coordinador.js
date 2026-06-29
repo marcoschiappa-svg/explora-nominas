@@ -36,6 +36,7 @@ function Coordinador({ usuario, onVolver }) {
   const [aceptando, setAceptando] = useState({});
   const [asignando, setAsignando] = useState({});
   const [reprogramando, setReprogramando] = useState({});
+  const [editandoDespacho, setEditandoDespacho] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
   const [archivosNuevos, setArchivosNuevos] = useState({});
@@ -80,6 +81,95 @@ function Coordinador({ usuario, onVolver }) {
       t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
     ].filter(Boolean);
     setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa || t.nombre, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
+  }
+
+  function seleccionarTransportistaEdit(key, docId) {
+    const t = transportistas.find(x => x.docId === docId);
+    if (!t) { setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
+    const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
+    const telefonos = [
+      t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
+      t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
+      t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
+    ].filter(Boolean);
+    setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa || t.nombre, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
+  }
+
+  async function guardarEdicionDespacho(p, despachoIdx) {
+    const key = p.id + '-' + despachoIdx;
+    const ed = editandoDespacho[key] || {};
+    if (!ed.fecha_carga) { alert('La fecha de carga es obligatoria.'); return; }
+    if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega.'); return; }
+    setEnviando(true);
+    try {
+      const now = new Date().toLocaleString('es-AR');
+      const nuevosDespachos = [...p.despachos];
+      const dActual = nuevosDespachos[despachoIdx];
+      const cambioTransportista = ed.transporte && ed.transporte !== dActual.transporte;
+      const cambioFecha = ed.fecha_carga !== dActual.fecha_carga;
+      nuevosDespachos[despachoIdx] = {
+        ...dActual,
+        fecha_carga: ed.fecha_carga,
+        horario_carga: ed.horario_carga || dActual.horario_carga || '',
+        ...(ed.transporte ? {
+          transporte: ed.transporte,
+          transporte_id: ed.transporte_id || dActual.transporte_id || '',
+          email_transportista: ed.email_transportista || dActual.email_transportista || '',
+          emails_extra: ed.emails_extra || dActual.emails_extra || [],
+          telefonos: ed.telefonos || dActual.telefonos || [],
+          cuit_transporte: ed.cuit_transporte || dActual.cuit_transporte || '',
+        } : {}),
+        editado_por: usuario?.nombre || 'Coordinador',
+        editado_en: now,
+      };
+      await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos });
+      // Notificar si cambió algo relevante
+      if (cambioFecha || cambioTransportista) {
+        const todosEmails = [
+          ed.email_transportista || dActual.email_transportista,
+          ...(ed.emails_extra || dActual.emails_extra || [])
+        ].filter(Boolean).join(',');
+        const payload = {
+          accion: 'editar_despacho',
+          pedido_id: p.id,
+          editado_por: usuario?.nombre || 'Coordinador',
+          transporte: ed.transporte || dActual.transporte,
+          email_transportista: todosEmails,
+          fecha_carga: ed.fecha_carga,
+          horario_carga: ed.horario_carga || dActual.horario_carga || '',
+          producto: p.producto, volumen: dActual.volumen,
+          cliente: p.cliente, ov: p.ov, lugar: p.lugar,
+        };
+        await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      }
+      setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
+      alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista ? ' Se notificó al transportista.' : ''));
+    } catch (err) {
+      console.error(err);
+      alert('Error: ' + err.message);
+    } finally { setEnviando(false); }
+  }
+
+  function abrirEdicionDespacho(p, despachoIdx) {
+    const key = p.id + '-' + despachoIdx;
+    const d = p.despachos[despachoIdx];
+    setEditandoDespacho(prev => ({
+      ...prev,
+      [key]: {
+        fecha_carga: d.fecha_carga || '',
+        horario_carga: d.horario_carga || '',
+        transporte: d.transporte || '',
+        transporte_id: d.transporte_id || '',
+        email_transportista: d.email_transportista || '',
+        emails_extra: d.emails_extra || [],
+        telefonos: d.telefonos || [],
+        cuit_transporte: d.cuit_transporte || '',
+      }
+    }));
+  }
+
+  function cancelarEdicionDespacho(key) {
+    setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
   }
 
   function handleArchivosNuevos(pedidoId, files) {
@@ -392,6 +482,9 @@ function Coordinador({ usuario, onVolver }) {
                           {despachoLabel[d.estado] || d.estado}
                         </span>
                         <span style={styles.despachoPor}>por {d.aceptado_por || d.programado_por} · {d.aceptado_en || d.programado_en}</span>
+                        {['Programado', 'Aceptado-pendiente'].includes(d.estado) && !editandoDespacho[key] && (
+                          <button style={styles.btnEditarDespacho} onClick={() => abrirEdicionDespacho(p, i)}>✏️ Editar</button>
+                        )}
                       </div>
                       <div style={styles.despachoGrid}>
                         <div style={styles.field}><span style={styles.label}>Volumen</span><span>{d.volumen} tn</span></div>
@@ -413,6 +506,47 @@ function Coordinador({ usuario, onVolver }) {
                           </>
                         )}
                       </div>
+
+                      {editandoDespacho[key] && (
+                        <div style={styles.editarDespachoBox}>
+                          <div style={styles.editarDespachoTitulo}>✏️ Editar despacho</div>
+                          <div style={styles.reprogramarGrid}>
+                            <div style={styles.formField}>
+                              <label style={styles.formLabel}>Fecha de carga *</label>
+                              <input style={styles.input} type="date" max={p.fecha_entrega}
+                                value={editandoDespacho[key]?.fecha_carga || ''}
+                                onChange={e => setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], fecha_carga: e.target.value } }))} />
+                              <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                            </div>
+                            <div style={styles.formField}>
+                              <label style={styles.formLabel}>Horario sugerido</label>
+                              <input style={styles.input} type="text" placeholder="Ej: 08:00hs"
+                                value={editandoDespacho[key]?.horario_carga || ''}
+                                onChange={e => setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], horario_carga: e.target.value } }))} />
+                            </div>
+                          </div>
+                          {!sinTransportista(p.tipo) && (
+                            <div style={{ ...styles.formField, marginTop: 8 }}>
+                              <label style={styles.formLabel}>Cambiar transportista (opcional)</label>
+                              <select style={styles.input}
+                                value={editandoDespacho[key]?.transporte_id || ''}
+                                onChange={e => seleccionarTransportistaEdit(key, e.target.value)}>
+                                <option value="">Mantener actual: {d.transporte || '—'}</option>
+                                {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
+                              </select>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                            <button style={{ ...styles.btnAsignar, opacity: enviando ? 0.7 : 1 }} disabled={enviando}
+                              onClick={() => guardarEdicionDespacho(p, i)}>
+                              {enviando ? 'Guardando...' : '✓ Guardar cambios'}
+                            </button>
+                            <button style={styles.btnCancelarEdicion} onClick={() => cancelarEdicionDespacho(key)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {d.estado === 'Aceptado-pendiente' && !sinTransportista(p.tipo) && (
                         <div style={styles.asignarBox}>
@@ -609,6 +743,10 @@ const styles = {
   btnAceptar: { marginTop: 10, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12 },
   btnSuspender: { padding: '6px 14px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
+  btnEditarDespacho: { fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer', marginLeft: 'auto' },
+  editarDespachoBox: { marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #93C5FD', background: '#EFF6FF', borderRadius: 8, padding: '10px 12px' },
+  editarDespachoTitulo: { fontSize: 11, fontWeight: 500, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 },
+  btnCancelarEdicion: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' },
 };
 
 export default Coordinador;
