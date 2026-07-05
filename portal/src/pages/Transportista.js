@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
@@ -12,7 +12,6 @@ function Transportista({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
-  const [errorNominacion, setErrorNominacion] = useState({});
 
   const rol = usuario?.rol || '';
   const esAdmin = rol === 'admin';
@@ -61,6 +60,7 @@ function Transportista({ usuario, onVolver }) {
             tel_prefijo: despacho.tel_prefijo || '',
             tel_numero: despacho.tel_numero || '',
             tel_unidad: despacho.tel_unidad || '',
+            estado_chofer: despacho.estado_chofer || '',
             adjuntos: (pedido.adjuntos || []).filter(a => a.visible_transportista && !a._eliminado),
           });
         });
@@ -187,31 +187,9 @@ function Transportista({ usuario, onVolver }) {
       alert('Completá patente tractor, nombre del chofer, DNI y CUIT de la empresa antes de nominar.');
       return;
     }
-    // Validar DNI contra usuarios_portal
-    setEnviando(true);
-    setErrorNominacion(prev => ({ ...prev, [d.uid]: null }));
-    try {
-      const q = query(collection(db, 'usuarios_portal'), where('dni', '==', nd.dni_chofer), where('rol', '==', 'chofer'));
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        setErrorNominacion(prev => ({ ...prev, [d.uid]: 'El DNI ingresado no corresponde a ningún chofer habilitado en el sistema.' }));
-        setEnviando(false);
-        return;
-      }
-      const choferData = snap.docs[0].data();
-      // Validar que el chofer pertenece a este transportista
-      const empresaChofer = (choferData.empresa || '').trim().toLowerCase();
-      const empresaTransporte = (d.transporte || '').trim().toLowerCase();
-      if (empresaChofer && empresaTransporte && empresaChofer !== empresaTransporte) {
-        setErrorNominacion(prev => ({ ...prev, [d.uid]: `El chofer con DNI ${nd.dni_chofer} pertenece a "${choferData.empresa}", no a "${d.transporte}".` }));
-        setEnviando(false);
-        return;
-      }
-    } catch (err) {
-      console.error('Error validando chofer:', err);
-    }
     const cuit_chofer = nd.cuit1 && nd.cuit2 && nd.cuit3 ? `${nd.cuit1}-${nd.cuit2}-${nd.cuit3}` : '';
     const tel_unidad = nd.tel_prefijo && nd.tel_numero ? `(${nd.tel_prefijo}) ${nd.tel_numero}` : nd.tel_numero || '';
+    setEnviando(true);
     try {
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
       const pedido = pedidoSnap.data();
@@ -387,14 +365,14 @@ function Transportista({ usuario, onVolver }) {
                       <label style={styles.formLabel}>Nombre empresa</label>
                       <input style={styles.input} type="text" placeholder="Razón social"
                         value={nomData[d.uid]?.transporte || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'transporte', e.target.value)} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>CUIT empresa * (sin guiones)</label>
                       <input style={styles.input} type="text" placeholder="20000000009"
                         value={nomData[d.uid]?.cuit_transporte || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit_transporte', e.target.value)} />
                     </div>
                   </div>
@@ -405,14 +383,14 @@ function Transportista({ usuario, onVolver }) {
                       <label style={styles.formLabel}>Nombre completo *</label>
                       <input style={styles.input} type="text" placeholder="Apellido, Nombre"
                         value={nomData[d.uid]?.chofer || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'chofer', e.target.value)} />
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>DNI *</label>
                       <input style={styles.input} type="text" placeholder="00000000" maxLength={8}
                         value={nomData[d.uid]?.dni_chofer || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'dni_chofer', e.target.value.replace(/\D/g, ''))} />
                     </div>
                   </div>
@@ -423,7 +401,7 @@ function Transportista({ usuario, onVolver }) {
                       <input style={{ ...styles.input, width: 52, flexShrink: 0, textAlign: 'center' }}
                         type="text" placeholder="XX" maxLength={2}
                         value={nomData[d.uid]?.cuit1 || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit1', e.target.value.replace(/\D/g, ''))} />
                       <span style={styles.cuitSep}>-</span>
                       <input style={{ ...styles.input, flex: 1, textAlign: 'center', color: '#9CA3AF' }}
@@ -434,7 +412,7 @@ function Transportista({ usuario, onVolver }) {
                       <input style={{ ...styles.input, width: 44, flexShrink: 0, textAlign: 'center' }}
                         type="text" placeholder="X" maxLength={1}
                         value={nomData[d.uid]?.cuit3 || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'cuit3', e.target.value.replace(/\D/g, ''))} />
                     </div>
                     <span style={styles.fieldHint}>El campo central se completa automáticamente con el DNI</span>
@@ -446,7 +424,7 @@ function Transportista({ usuario, onVolver }) {
                       <label style={styles.formLabel}>Patente tractor *</label>
                       <input style={styles.input} type="text" placeholder="ABC123"
                         value={nomData[d.uid]?.patente_tractor || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'patente_tractor', e.target.value.toUpperCase())}
                         onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
@@ -454,7 +432,7 @@ function Transportista({ usuario, onVolver }) {
                       <label style={styles.formLabel}>Patente semi</label>
                       <input style={styles.input} type="text" placeholder="ABC123"
                         value={nomData[d.uid]?.patente_semi || ''}
-                        disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                        disabled={d.estado === 'Nominado'}
                         onChange={e => updateNom(d.uid, 'patente_semi', e.target.value.toUpperCase())}
                         onInput={e => { e.target.value = e.target.value.toUpperCase(); }} />
                     </div>
@@ -466,25 +444,22 @@ function Transportista({ usuario, onVolver }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '0 0 110px' }}>
                         <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4}
                           value={nomData[d.uid]?.tel_prefijo || ''}
-                          disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                          disabled={d.estado === 'Nominado'}
                           onChange={e => updateNom(d.uid, 'tel_prefijo', e.target.value.replace(/\D/g, ''))} />
                         <span style={styles.fieldHint}>Sin 0 · 3 o 4 díg.</span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
                         <input style={styles.input} type="text" placeholder="Número" maxLength={7}
                           value={nomData[d.uid]?.tel_numero || ''}
-                          disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
+                          disabled={d.estado === 'Nominado'}
                           onChange={e => updateNom(d.uid, 'tel_numero', e.target.value.replace(/\D/g, ''))} />
                         <span style={styles.fieldHint}>Sin 15 · 6 o 7 díg.</span>
                       </div>
                     </div>
                   </div>
 
-                  {d.estado === 'Nominado' && d.estado_chofer !== 'recibido' && (
+                  {d.estado === 'Nominado' && (
                     <div style={styles.nomOk}>✓ Nominación confirmada. Portería fue notificada.</div>
-                  )}
-                  {errorNominacion[d.uid] && (
-                    <div style={styles.errorBanner}>⚠️ {errorNominacion[d.uid]}</div>
                   )}
                 </div>
               )}
@@ -503,12 +478,6 @@ function Transportista({ usuario, onVolver }) {
                   <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
                     disabled={enviando} onClick={() => nominar(d)}>
                     {enviando ? 'Enviando...' : '✓ Confirmar nominación'}
-                  </button>
-                )}
-                {d.estado === 'Nominado' && d.estado_chofer === 'recibido' && !esAdmin && (
-                  <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
-                    disabled={enviando} onClick={() => nominar(d)}>
-                    {enviando ? 'Guardando...' : '✏️ Guardar cambios'}
                   </button>
                 )}
               </div>
@@ -580,7 +549,6 @@ const styles = {
   telRow: { display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 4 },
   fieldHint: { fontSize: 10, color: '#9CA3AF', marginTop: 3 },
   nomOk: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041' },
-  errorBanner: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FEF2F2', border: '0.5px solid #FCA5A5', fontSize: 12, color: '#B91C1C' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
