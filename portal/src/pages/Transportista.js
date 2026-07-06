@@ -12,7 +12,6 @@ function Transportista({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
-  const [errorNominacion, setErrorNominacion] = useState({});
 
   const rol = usuario?.rol || '';
   const esAdmin = rol === 'admin';
@@ -461,9 +460,6 @@ function Transportista({ usuario, onVolver }) {
 
                   {d.estado === 'Nominado' && d.estado_chofer !== 'recibido' && (
                     <div style={styles.nomOk}>✓ Nominación confirmada. Portería fue notificada.</div>
-                  )}
-                  {errorNominacion[d.uid] && (
-                    <div style={styles.errorBanner}>⚠️ {errorNominacion[d.uid]}</div>
                   )}
                 </div>
               )}
