@@ -579,13 +579,4 @@ const styles = {
   cuitSep: { fontSize: 16, color: '#6B7280', fontWeight: 500, flexShrink: 0 },
   telRow: { display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 4 },
   fieldHint: { fontSize: 10, color: '#9CA3AF', marginTop: 3 },
-  errorBanner: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FEF2F2', border: '0.5px solid #FCA5A5', fontSize: 12, color: '#B91C1C' },
   nomOk: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041' },
-  errorBanner: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FEF2F2', border: '0.5px solid #FCA5A5', fontSize: 12, color: '#B91C1C' },
-  cardActions: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' },
-  btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
-  btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
-  btnRechazar: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 13, cursor: 'pointer' },
-};
-
-export default Transportista;
