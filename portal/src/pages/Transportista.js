@@ -12,6 +12,7 @@ function Transportista({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
+  const [errorNominacion, setErrorNominacion] = useState({});
 
   const rol = usuario?.rol || '';
   const esAdmin = rol === 'admin';
@@ -187,9 +188,30 @@ function Transportista({ usuario, onVolver }) {
       alert('Completá patente tractor, nombre del chofer, DNI y CUIT de la empresa antes de nominar.');
       return;
     }
+    setErrorNominacion(prev => ({ ...prev, [d.uid]: null }));
+    setEnviando(true);
+    // Validar DNI contra usuarios_portal
+    try {
+      const qDni = query(collection(db, 'usuarios_portal'), where('dni', '==', nd.dni_chofer), where('rol', '==', 'chofer'));
+      const snapDni = await getDocs(qDni);
+      if (snapDni.empty) {
+        setErrorNominacion(prev => ({ ...prev, [d.uid]: `El DNI ${nd.dni_chofer} no corresponde a ningún chofer habilitado en el sistema.` }));
+        setEnviando(false);
+        return;
+      }
+      const choferData = snapDni.docs[0].data();
+      const empresaChofer = (choferData.empresa || '').trim().toLowerCase();
+      const empresaTransporte = (d.transporte || '').trim().toLowerCase();
+      if (empresaChofer && empresaTransporte && empresaChofer !== empresaTransporte) {
+        setErrorNominacion(prev => ({ ...prev, [d.uid]: `El chofer con DNI ${nd.dni_chofer} pertenece a "${choferData.empresa}", no a "${d.transporte}".` }));
+        setEnviando(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Error validando chofer:', err);
+    }
     const cuit_chofer = nd.cuit1 && nd.cuit2 && nd.cuit3 ? `${nd.cuit1}-${nd.cuit2}-${nd.cuit3}` : '';
     const tel_unidad = nd.tel_prefijo && nd.tel_numero ? `(${nd.tel_prefijo}) ${nd.tel_numero}` : nd.tel_numero || '';
-    setEnviando(true);
     try {
       const pedidoSnap = await getDoc(doc(db, 'pedidos_portal', d.docId));
       const pedido = pedidoSnap.data();
@@ -461,6 +483,9 @@ function Transportista({ usuario, onVolver }) {
                   {d.estado === 'Nominado' && d.estado_chofer !== 'recibido' && (
                     <div style={styles.nomOk}>✓ Nominación confirmada. Portería fue notificada.</div>
                   )}
+                  {errorNominacion[d.uid] && (
+                    <div style={styles.errorBanner}>⚠️ {errorNominacion[d.uid]}</div>
+                  )}
                 </div>
               )}
 
@@ -556,6 +581,7 @@ const styles = {
   fieldHint: { fontSize: 10, color: '#9CA3AF', marginTop: 3 },
   errorBanner: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FEF2F2', border: '0.5px solid #FCA5A5', fontSize: 12, color: '#B91C1C' },
   nomOk: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#E1F5EE', border: '0.5px solid #5DCAA5', fontSize: 12, color: '#085041' },
+  errorBanner: { marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#FEF2F2', border: '0.5px solid #FCA5A5', fontSize: 12, color: '#B91C1C' },
   cardActions: { display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
