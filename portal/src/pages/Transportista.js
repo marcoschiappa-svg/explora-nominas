@@ -75,7 +75,7 @@ function Transportista({ usuario, onVolver }) {
   function handleExpandir(d) {
     const nuevoExpandido = expandido === d.uid ? null : d.uid;
     setExpandido(nuevoExpandido);
-    if (nuevoExpandido && !nomData[d.uid]) {
+    if (nuevoExpandido && (!nomData[d.uid] || (d.estado === 'Nominado' && d.estado_chofer === 'recibido'))) {
       let cuit1 = '', cuit2 = '', cuit3 = '';
       if (d.cuit_chofer) {
         const partes = d.cuit_chofer.split('-');
