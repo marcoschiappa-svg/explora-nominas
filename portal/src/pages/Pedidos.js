@@ -10,8 +10,8 @@ const TIPOS_VALIDOS      = ['Retiro del cliente','Entrega al cliente'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
-  'tipo','producto','volumen','recipiente','cliente',
-  'ov_tipo','ov_numero','fecha_entrega','banda_horaria',
+  'tipo','producto','volumen','volumen_entrega','fecha_solicitada_entrega',
+  'recipiente','cliente','ov_tipo','ov_numero','fecha_entrega','banda_horaria',
   'calle','numero_calle','ciudad','provincia','cp','maps_link','obs'
 ];
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -100,6 +100,7 @@ function Pedidos({ usuario, onVolver }) {
     ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '',
     calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '',
     adjuntos: [], archivosNuevos: [],
+    cronograma: [],
   });
   const fileRef = useRef();
   const rol = usuario?.rol || '';
@@ -217,40 +218,56 @@ function Pedidos({ usuario, onVolver }) {
     setEnviandoMasivo(true);
     const ok = [], fail = [];
     try {
-      for (const fila of validas) {
+      // Agrupar filas por OV — misma OV = un pedido con múltiples entregas
+      const grupos = {};
+      validas.forEach(fila => {
+        const ovKey = `${fila.ov_tipo}-${fila.ov_numero}`;
+        if (!grupos[ovKey]) grupos[ovKey] = [];
+        grupos[ovKey].push(fila);
+      });
+      for (const ovKey of Object.keys(grupos)) {
+        const filasPedido = grupos[ovKey];
+        const primera = filasPedido[0];
         try {
           const id = genNro();
           const ahora = new Date().toLocaleString('es-AR');
-          const ov = `${fila.ov_tipo}-${fila.ov_numero}`;
-          const lugar = [fila.calle, fila.numero_calle, fila.ciudad, fila.provincia, fila.cp].filter(Boolean).join(', ');
-          const esAbierto = (fila.recipiente === 'Granel' || !fila.recipiente) && parseFloat(fila.volumen) > 32;
+          const ov = ovKey;
+          const lugar = [primera.calle, primera.numero_calle, primera.ciudad, primera.provincia, primera.cp].filter(Boolean).join(', ');
+          const volumenTotal = parseFloat(primera.volumen) || 0;
+          const esAbierto = (primera.recipiente === 'Granel' || !primera.recipiente) && volumenTotal > 32;
+          const cronograma = filasPedido.map((f, i) => ({
+            nro: i + 1,
+            volumen: parseFloat(f.volumen_entrega) || parseFloat(f.volumen) || 0,
+            fecha_solicitada: f.fecha_solicitada_entrega || f.fecha_entrega || '',
+          })).filter(e => e.volumen > 0);
           const pedido = {
             id, estado: 'Pendiente', editado: false,
             creado_por: usuario?.nombre||'Usuario',
             creado_por_email: usuario?.email||'',
             creado_en: ahora, editado_en: null, editado_por: null,
-            tipo: fila.tipo, producto: fila.producto,
-            volumen: parseFloat(fila.volumen), recipiente: fila.recipiente||'Granel',
-            cliente: fila.cliente, ov, telefono: '',
+            tipo: primera.tipo, producto: primera.producto,
+            volumen: volumenTotal, recipiente: primera.recipiente||'Granel',
+            cliente: primera.cliente, ov, telefono: '',
             telefono_prefijo: '', telefono_numero: '',
-            fecha_entrega: fila.fecha_entrega,
-            banda_horaria: fila.banda_horaria||'',
-            lugar, calle: fila.calle, numero: fila.numero_calle||'',
-            ciudad: fila.ciudad, provincia: fila.provincia, cp: fila.cp||'',
-            mapsLink: fila.maps_link||'', obs: fila.obs||'',
+            fecha_entrega: primera.fecha_entrega,
+            banda_horaria: primera.banda_horaria||'',
+            lugar, calle: primera.calle, numero: primera.numero_calle||'',
+            ciudad: primera.ciudad, provincia: primera.provincia, cp: primera.cp||'',
+            mapsLink: primera.maps_link||'', obs: primera.obs||'',
             adjuntos: [], despachos: [],
             timestamp: new Date().toISOString(),
             origen: 'carga_masiva',
             es_abierto: esAbierto,
-            volumen_original: parseFloat(fila.volumen),
+            volumen_original: volumenTotal,
             volumen_despachado: 0,
+            cronograma,
           };
           await addDoc(collection(db, 'pedidos_portal'), pedido);
           const payload = { accion: 'nuevo_pedido', ...pedido };
           const params = new URLSearchParams({ payload: JSON.stringify(payload) });
           await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
           ok.push(id);
-        } catch (err) { fail.push(fila.cliente + ' — ' + err.message); }
+        } catch (err) { fail.push(primera.cliente + ' — ' + err.message); }
       }
       setResultadoMasivo({ ok, fail });
       setFilasCarga([]); setErroresCarga({});
@@ -262,6 +279,21 @@ function Pedidos({ usuario, onVolver }) {
   function handleAdjuntos(e) { const files = Array.from(e.target.files); setForm(prev => ({ ...prev, archivosNuevos: [...prev.archivosNuevos, ...files] })); }
   function quitarArchivoNuevo(nombre) { setForm(prev => ({ ...prev, archivosNuevos: prev.archivosNuevos.filter(f => f.name !== nombre) })); }
   function quitarAdjuntoExistente(fileId) { setForm(prev => ({ ...prev, adjuntos: prev.adjuntos.map(a => a.file_id === fileId ? { ...a, _eliminado: true } : a) })); }
+  function agregarEntrega() {
+    setForm(prev => ({ ...prev, cronograma: [...prev.cronograma, { volumen: '', fecha_solicitada: '' }] }));
+  }
+  function quitarEntrega(idx) {
+    setForm(prev => ({ ...prev, cronograma: prev.cronograma.filter((_, i) => i !== idx) }));
+  }
+  function updateEntrega(idx, field, val) {
+    setForm(prev => {
+      const c = [...prev.cronograma];
+      c[idx] = { ...c[idx], [field]: val };
+      return { ...prev, cronograma: c };
+    });
+  }
+  function volumenAsignado() { return form.cronograma.reduce((s, e) => s + (parseFloat(e.volumen) || 0), 0); }
+
   function checkMapsLink(val) { return val.includes('maps.google') || val.includes('goo.gl') || val.includes('maps.app'); }
   function abrirMaps() { const q = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ') || 'Puerto General San Martín, Santa Fe'; window.open('https://maps.google.com?q='+encodeURIComponent(q), '_blank'); }
   function getOV() { return `${form.ov_tipo}-${form.ov_numero}`; }
@@ -278,7 +310,7 @@ function Pedidos({ usuario, onVolver }) {
   function abrirEditar(p) {
     setPedidoEditando(p);
     const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [] });
+    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[] });
     setVista('nuevo');
   }
 
@@ -312,6 +344,11 @@ function Pedidos({ usuario, onVolver }) {
           fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria,
           lugar, calle: form.calle, numero: form.numero, ciudad: form.ciudad, provincia: form.provincia, cp: form.cp,
           mapsLink: form.mapsLink||'', obs: form.obs||'', adjuntos: adjuntosFinales,
+          cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
+            nro: i + 1,
+            volumen: parseFloat(e.volumen),
+            fecha_solicitada: e.fecha_solicitada,
+          })),
           estado: 'Pendiente', editado: true, editado_en: ahora, editado_por: usuario?.nombre||'',
           creado_por_email: pedidoEditando.creado_por_email||usuario?.email||'',
           despachos: despachosAnteriores.map(d => ({ ...d, estado: 'En espera' })),
@@ -337,6 +374,11 @@ function Pedidos({ usuario, onVolver }) {
           es_abierto: esAbierto,
           volumen_original: parseFloat(form.volumen),
           volumen_despachado: 0,
+          cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
+            nro: i + 1,
+            volumen: parseFloat(e.volumen),
+            fecha_solicitada: e.fecha_solicitada,
+          })),
         };
         await addDoc(collection(db, 'pedidos_portal'), pedido);
         await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify({ accion: 'nuevo_pedido', ...pedido }) }).toString(), { mode: 'no-cors' });
@@ -344,7 +386,7 @@ function Pedidos({ usuario, onVolver }) {
       }
       setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
-      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [] });
+      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [], cronograma: [] });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); setSubiendoArchivos(false); }
   }
@@ -433,6 +475,23 @@ function Pedidos({ usuario, onVolver }) {
                     <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}{p.mapsLink && <a href={p.mapsLink} target="_blank" rel="noreferrer" style={styles.mapsLink}> 📍 Ver en Maps</a>}</span></div>
                     {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
                     {p.motivo_suspension && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Motivo suspensión</span><span style={{ color: '#A32D2D' }}>{p.motivo_suspension}</span></div>}
+                  </div>
+                  {p.cronograma?.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Cronograma de entregas</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {p.cronograma.map(e => (
+                          <div key={e.nro} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 10px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB', fontSize: 12 }}>
+                            <span style={{ fontWeight: 500, color: '#378ADD', minWidth: 28 }}>N°{e.nro}</span>
+                            <span style={{ color: '#111827', fontWeight: 500 }}>{e.volumen} tn</span>
+                            <span style={{ color: '#9CA3AF' }}>·</span>
+                            <span style={{ color: '#6B7280' }}>Solicitada: {e.fecha_solicitada}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'none' }}>
                   </div>
                   {p.adjuntos?.filter(a => !a._eliminado).length > 0 && (
                     <div style={styles.adjuntosRow}>{p.adjuntos.filter(a => !a._eliminado).map(a => (<a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoChip}>📎 {a.nombre}</a>))}</div>
@@ -547,6 +606,38 @@ function Pedidos({ usuario, onVolver }) {
               {form.recipiente === 'Granel' && parseFloat(form.volumen) > 32 && (
                 <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán registrar múltiples despachos parciales hasta completar las {form.volumen} tn.</div>
               )}
+            </div>
+            <div style={styles.seccion}>
+              <div style={styles.seccionTitulo}>Cronograma de entregas</div>
+              <p style={styles.instruccion}>Definí las entregas parciales con volumen y fecha solicitada. Opcional — si no cargás entregas el coordinador las programará libremente.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                {form.cronograma.map((e, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 160px auto', gap: 8, alignItems: 'center', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '8px 10px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', textAlign: 'center' }}>N°{i+1}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Volumen (tn) *</label>
+                      <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Fecha solicitada *</label>
+                      <input style={styles.input} type="date"
+                        value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
+                    </div>
+                    <button type="button" onClick={() => quitarEntrega(i)}
+                      style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>+ Agregar entrega</button>
+                {form.cronograma.length > 0 && form.volumen && (
+                  <span style={{ fontSize: 12, color: '#6B7280' }}>
+                    Asignado: <strong style={{ color: '#111827' }}>{volumenAsignado()} tn</strong> de {form.volumen} tn
+                    {volumenAsignado() > parseFloat(form.volumen || 0) && <span style={{ color: '#C8102E', marginLeft: 6 }}>⚠ Supera el total</span>}
+                  </span>
+                )}
+              </div>
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos comerciales</div>
