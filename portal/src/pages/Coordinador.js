@@ -37,6 +37,7 @@ function Coordinador({ usuario, onVolver }) {
   const [asignando, setAsignando] = useState({});
   const [reprogramando, setReprogramando] = useState({});
   const [editandoDespacho, setEditandoDespacho] = useState({});
+  const [aceptandoEntrega, setAceptandoEntrega] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
   const [archivosNuevos, setArchivosNuevos] = useState({});
@@ -70,6 +71,12 @@ function Coordinador({ usuario, onVolver }) {
   function tieneNominacionPendiente(p) { return (p.despachos || []).some(d => d.estado === 'Aceptado-pendiente' || (d.estado === 'Aceptado' && d.nominacion_pendiente)); }
   function tieneDespachoEnEspera(p) { return (p.despachos || []).some(d => d.estado === 'En espera'); }
   function proximaCarga(p) { const fechas = (p.despachos || []).filter(d => d.fecha_carga && d.estado !== 'En espera').map(d => d.fecha_carga).sort(); return fechas[0] || null; }
+  function despachoDeEntrega(p, entregaIdx) { return (p.despachos || []).find(d => d.entrega_nro === entregaIdx + 1); }
+  function estadoEntrega(p, entregaIdx) {
+    const d = despachoDeEntrega(p, entregaIdx);
+    if (!d) return 'sin_aceptar';
+    return d.estado;
+  }
 
   function seleccionarTransportista(key, pedidoId, docId) {
     const t = transportistas.find(x => x.docId === docId);
@@ -257,6 +264,74 @@ function Coordinador({ usuario, onVolver }) {
       console.error(err);
       alert('Error: ' + err.message);
     } finally { setEnviando(false); setSubiendoArchivos(false); }
+  }
+
+  async function aceptarEntrega(p, entregaIdx) {
+    const entrega = (p.cronograma || [])[entregaIdx];
+    const key = p.id + '-ent-' + entregaIdx;
+    const ae = aceptandoEntrega[key] || {};
+    if (!ae.fecha_carga) { alert('Ingresá la fecha de carga.'); return; }
+    if (!ae.volumen || Number(ae.volumen) <= 0) { alert('Ingresá el volumen.'); return; }
+    if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) {
+      alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return;
+    }
+    const esSinTransportista = sinTransportista(p.tipo);
+    setEnviando(true);
+    try {
+      const now = new Date().toLocaleString('es-AR');
+      const estadoDespacho = esSinTransportista ? 'Programado' : 'Aceptado-pendiente';
+      // Seleccionar transportista si fue elegido
+      const t = ae.transporte_id ? transportistas.find(x => x.docId === ae.transporte_id) : null;
+      const emails = t ? [t.email_1, t.email_2, t.email_3].filter(Boolean) : [];
+      const telefonos = t ? [
+        t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
+        t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
+      ].filter(Boolean) : [];
+
+      const despacho = {
+        id: 'D' + ((p.despachos || []).length + 1),
+        entrega_nro: entregaIdx + 1,
+        volumen: Number(ae.volumen),
+        fecha_carga: ae.fecha_carga,
+        horario_carga: ae.horario_carga || '',
+        estado: t ? 'Programado' : estadoDespacho,
+        aceptado_por: usuario?.nombre || 'Coordinador',
+        aceptado_en: now,
+        transporte: t ? (t.empresa || t.nombre) : (esSinTransportista ? '—' : ''),
+        transporte_id: t ? t.docId : '',
+        email_transportista: emails[0] || '',
+        emails_extra: emails.slice(1),
+        telefonos,
+        cuit_transporte: t ? (t.cuit_empresa || '') : '',
+      };
+      const nuevosDespachos = [...(p.despachos || []), despacho];
+      const volDespachado = nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+      const hayPendiente = nuevosDespachos.some(d => d.estado === 'Aceptado-pendiente');
+      const nuevoEstado = hayPendiente ? 'prog-parcial' : volDespachado >= Number(p.volumen) ? 'Programado' : 'prog-parcial';
+      await updateDoc(doc(db, 'pedidos_portal', p.docId), {
+        despachos: nuevosDespachos,
+        estado: nuevoEstado,
+        volumen_despachado: volDespachado,
+      });
+      const payload = {
+        accion: 'programar_despacho',
+        pedido_id: p.id,
+        programado_por: usuario?.nombre || 'Coordinador',
+        fecha_carga: ae.fecha_carga,
+        horario_carga: ae.horario_carga || '',
+        transporte: t ? (t.empresa || t.nombre) : (esSinTransportista ? '—' : 'Pendiente de asignación'),
+        email_transportista: emails.join(','),
+        tipo: p.tipo, producto: p.producto,
+        volumen: Number(ae.volumen),
+        cliente: p.cliente, ov: p.ov,
+        lugar: p.lugar, banda_horaria: p.banda_horaria || '',
+        fecha_entrega: p.fecha_entrega, obs: p.obs || '',
+      };
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      setAceptandoEntrega(prev => { const n = {...prev}; delete n[key]; return n; });
+      alert(t ? '✓ Entrega aceptada y transportista asignado.' : esSinTransportista ? '✓ Entrega aceptada y escrita en plan.' : '✓ Entrega aceptada. Asigná el transportista.');
+    } catch (err) { console.error(err); alert('Error: ' + err.message); }
+    finally { setEnviando(false); }
   }
 
   async function asignarTransportista(p, despachoIdx) {
@@ -462,12 +537,96 @@ function Coordinador({ usuario, onVolver }) {
                   <span>{pct(p)}%</span>
                 </div>
                 <div style={styles.barTrack}>
-                  <div style={{ ...styles.barFill, width: `${pct(p)}%`, background: pct(p) < 100 ? '#EF9F27' : '#0F6E56' }} />
+                  <div style={{ ...styles.barFill, width: `${pct(p)}%`, background: pct(p) < 100 ? '#EF9F27' : '#0F6E56' }}></div>
                 </div>
                 <div style={{ fontSize: 11, color: saldo(p) === 0 ? '#0F6E56' : '#BA7517', marginTop: 4 }}>
                   {saldo(p) === 0 ? '✓ Volumen completo' : `Saldo pendiente: ${saldo(p)} tn`}
                 </div>
               </div>
+
+              {(p.cronograma || []).length > 0 && (
+                <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '0.5px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de entregas</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(p.cronograma || []).map((e, ei) => {
+                      const keyEnt = p.id + '-ent-' + ei;
+                      const ae = aceptandoEntrega[keyEnt] || {};
+                      const desp = despachoDeEntrega(p, ei);
+                      const estEnt = estadoEntrega(p, ei);
+                      const colorBorder = estEnt === 'Programado' || estEnt === 'Nominado' ? '#5DCAA5' : estEnt === 'Aceptado-pendiente' ? '#F59E0B' : '#E5E7EB';
+                      const colorBg = estEnt === 'Programado' || estEnt === 'Nominado' ? '#F0FDF4' : estEnt === 'Aceptado-pendiente' ? '#FFFBF2' : '#F9FAFB';
+                      return (
+                        <div key={ei} style={{ border: '0.5px solid ' + colorBorder, borderRadius: 8, padding: '10px 12px', background: colorBg }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: desp || aceptandoEntrega[keyEnt] !== undefined ? 8 : 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 500, color: '#6B7280' }}>Entrega N°{e.nro}</span>
+                            {estEnt === 'sin_aceptar' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#F3F4F6', color: '#6B7280', border: '0.5px solid #E5E7EB' }}>Sin aceptar</span>}
+                            {estEnt !== 'sin_aceptar' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: despachoColors[estEnt]?.bg || '#F3F4F6', color: despachoColors[estEnt]?.color || '#6B7280', border: '0.5px solid #E5E7EB' }}>{despachoLabel[estEnt] || estEnt}</span>}
+                            <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 'auto' }}>Solicitada: {e.fecha_solicitada}</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: '#111827' }}>{e.volumen} tn</span>
+                            {estEnt === 'sin_aceptar' && p.estado !== 'Suspendido' && (
+                              <button style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer' }}
+                                onClick={() => setAceptandoEntrega(prev => ({
+                                  ...prev,
+                                  [keyEnt]: prev[keyEnt] === undefined ? { volumen: String(e.volumen), fecha_carga: e.fecha_solicitada, horario_carga: '', transporte_id: '' } : undefined
+                                }))}>
+                                {aceptandoEntrega[keyEnt] !== undefined ? 'Cancelar' : 'Aceptar'}
+                              </button>
+                            )}
+                          </div>
+                          {desp && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, fontSize: 12 }}>
+                              <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Fecha carga</span><span style={{ fontWeight: 500, color: estEnt === 'Programado' || estEnt === 'Nominado' ? '#0F6E56' : '#BA7517' }}>{desp.fecha_carga}</span></div>
+                              {desp.transporte && desp.transporte !== '—' && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Transportista</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.transporte}</span></div>}
+                              {desp.chofer && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Chofer</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.chofer}</span></div>}
+                            </div>
+                          )}
+                          {aceptandoEntrega[keyEnt] !== undefined && estEnt === 'sin_aceptar' && (
+                            <div style={{ marginTop: 10, padding: '10px 12px', background: '#EFF6FF', border: '0.5px solid #93C5FD', borderRadius: 8 }}>
+                              <div style={{ fontSize: 10, fontWeight: 500, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Aceptar entrega</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 8 }}>
+                                <div style={styles.formField}>
+                                  <label style={styles.formLabel}>Volumen (tn) *</label>
+                                  <input style={styles.input} type="number" placeholder={e.volumen}
+                                    value={ae.volumen || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], volumen: ev.target.value } }))} />
+                                </div>
+                                <div style={styles.formField}>
+                                  <label style={styles.formLabel}>Fecha de carga *</label>
+                                  <input style={styles.input} type="date" max={p.fecha_entrega}
+                                    value={ae.fecha_carga || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], fecha_carga: ev.target.value } }))} />
+                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                                </div>
+                                <div style={styles.formField}>
+                                  <label style={styles.formLabel}>Horario sugerido</label>
+                                  <input style={styles.input} type="text" placeholder="Ej: 08:00hs"
+                                    value={ae.horario_carga || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], horario_carga: ev.target.value } }))} />
+                                </div>
+                                {!sinTransportista(p.tipo) && (
+                                  <div style={styles.formField}>
+                                    <label style={styles.formLabel}>Transportista (opcional)</label>
+                                    <select style={styles.input} value={ae.transporte_id || ''}
+                                      onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], transporte_id: ev.target.value } }))}>
+                                      <option value="">Asignar después</option>
+                                      {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                              <button style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }} disabled={enviando}
+                                onClick={() => aceptarEntrega(p, ei)}>
+                                {enviando ? 'Guardando...' : '✓ Confirmar entrega'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: 8, padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB', fontSize: 12, display: 'flex', gap: 16 }}>
+                    <span style={{ color: '#6B7280' }}>Aceptado: <strong style={{ color: '#111827' }}>{volAsignado(p)} tn</strong></span>
+                    <span style={{ color: '#6B7280' }}>Saldo: <strong style={{ color: saldo(p) > 0 ? '#BA7517' : '#0F6E56' }}>{saldo(p)} tn</strong></span>
+                  </div>
+                </div>
+              )}
 
               <div style={styles.despachosSection}>
                 <div style={styles.despachosTitle}>Despachos</div>
