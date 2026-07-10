@@ -620,13 +620,12 @@ function Transportista({ usuario, onVolver }) {
             </div>
           )}
         </div>
-      ))}
-    </div>
-  );
       </>
       }
+    </div>
+  );
+}
 
-const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 16, padding: '2rem 1.5rem', maxWidth: 400, width: '100%', textAlign: 'center' },
