@@ -437,7 +437,11 @@ function Pedidos({ usuario, onVolver }) {
                   {p.adjuntos?.filter(a => !a._eliminado).length > 0 && (
                     <div style={styles.adjuntosRow}>{p.adjuntos.filter(a => !a._eliminado).map(a => (<a key={a.file_id} href={a.link} target="_blank" rel="noreferrer" style={styles.adjuntoChip}>📎 {a.nombre}</a>))}</div>
                   )}
-                  <div style={styles.origen}>Creado por <strong>{p.creado_por}</strong> · {p.creado_en}{p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}</div>
+                  <div style={styles.origen}>
+                    Creado por <strong>{p.creado_por}</strong> · {p.creado_en}
+                    {p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}
+                    {p.suspendido_por && <span style={{ color: '#A32D2D' }}> · Suspendido por <strong>{p.suspendido_por}</strong> · {p.suspendido_en}</span>}
+                  </div>
                   {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                     <div style={styles.cardActions}>
                       {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
