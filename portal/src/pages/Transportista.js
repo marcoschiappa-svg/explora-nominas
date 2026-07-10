@@ -38,7 +38,6 @@ function Transportista({ usuario, onVolver }) {
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
   const infoWindowRef = useRef(null);
-  const [errorNominacion, setErrorNominacion] = useState({});
 
   const rol = usuario?.rol || '';
   const esAdmin = rol === 'admin';
