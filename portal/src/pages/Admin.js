@@ -32,6 +32,8 @@ const FORM_VACIO = {
 
 function Admin({ usuario, onVolver }) {
   const [usuarios, setUsuarios] = useState([]);
+  const [filtroRol, setFiltroRol] = useState('todos');
+  const [busquedaUsuario, setBusquedaUsuario] = useState('');
   const [pedidos, setPedidos] = useState([]);
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
@@ -359,8 +361,31 @@ function Admin({ usuario, onVolver }) {
             </div>
           )}
 
-          {usuarios.length === 0 && <div style={styles.empty}>No hay usuarios aún.</div>}
-          {usuarios.map(u => (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+            {['todos', 'admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(r => (
+              <button key={r} style={{ padding: '5px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: filtroRol === r ? '#FDECEA' : '#fff', color: filtroRol === r ? '#C8102E' : '#6B7280', fontSize: 12, fontWeight: filtroRol === r ? 500 : 400, cursor: 'pointer', borderColor: filtroRol === r ? '#C8102E' : '#E5E7EB' }}
+                onClick={() => setFiltroRol(r)}>{r === 'todos' ? 'Todos' : r}</button>
+            ))}
+            <div style={{ position: 'relative', marginLeft: 'auto' }}>
+              <input style={{ fontSize: 13, padding: '6px 30px 6px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: 200 }}
+                type="text" placeholder="Buscar nombre o empresa..."
+                value={busquedaUsuario} onChange={e => setBusquedaUsuario(e.target.value)} />
+              {busquedaUsuario && <button style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 13 }} onClick={() => setBusquedaUsuario('')}>✕</button>}
+            </div>
+          </div>
+
+          {usuarios.filter(u => {
+            const matchRol = filtroRol === 'todos' || u.rol === filtroRol;
+            const q = busquedaUsuario.toLowerCase();
+            const matchBusq = !q || (u.nombre || '').toLowerCase().includes(q) || (u.empresa || '').toLowerCase().includes(q);
+            return matchRol && matchBusq;
+          }).length === 0 && <div style={styles.empty}>Sin resultados.</div>}
+          {usuarios.filter(u => {
+            const matchRol = filtroRol === 'todos' || u.rol === filtroRol;
+            const q = busquedaUsuario.toLowerCase();
+            const matchBusq = !q || (u.nombre || '').toLowerCase().includes(q) || (u.empresa || '').toLowerCase().includes(q);
+            return matchRol && matchBusq;
+          }).map(u => (
             <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
               <div style={styles.cardHeader}>
                 <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg, color: rolColors[u.rol]?.color }}>
