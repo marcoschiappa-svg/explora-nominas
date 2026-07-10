@@ -267,7 +267,6 @@ function Coordinador({ usuario, onVolver }) {
   }
 
   async function aceptarEntrega(p, entregaIdx) {
-    const entrega = (p.cronograma || [])[entregaIdx];
     const key = p.id + '-ent-' + entregaIdx;
     const ae = aceptandoEntrega[key] || {};
     if (!ae.fecha_carga) { alert('Ingresá la fecha de carga.'); return; }
