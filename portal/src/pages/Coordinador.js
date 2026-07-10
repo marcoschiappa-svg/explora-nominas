@@ -422,6 +422,7 @@ function Coordinador({ usuario, onVolver }) {
               <div style={styles.origen}>
                 Pedido creado por <strong>{p.creado_por}</strong> · {p.creado_en}
                 {p.editado && <span> · Editado por <strong>{p.editado_por}</strong> · {p.editado_en}</span>}
+                {p.suspendido_por && <span style={{ color: '#A32D2D' }}> · Suspendido por <strong>{p.suspendido_por}</strong> · {p.suspendido_en}</span>}
               </div>
               <div style={styles.detailGrid}>
                 <div style={styles.field}><span style={styles.label}>Tipo</span><span>{p.tipo}</span></div>
