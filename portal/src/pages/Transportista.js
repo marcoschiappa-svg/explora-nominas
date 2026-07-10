@@ -3,21 +3,22 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc, getDoc, getDocs, query, where } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
+
 const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
 const pngCacheT = {};
 function getFlechaT(color, angulo, cb) {
-  const k = color+'_'+Math.round(angulo);
+  const k = color + '_' + Math.round(angulo);
   if (pngCacheT[k]) { cb(pngCacheT[k]); return; }
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="rotate('+angulo+' 16 16)"><polygon points="16,2 28,30 16,23 4,30" fill="'+color+'" stroke="white" stroke-width="2" stroke-linejoin="round"/></g></svg>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="rotate(' + angulo + ' 16 16)"><polygon points="16,2 28,30 16,23 4,30" fill="' + color + '" stroke="white" stroke-width="2" stroke-linejoin="round"/></g></svg>';
   const img = new Image();
   img.onload = () => { const c = document.createElement('canvas'); c.width=32; c.height=32; c.getContext('2d').drawImage(img,0,0); const u=c.toDataURL('image/png'); pngCacheT[k]=u; cb(u); };
-  img.onerror = () => cb('data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg));
-  img.src = 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+  img.onerror = () => cb('data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg));
+  img.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }
 function anguloT(a,b,c,d) {
-  if(!a||!b||!c||!d) return 0;
-  const dl=(d-b)*Math.PI/180,r1=a*Math.PI/180,r2=c*Math.PI/180;
-  const y=Math.sin(dl)*Math.cos(r2),x=Math.cos(r1)*Math.sin(r2)-Math.sin(r1)*Math.cos(r2)*Math.cos(dl);
+  if (!a||!b||!c||!d) return 0;
+  const dl=(d-b)*Math.PI/180, r1=a*Math.PI/180, r2=c*Math.PI/180;
+  const y=Math.sin(dl)*Math.cos(r2), x=Math.cos(r1)*Math.sin(r2)-Math.sin(r1)*Math.cos(r2)*Math.cos(dl);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
 
@@ -277,9 +278,7 @@ function Transportista({ usuario, onVolver }) {
       s.src = 'https://maps.googleapis.com/maps/api/js?key=' + MAPS_KEY;
       s.async = true; s.onload = () => initMapT();
       document.head.appendChild(s);
-    } else {
-      initMapT();
-    }
+    } else { initMapT(); }
   }, [vistaActiva]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -289,8 +288,7 @@ function Transportista({ usuario, onVolver }) {
   function initMapT() {
     if (!mapRef.current || mapInstanceRef.current) return;
     mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-      center:{lat:-32.7,lng:-60.5}, zoom:6,
-      mapTypeControl:false, streetViewControl:false, fullscreenControl:true,
+      center:{lat:-32.7,lng:-60.5}, zoom:6, mapTypeControl:false, streetViewControl:false, fullscreenControl:true,
     });
     infoWindowRef.current = new window.google.maps.InfoWindow();
     actualizarMT();
@@ -315,7 +313,7 @@ function Transportista({ usuario, onVolver }) {
         } else {
           const marker = new window.google.maps.Marker({position:pos,map:mapInstanceRef.current,title:d.chofer,icon});
           marker.addListener('click', () => {
-            infoWindowRef.current.setContent('<div style="font-family:sans-serif;padding:6px 8px"><b>'+d.chofer+'</b><br/>'+d.producto+' · '+d.volumen+' tn<br/>'+d.patente_tractor+(d.patente_semi?' / '+d.patente_semi:'')+'</div>');
+            infoWindowRef.current.setContent('<b>'+d.chofer+'</b><br/>'+d.producto+' '+d.volumen+' tn<br/>'+d.patente_tractor);
             infoWindowRef.current.open(mapInstanceRef.current, marker);
           });
           markersRef.current[d.uid] = marker;
@@ -367,11 +365,9 @@ function Transportista({ usuario, onVolver }) {
 
       {vistaActiva === 'mapa' && (
         <div style={{ position: 'relative', height: 'calc(100vh - 120px)' }}>
-          <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+          <div ref={mapRef} style={{ width: '100%', height: '100%' }}></div>
           {despachos.filter(d => d.gps_lat && ['recibido','iniciado','demorado'].includes(d.estado_chofer)).length === 0 && (
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', fontSize: 14, color: '#6B7280', background: 'rgba(255,255,255,0.9)', padding: '16px 20px', borderRadius: 12 }}>
-              Sin unidades con GPS activo en este momento.
-            </div>
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', fontSize: 14, color: '#6B7280', background: 'rgba(255,255,255,0.9)', padding: '16px 20px', borderRadius: 12 }}>Sin unidades con GPS activo.</div>
           )}
         </div>
       )}
@@ -602,12 +598,13 @@ function Transportista({ usuario, onVolver }) {
                   <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
                     disabled={enviando} onClick={() => nominar(d)}>
                     {enviando ? 'Guardando...' : '✏️ Guardar cambios'}
+                  </button>
+                )}
               </div>
             </div>
-          </div>
           )}
         </div>
-      )}
+      ))}
       </>)}
     </div>
   );
