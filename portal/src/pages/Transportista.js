@@ -4,24 +4,21 @@ import { collection, onSnapshot, doc, updateDoc, getDoc, getDocs, query, where }
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
-
-const pngCache = {};
-function getFlechaIconUrl(color, angulo, callback) {
-  const key = `${color}_${Math.round(angulo)}`;
-  if (pngCache[key]) { callback(pngCache[key]); return; }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="rotate(${angulo} 16 16)"><polygon points="16,2 28,30 16,23 4,30" fill="${color}" stroke="white" stroke-width="2" stroke-linejoin="round"/></g></svg>`;
+const pngCacheT = {};
+function getFlechaT(color, angulo, cb) {
+  const k = color+'_'+Math.round(angulo);
+  if (pngCacheT[k]) { cb(pngCacheT[k]); return; }
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="rotate('+angulo+' 16 16)"><polygon points="16,2 28,30 16,23 4,30" fill="'+color+'" stroke="white" stroke-width="2" stroke-linejoin="round"/></g></svg>';
   const img = new Image();
-  img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32; canvas.getContext('2d').drawImage(img, 0, 0); const url = canvas.toDataURL('image/png'); pngCache[key] = url; callback(url); };
-  img.onerror = () => callback('data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg));
-  img.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+  img.onload = () => { const c = document.createElement('canvas'); c.width=32; c.height=32; c.getContext('2d').drawImage(img,0,0); const u=c.toDataURL('image/png'); pngCacheT[k]=u; cb(u); };
+  img.onerror = () => cb('data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg));
+  img.src = 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
 }
-function calcularAngulo(lat1, lng1, lat2, lng2) {
-  if (!lat1 || !lng1 || !lat2 || !lng2) return 0;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const lat1r = lat1 * Math.PI / 180; const lat2r = lat2 * Math.PI / 180;
-  const y = Math.sin(dLng) * Math.cos(lat2r);
-  const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLng);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+function anguloT(a,b,c,d) {
+  if(!a||!b||!c||!d) return 0;
+  const dl=(d-b)*Math.PI/180,r1=a*Math.PI/180,r2=c*Math.PI/180;
+  const y=Math.sin(dl)*Math.cos(r2),x=Math.cos(r1)*Math.sin(r2)-Math.sin(r1)*Math.cos(r2)*Math.cos(dl);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
 
 function Transportista({ usuario, onVolver }) {
@@ -33,7 +30,7 @@ function Transportista({ usuario, onVolver }) {
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
   const [errorNominacion, setErrorNominacion] = useState({});
-  const [vistaActiva, setVistaActiva] = useState('despachos'); // 'despachos' | 'mapa'
+  const [vistaActiva, setVistaActiva] = useState('despachos');
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
@@ -273,68 +270,58 @@ function Transportista({ usuario, onVolver }) {
     } finally { setEnviando(false); }
   }
 
-  // Mapa
   useEffect(() => {
     if (vistaActiva !== 'mapa') return;
-    if (window.google) { initMap(); return; }
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}`;
-    script.async = true;
-    script.onload = initMap;
-    document.head.appendChild(script);
+    if (!window.google) {
+      const s = document.createElement('script');
+      s.src = 'https://maps.googleapis.com/maps/api/js?key=' + MAPS_KEY;
+      s.async = true; s.onload = () => initMapT();
+      document.head.appendChild(s);
+    } else {
+      initMapT();
+    }
   }, [vistaActiva]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function initMap() {
-    setTimeout(() => {
-      if (!mapRef.current || mapInstanceRef.current) return;
-      mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-        center: { lat: -32.7, lng: -60.5 }, zoom: 6,
-        mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
-      });
-      infoWindowRef.current = new window.google.maps.InfoWindow();
-      actualizarMarcadores();
-    }, 100);
+  useEffect(() => {
+    if (vistaActiva === 'mapa' && mapInstanceRef.current) actualizarMT();
+  }, [despachos, vistaActiva]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function initMapT() {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
+      center:{lat:-32.7,lng:-60.5}, zoom:6,
+      mapTypeControl:false, streetViewControl:false, fullscreenControl:true,
+    });
+    infoWindowRef.current = new window.google.maps.InfoWindow();
+    actualizarMT();
   }
 
-  function actualizarMarcadores() {
+  function actualizarMT() {
     if (!mapInstanceRef.current || !window.google) return;
-    const activos = despachos.filter(d => ['iniciado','demorado','recibido'].includes(d.estado_chofer) && d.gps_lat && d.gps_lng);
-    const uidsActuales = new Set(activos.map(d => d.uid));
+    const activos = despachos.filter(d => d.gps_lat && d.gps_lng && ['recibido','iniciado','demorado'].includes(d.estado_chofer));
+    const uids = new Set(activos.map(d => d.uid));
     Object.keys(markersRef.current).forEach(uid => {
-      if (!uidsActuales.has(uid)) { markersRef.current[uid].setMap(null); delete markersRef.current[uid]; }
+      if (!uids.has(uid)) { markersRef.current[uid].setMap(null); delete markersRef.current[uid]; }
     });
     activos.forEach(d => {
-      const pos = { lat: d.gps_lat, lng: d.gps_lng };
-      const color = d.estado_chofer === 'demorado' ? '#BA7517' : d.estado_chofer === 'iniciado' ? '#1D9E75' : '#378ADD';
-      const angulo = calcularAngulo(d.gps_lat_prev, d.gps_lng_prev, d.gps_lat, d.gps_lng);
-      getFlechaIconUrl(color, angulo, (iconUrl) => {
-        const icon = { url: iconUrl, scaledSize: new window.google.maps.Size(32, 32), anchor: new window.google.maps.Point(16, 16) };
+      const pos = {lat:d.gps_lat,lng:d.gps_lng};
+      const color = d.estado_chofer==='demorado'?'#BA7517':d.estado_chofer==='iniciado'?'#1D9E75':'#378ADD';
+      const ang = anguloT(d.gps_lat_prev,d.gps_lng_prev,d.gps_lat,d.gps_lng);
+      getFlechaT(color, ang, (iconUrl) => {
+        const icon = {url:iconUrl,scaledSize:new window.google.maps.Size(32,32),anchor:new window.google.maps.Point(16,16)};
         if (markersRef.current[d.uid]) {
           markersRef.current[d.uid].setPosition(pos);
           markersRef.current[d.uid].setIcon(icon);
         } else {
-          const marker = new window.google.maps.Marker({ position: pos, map: mapInstanceRef.current, title: d.chofer, icon });
+          const marker = new window.google.maps.Marker({position:pos,map:mapInstanceRef.current,title:d.chofer,icon});
           marker.addListener('click', () => {
-            infoWindowRef.current.setContent(`<div style="font-family:sans-serif;padding:6px 8px;min-width:180px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${d.chofer}</div><div style="font-size:12px;color:#6B7280">${d.producto} · ${d.volumen} tn</div><div style="font-size:12px;color:#6B7280;margin-top:2px">${d.patente_tractor}${d.patente_semi ? ' / ' + d.patente_semi : ''}</div></div>`);
+            infoWindowRef.current.setContent('<div style="font-family:sans-serif;padding:6px 8px"><b>'+d.chofer+'</b><br/>'+d.producto+' · '+d.volumen+' tn<br/>'+d.patente_tractor+(d.patente_semi?' / '+d.patente_semi:'')+'</div>');
             infoWindowRef.current.open(mapInstanceRef.current, marker);
           });
           markersRef.current[d.uid] = marker;
         }
       });
     });
-  }
-
-  useEffect(() => {
-    if (vistaActiva === 'mapa') actualizarMarcadores();
-  }, [despachos, vistaActiva]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function tiempoDesde(isoStr) {
-    if (!isoStr) return '—';
-    const diff = Date.now() - new Date(isoStr).getTime();
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    if (h > 0) return `hace ${h} h ${m} min`;
-    return `hace ${m} min`;
   }
 
   const filtrados = despachos.filter(d => filtro === 'todos' || d.estado === filtro);
@@ -379,15 +366,16 @@ function Transportista({ usuario, onVolver }) {
       </div>
 
       {vistaActiva === 'mapa' && (
-        <div style={styles.mapaWrap}>
-          <div ref={mapRef} style={styles.mapaContainer} />
-          {despachos.filter(d => ['iniciado','demorado','recibido'].includes(d.estado_chofer) && d.gps_lat).length === 0 && (
-            <div style={styles.sinGps}>Sin unidades con GPS activo en este momento.</div>
+        <div style={{ position: 'relative', height: 'calc(100vh - 120px)' }}>
+          <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+          {despachos.filter(d => d.gps_lat && ['recibido','iniciado','demorado'].includes(d.estado_chofer)).length === 0 && (
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', fontSize: 14, color: '#6B7280', background: 'rgba(255,255,255,0.9)', padding: '16px 20px', borderRadius: 12 }}>
+              Sin unidades con GPS activo en este momento.
+            </div>
           )}
         </div>
       )}
-
-      {vistaActiva === 'despachos' && <>
+      {vistaActiva === 'despachos' && (<>
       <div style={styles.intro}>
         {esAdmin
           ? 'ℹ️ Vista administrador — todos los despachos de todos los transportistas.'
@@ -620,12 +608,14 @@ function Transportista({ usuario, onVolver }) {
             </div>
           )}
         </div>
-      </>
-      }
+      ))}
+      </div>
+      </>)}
     </div>
   );
 }
 
+const styles = {
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 16, padding: '2rem 1.5rem', maxWidth: 400, width: '100%', textAlign: 'center' },
@@ -690,12 +680,6 @@ function Transportista({ usuario, onVolver }) {
   btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnRechazar: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 13, cursor: 'pointer' },
-  tabsWrap: { display: 'flex', background: '#F3F4F6', borderRadius: 8, padding: 3, gap: 2 },
-  tabBtn: { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'transparent', color: '#6B7280', fontSize: 12, fontWeight: 500, cursor: 'pointer' },
-  tabBtnActive: { background: '#fff', color: '#111827', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' },
-  mapaWrap: { position: 'relative', height: 'calc(100vh - 120px)', margin: '0 -1rem' },
-  mapaContainer: { width: '100%', height: '100%' },
-  sinGps: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', fontSize: 14, color: '#6B7280', background: 'rgba(255,255,255,0.9)', padding: '16px 20px', borderRadius: 12 },
 };
 
 export default Transportista;
