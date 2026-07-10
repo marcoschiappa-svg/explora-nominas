@@ -602,14 +602,12 @@ function Transportista({ usuario, onVolver }) {
                   <button style={{ ...styles.btnNominar, opacity: enviando ? 0.7 : 1 }}
                     disabled={enviando} onClick={() => nominar(d)}>
                     {enviando ? 'Guardando...' : '✏️ Guardar cambios'}
-                  </button>
-                )}
               </div>
             </div>
+          </div>
           )}
         </div>
-      ))}
-      </div>
+      )}
       </>)}
     </div>
   );
@@ -680,6 +678,9 @@ const styles = {
   btnAceptar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnNominar: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#534AB7', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   btnRechazar: { padding: '8px 16px', borderRadius: 8, border: '0.5px solid #A32D2D', background: '#fff', color: '#A32D2D', fontSize: 13, cursor: 'pointer' },
+  tabsWrap: { display: 'flex', background: '#F3F4F6', borderRadius: 8, padding: 3, gap: 2 },
+  tabBtn: { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'transparent', color: '#6B7280', fontSize: 12, fontWeight: 500, cursor: 'pointer' },
+  tabBtnActive: { background: '#fff', color: '#111827', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' },
 };
 
 export default Transportista;
