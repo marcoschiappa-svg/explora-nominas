@@ -43,6 +43,8 @@ function Admin({ usuario, onVolver }) {
   const [credencialCreada, setCredencialCreada] = useState(null);
   const [generandoLink, setGenerandoLink] = useState(false);
   const [finalizando, setFinalizando] = useState(null);
+  const [importando, setImportando] = useState(false);
+  const [resultadoImport, setResultadoImport] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
 
   useEffect(() => {
@@ -107,6 +109,78 @@ function Admin({ usuario, onVolver }) {
     } finally {
       setFinalizando(null);
     }
+  }
+
+  async function importarChoferes(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportando(true);
+    setResultadoImport(null);
+    try {
+      const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      // Buscar fila de datos (tiene número en col 0)
+      const datoRows = rows.filter(r => r[0] && !isNaN(Number(r[0])));
+      let creados = 0, duplicados = 0, errores = [];
+      for (const row of datoRows) {
+        const nombre = String(row[1] || '').trim();
+        const dniRaw = String(row[3] || '').trim().replace(/\D/g, '');
+        const cuit = String(row[4] || '').trim();
+        const empresa = String(row[5] || '').trim();
+        if (!nombre || !dniRaw) continue;
+        // Verificar duplicado
+        const existente = usuarios.find(u => u.dni === dniRaw && u.rol === 'chofer');
+        if (existente) { duplicados++; continue; }
+        try {
+          const emailAuth = dniRaw + '@explora-portal.com';
+          const password = dniRaw;
+          const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, password);
+          await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
+            nombre, dni: dniRaw, cuit_chofer: cuit,
+            empresa, rol: 'chofer', estado: 'activo',
+            email_1: '', email_2: '', email_3: '',
+            prefijo_1: '', numero_1: '', prefijo_2: '', numero_2: '', prefijo_3: '', numero_3: '',
+            cuit_empresa: '', password_visible: password,
+            creado_por: usuario?.nombre || 'Admin',
+            creado_en: new Date().toLocaleString('es-AR'),
+          });
+          creados++;
+        } catch (err) {
+          errores.push(nombre + ': ' + err.message);
+        }
+      }
+      setResultadoImport({ creados, duplicados, errores });
+    } catch (err) {
+      alert('Error al leer el archivo: ' + err.message);
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  function exportarChoferes() {
+    const choferesFiltrados = usuarios.filter(u => {
+      const matchRol = u.rol === 'chofer';
+      const q = busquedaUsuario.toLowerCase();
+      const matchBusq = !q || (u.nombre || '').toLowerCase().includes(q) || (u.empresa || '').toLowerCase().includes(q);
+      const matchEmpresa = filtroRol === 'todos' || filtroRol === 'chofer' || u.empresa?.toLowerCase().includes(filtroRol.toLowerCase());
+      return matchRol && matchBusq && matchEmpresa;
+    });
+    if (choferesFiltrados.length === 0) { alert('No hay choferes para exportar con el filtro actual.'); return; }
+    const headers = ['Nombre y Apellido', 'DNI (login)', 'Contraseña inicial', 'CUIT Chofer', 'Empresa'];
+    const filas = choferesFiltrados.map(u => [
+      u.nombre || '', u.dni || '', u.password_visible || u.dni || '',
+      u.cuit_chofer || '', u.empresa || '',
+    ]);
+    const csv = [headers, ...filas].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'choferes_explora.csv'; a.click();
+    URL.revokeObjectURL(url);
   }
 
   function f(field) {
@@ -316,6 +390,11 @@ function Admin({ usuario, onVolver }) {
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Usuarios del portal</h2>
             <button style={styles.btnPrimary} onClick={abrirNuevo}>+ Nuevo usuario</button>
+            <label style={{ padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {importando ? 'Importando...' : '📥 Importar choferes'}
+              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={importarChoferes} disabled={importando} />
+            </label>
+            <button style={{ padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer' }} onClick={exportarChoferes}>📤 Exportar choferes</button>
           </div>
           <div style={styles.metrics}>
             {['admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(rol => (
@@ -361,6 +440,14 @@ function Admin({ usuario, onVolver }) {
             </div>
           )}
 
+          {resultadoImport && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '0.5px solid #5DCAA5', marginBottom: 10, fontSize: 13 }}>
+              <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>✓ Importación completada</div>
+              <div style={{ color: '#374151' }}>Creados: <strong>{resultadoImport.creados}</strong> · Duplicados: <strong>{resultadoImport.duplicados}</strong>{resultadoImport.errores.length > 0 ? ` · Errores: ${resultadoImport.errores.length}` : ''}</div>
+              {resultadoImport.errores.length > 0 && <div style={{ color: '#A32D2D', fontSize: 11, marginTop: 4 }}>{resultadoImport.errores.join(' | ')}</div>}
+              <button style={{ fontSize: 11, marginTop: 6, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer' }} onClick={() => setResultadoImport(null)}>Cerrar</button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
             {['todos', 'admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(r => (
               <button key={r} style={{ padding: '5px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: filtroRol === r ? '#FDECEA' : '#fff', color: filtroRol === r ? '#C8102E' : '#6B7280', fontSize: 12, fontWeight: filtroRol === r ? 500 : 400, cursor: 'pointer', borderColor: filtroRol === r ? '#C8102E' : '#E5E7EB' }}
