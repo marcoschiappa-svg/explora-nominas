@@ -371,16 +371,6 @@ function Admin({ usuario, onVolver }) {
     setSeleccionados(prev => prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]);
   }
 
-  function seleccionarTodosFiltrados(usuariosFiltrados) {
-    const ids = usuariosFiltrados.map(u => u.docId);
-    const todosSeleccionados = ids.every(id => seleccionados.includes(id));
-    if (todosSeleccionados) {
-      setSeleccionados(prev => prev.filter(id => !ids.includes(id)));
-    } else {
-      setSeleccionados(prev => [...new Set([...prev, ...ids])]);
-    }
-  }
-
   async function eliminarUsuario(u) {
     if (!window.confirm(`¿Eliminar a ${u.nombre}? Esta acción no se puede deshacer.\n\nNota: el usuario será eliminado del portal. Para eliminarlo completamente de Firebase Authentication, hacelo desde la consola de Firebase.`)) return;
     await deleteDoc(doc(db, 'usuarios_portal', u.docId));
