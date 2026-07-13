@@ -135,14 +135,14 @@ function Admin({ usuario, onVolver }) {
         const dniRaw = String(row[3] || '').trim().replace(/\D/g, '');
         const cuit = String(row[4] || '').trim();
         const empresa = String(row[5] || '').trim();
+        const passwordArchivo = String(row[6] || '').trim();
         if (!nombre || !dniRaw) continue;
         // Verificar duplicado
         const existente = usuarios.find(u => u.dni === dniRaw && u.rol === 'chofer');
         if (existente) { duplicados++; continue; }
         try {
           const emailAuth = dniRaw + '@explora-portal.com';
-          const primeraPalabra = nombre.split(/[,\s]+/)[0].toUpperCase();
-          const password = primeraPalabra + '2026';
+          const password = passwordArchivo || (nombre.split(/[,\s]+/)[0].charAt(0).toUpperCase() + nombre.split(/[,\s]+/)[0].slice(1).toLowerCase() + '2026');
           const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, password);
           await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
             nombre, dni: dniRaw, cuit_chofer: cuit,
