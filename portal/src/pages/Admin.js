@@ -48,6 +48,8 @@ function Admin({ usuario, onVolver }) {
   const [resultadoImport, setResultadoImport] = useState(null);
   const [modalExport, setModalExport] = useState(false);
   const [empresaExport, setEmpresaExport] = useState('');
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [eliminandoMasivo, setEliminandoMasivo] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
 
   useEffect(() => {
@@ -348,6 +350,37 @@ function Admin({ usuario, onVolver }) {
     await updateDoc(doc(db, 'usuarios_portal', u.docId), { estado: nuevoEstado });
   }
 
+  async function eliminarSeleccionados() {
+    if (seleccionados.length === 0) return;
+    if (!window.confirm(`¿Eliminar ${seleccionados.length} usuario(s) de Firestore?\n\nRecordá eliminarlos también de Firebase Authentication desde la consola.`)) return;
+    setEliminandoMasivo(true);
+    try {
+      for (const docId of seleccionados) {
+        await deleteDoc(doc(db, 'usuarios_portal', docId));
+      }
+      setSeleccionados([]);
+      alert(`✓ ${seleccionados.length} usuario(s) eliminados de Firestore.`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setEliminandoMasivo(false);
+    }
+  }
+
+  function toggleSeleccion(docId) {
+    setSeleccionados(prev => prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]);
+  }
+
+  function seleccionarTodosFiltrados(usuariosFiltrados) {
+    const ids = usuariosFiltrados.map(u => u.docId);
+    const todosSeleccionados = ids.every(id => seleccionados.includes(id));
+    if (todosSeleccionados) {
+      setSeleccionados(prev => prev.filter(id => !ids.includes(id)));
+    } else {
+      setSeleccionados(prev => [...new Set([...prev, ...ids])]);
+    }
+  }
+
   async function eliminarUsuario(u) {
     if (!window.confirm(`¿Eliminar a ${u.nombre}? Esta acción no se puede deshacer.\n\nNota: el usuario será eliminado del portal. Para eliminarlo completamente de Firebase Authentication, hacelo desde la consola de Firebase.`)) return;
     await deleteDoc(doc(db, 'usuarios_portal', u.docId));
@@ -477,6 +510,17 @@ function Admin({ usuario, onVolver }) {
             </div>
           )}
 
+          {seleccionados.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: '#FEF2F2', border: '0.5px solid #FECACA', borderRadius: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: '#A32D2D', flex: 1 }}>{seleccionados.length} usuario(s) seleccionado(s)</span>
+              <button style={{ fontSize: 12, padding: '5px 14px', borderRadius: 8, border: 'none', background: '#A32D2D', color: '#fff', cursor: 'pointer', opacity: eliminandoMasivo ? 0.7 : 1 }}
+                disabled={eliminandoMasivo} onClick={eliminarSeleccionados}>
+                {eliminandoMasivo ? 'Eliminando...' : '🗑 Eliminar seleccionados'}
+              </button>
+              <button style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', cursor: 'pointer' }}
+                onClick={() => setSeleccionados([])}>Cancelar</button>
+            </div>
+          )}
           {resultadoImport && (
             <div style={{ padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '0.5px solid #5DCAA5', marginBottom: 10, fontSize: 13 }}>
               <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>✓ Importación completada</div>
@@ -485,10 +529,10 @@ function Admin({ usuario, onVolver }) {
               <button style={{ fontSize: 11, marginTop: 6, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer' }} onClick={() => setResultadoImport(null)}>Cerrar</button>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }} id="filtros-bar">
             {['todos', 'admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(r => (
               <button key={r} style={{ padding: '5px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: filtroRol === r ? '#FDECEA' : '#fff', color: filtroRol === r ? '#C8102E' : '#6B7280', fontSize: 12, fontWeight: filtroRol === r ? 500 : 400, cursor: 'pointer', borderColor: filtroRol === r ? '#C8102E' : '#E5E7EB' }}
-                onClick={() => setFiltroRol(r)}>{r === 'todos' ? 'Todos' : r}</button>
+                onClick={() => { setFiltroRol(r); setSeleccionados([]); }}>{r === 'todos' ? 'Todos' : r}</button>
             ))}
             <div style={{ position: 'relative', marginLeft: 'auto' }}>
               <input style={{ fontSize: 13, padding: '6px 30px 6px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: 200 }}
@@ -510,8 +554,10 @@ function Admin({ usuario, onVolver }) {
             const matchBusq = !q || (u.nombre || '').toLowerCase().includes(q) || (u.empresa || '').toLowerCase().includes(q);
             return matchRol && matchBusq;
           }).map(u => (
-            <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1 }}>
+            <div key={u.docId} style={{ ...styles.card, opacity: u.estado === 'inactivo' ? 0.6 : 1, outline: seleccionados.includes(u.docId) ? '2px solid #C8102E' : 'none' }}>
               <div style={styles.cardHeader}>
+                <input type="checkbox" checked={seleccionados.includes(u.docId)} onChange={() => toggleSeleccion(u.docId)}
+                  style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ ...styles.pill, background: rolColors[u.rol]?.bg, color: rolColors[u.rol]?.color }}>
                   {u.rol}
                 </span>
