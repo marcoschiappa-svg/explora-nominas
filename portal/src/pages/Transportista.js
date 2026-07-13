@@ -31,6 +31,7 @@ function Transportista({ usuario, onVolver }) {
   const [filtro, setFiltro] = useState('todos');
   const [modalNominacion, setModalNominacion] = useState(null);
   const [errorNominacion, setErrorNominacion] = useState({});
+  const [sugerenciasChofer, setSugerenciasChofer] = useState({});
   const [vistaActiva, setVistaActiva] = useState('despachos');
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -490,12 +491,26 @@ function Transportista({ usuario, onVolver }) {
 
                   <div style={{ ...styles.nomSubtitle, marginTop: 12 }}>Chofer</div>
                   <div style={styles.nomGrid}>
-                    <div style={styles.formField}>
+                    <div style={{ ...styles.formField, position: 'relative' }}>
                       <label style={styles.formLabel}>Nombre completo *</label>
                       <input style={styles.input} type="text" placeholder="Apellido, Nombre"
                         value={nomData[d.uid]?.chofer || ''}
                         disabled={d.estado === 'Nominado' && d.estado_chofer !== 'recibido'}
-                        onChange={e => updateNom(d.uid, 'chofer', e.target.value)} />
+                        onChange={e => { updateNom(d.uid, 'chofer', e.target.value); buscarChoferPorNombre(d.uid, e.target.value); }}
+                        onBlur={() => setTimeout(() => setSugerenciasChofer(prev => ({ ...prev, [d.uid]: [] })), 150)}
+                        autoComplete="off" />
+                      {(sugerenciasChofer[d.uid] || []).length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                          {(sugerenciasChofer[d.uid] || []).map((c, ci) => (
+                            <div key={ci}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '0.5px solid #F3F4F6', fontSize: 13 }}
+                              onMouseDown={() => seleccionarSugerenciaChofer(d.uid, c)}>
+                              <div style={{ fontWeight: 500, color: '#111827' }}>{c.nombre}</div>
+                              <div style={{ fontSize: 11, color: '#9CA3AF' }}>DNI {c.dni} · {c.empresa || 'Sin empresa'}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>DNI *</label>
