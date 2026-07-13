@@ -46,6 +46,8 @@ function Admin({ usuario, onVolver }) {
   const [finalizando, setFinalizando] = useState(null);
   const [importando, setImportando] = useState(false);
   const [resultadoImport, setResultadoImport] = useState(null);
+  const [modalExport, setModalExport] = useState(false);
+  const [empresaExport, setEmpresaExport] = useState('');
   const [form, setForm] = useState(FORM_VACIO);
 
   useEffect(() => {
@@ -137,7 +139,8 @@ function Admin({ usuario, onVolver }) {
         if (existente) { duplicados++; continue; }
         try {
           const emailAuth = dniRaw + '@explora-portal.com';
-          const password = dniRaw;
+          const primeraPalabra = nombre.split(/[,\s]+/)[0].toUpperCase();
+          const password = primeraPalabra + '2026';
           const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, password);
           await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
             nombre, dni: dniRaw, cuit_chofer: cuit,
@@ -161,26 +164,33 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
-  function exportarChoferes() {
-    const choferesFiltrados = usuarios.filter(u => {
-      const matchRol = u.rol === 'chofer';
-      const q = busquedaUsuario.toLowerCase();
-      const matchBusq = !q || (u.nombre || '').toLowerCase().includes(q) || (u.empresa || '').toLowerCase().includes(q);
-      const matchEmpresa = filtroRol === 'todos' || filtroRol === 'chofer' || u.empresa?.toLowerCase().includes(filtroRol.toLowerCase());
-      return matchRol && matchBusq && matchEmpresa;
-    });
-    if (choferesFiltrados.length === 0) { alert('No hay choferes para exportar con el filtro actual.'); return; }
-    const headers = ['Nombre y Apellido', 'DNI (login)', 'Contraseña inicial', 'CUIT Chofer', 'Empresa'];
+  function empresasDisponibles() {
+    return [...new Set(usuarios.filter(u => u.rol === 'chofer' && u.empresa).map(u => u.empresa))].sort();
+  }
+
+  function descargarChoferes(empresa) {
+    const choferesFiltrados = usuarios.filter(u =>
+      u.rol === 'chofer' && (!empresa || u.empresa === empresa)
+    );
+    if (choferesFiltrados.length === 0) { alert('No hay choferes para exportar.'); return; }
+    const headers = ['Nombre y Apellido', 'DNI (login)', 'Contraseña', 'CUIT Chofer', 'Empresa'];
     const filas = choferesFiltrados.map(u => [
-      u.nombre || '', u.dni || '', u.password_visible || u.dni || '',
+      u.nombre || '', u.dni || '', u.password_visible || '—',
       u.cuit_chofer || '', u.empresa || '',
     ]);
     const csv = [headers, ...filas].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'choferes_explora.csv'; a.click();
+    const nombre = empresa ? empresa.replace(/\s+/g, '_') : 'todos';
+    a.href = url; a.download = `choferes_${nombre}.csv`; a.click();
     URL.revokeObjectURL(url);
+    setModalExport(false);
+  }
+
+  function exportarChoferes() {
+    setEmpresaExport('');
+    setModalExport(true);
   }
 
   function f(field) {
@@ -383,6 +393,33 @@ function Admin({ usuario, onVolver }) {
         </div>
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
+
+      {modalExport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: '1.5rem', maxWidth: 380, width: '100%' }}>
+            <div style={{ fontSize: 16, fontWeight: 500, color: '#111827', marginBottom: 6 }}>📤 Exportar choferes</div>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Seleccioná la empresa transportista o exportá todos.</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: '#6B7280' }}>Filtrar por transportista</label>
+              <select style={{ fontSize: 14, padding: '8px 10px', borderRadius: 8, border: '0.5px solid #E5E7EB', color: '#111827', width: '100%' }}
+                value={empresaExport} onChange={e => setEmpresaExport(e.target.value)}>
+                <option value="">Todos los choferes</option>
+                {empresasDisponibles().map(emp => <option key={emp} value={emp}>{emp}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+                onClick={() => descargarChoferes(empresaExport)}>
+                Descargar CSV
+              </button>
+              <button style={{ padding: '10px 16px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 13, cursor: 'pointer' }}
+                onClick={() => setModalExport(false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══ LISTA ══ */}
       {vista === 'lista' && (
