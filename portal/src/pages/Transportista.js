@@ -295,6 +295,36 @@ function Transportista({ usuario, onVolver }) {
     actualizarMT();
   }
 
+  async function buscarChoferPorNombre(uid, nombre) {
+    if (!nombre || nombre.length < 2) { setSugerenciasChofer(prev => ({ ...prev, [uid]: [] })); return; }
+    try {
+      const snap = await getDocs(query(collection(db, 'usuarios_portal'), where('rol', '==', 'chofer')));
+      const q = nombre.toLowerCase();
+      const matches = snap.docs.map(d => d.data()).filter(c =>
+        (c.nombre || '').toLowerCase().includes(q) && c.estado !== 'inactivo'
+      ).slice(0, 5);
+      setSugerenciasChofer(prev => ({ ...prev, [uid]: matches }));
+    } catch (err) {
+      console.error('Error buscando chofer por nombre:', err);
+    }
+  }
+
+  function seleccionarSugerenciaChofer(uid, chofer) {
+    const cuitRaw = (chofer.cuit_chofer || '').replace(/\D/g, '');
+    setNomData(prev => ({
+      ...prev,
+      [uid]: {
+        ...prev[uid],
+        chofer: chofer.nombre || '',
+        dni_chofer: chofer.dni || '',
+        cuit1: cuitRaw.slice(0, 2) || '',
+        cuit2: cuitRaw.slice(2, 10) || chofer.dni || '',
+        cuit3: cuitRaw.slice(10) || '',
+      }
+    }));
+    setSugerenciasChofer(prev => ({ ...prev, [uid]: [] }));
+  }
+
   function actualizarMT() {
     if (!mapInstanceRef.current || !window.google) return;
     const activos = despachos.filter(d => d.gps_lat && d.gps_lng && ['recibido','iniciado','demorado'].includes(d.estado_chofer));
