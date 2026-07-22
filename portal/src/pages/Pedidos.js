@@ -294,6 +294,92 @@ function Pedidos({ usuario, onVolver }) {
   }
   function volumenAsignado() { return form.cronograma.reduce((s, e) => s + (parseFloat(e.volumen) || 0), 0); }
 
+  async function exportarPedidoPDF(p) {
+    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const margen = 20;
+    const ancho = 210 - margen * 2;
+    let y = 20;
+
+    const linea = () => { doc.setDrawColor(220,220,220); doc.line(margen, y, margen + ancho, y); y += 5; };
+    const titulo = (txt) => { doc.setFontSize(8); doc.setTextColor(150); doc.setFont('helvetica','normal'); doc.text(txt.toUpperCase(), margen, y); y += 5; linea(); };
+    const campo = (label, valor) => {
+      if (!valor) return;
+      doc.setFontSize(9); doc.setTextColor(120); doc.setFont('helvetica','normal');
+      doc.text(label + ':', margen, y);
+      doc.setTextColor(30); doc.setFont('helvetica','bold');
+      const lines = doc.splitTextToSize(String(valor), ancho - 45);
+      doc.text(lines, margen + 45, y);
+      y += lines.length * 5;
+    };
+
+    // Header
+    doc.setFillColor(200, 16, 46);
+    doc.rect(0, 0, 210, 18, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text('PORTAL EXPLORA', margen, 11);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Detalle de Pedido', 210 - margen, 11, { align: 'right' });
+    y = 28;
+
+    // ID y estado
+    doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.setTextColor(30);
+    doc.text(p.id, margen, y); y += 6;
+    doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(120);
+    doc.text('Estado: ' + p.estado + '  ·  Creado por: ' + p.creado_por + '  ·  ' + p.creado_en, margen, y); y += 8;
+    linea();
+
+    titulo('Operación');
+    campo('Tipo', p.tipo);
+    campo('Producto', p.producto);
+    campo('Volumen', p.volumen + ' tn');
+    campo('Recipiente', p.recipiente);
+    y += 3;
+
+    titulo('Datos comerciales');
+    campo('Cliente / Proveedor', p.cliente);
+    campo('OV / OC', p.ov);
+    if (p.telefono) campo('Teléfono', p.telefono);
+    y += 3;
+
+    titulo('Logística');
+    campo('Entrega comprometida', p.fecha_entrega);
+    if (p.banda_horaria) campo('Banda horaria', p.banda_horaria);
+    campo('Lugar', p.lugar);
+    y += 3;
+
+    if ((p.cronograma || []).length > 0) {
+      titulo('Cronograma de entregas');
+      p.cronograma.forEach(e => {
+        campo('Entrega N°' + e.nro, e.volumen + ' tn  ·  Solicitada: ' + e.fecha_solicitada);
+      });
+      y += 3;
+    }
+
+    if (p.obs) {
+      titulo('Observaciones');
+      doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(30);
+      const obsLines = doc.splitTextToSize(p.obs, ancho);
+      doc.text(obsLines, margen, y); y += obsLines.length * 5 + 5;
+    }
+
+    if ((p.despachos || []).length > 0) {
+      titulo('Despachos');
+      p.despachos.forEach((d, i) => {
+        campo('D' + (i+1), d.volumen + ' tn  ·  ' + d.fecha_carga + '  ·  ' + d.transporte + '  ·  ' + d.estado);
+      });
+    }
+
+    // Footer
+    doc.setDrawColor(200,16,46); doc.setLineWidth(1);
+    doc.line(0, 285, 210, 285);
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont('helvetica','normal');
+    doc.text('Explora S.A. — Complejo Industrial PGSM — Puerto General San Martín, Santa Fe', 105, 290, { align: 'center' });
+
+    doc.save(p.id + '_pedido.pdf');
+  }
+
   function checkMapsLink(val) { return val.includes('maps.google') || val.includes('goo.gl') || val.includes('maps.app'); }
   function abrirMaps() { const q = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ') || 'Puerto General San Martín, Santa Fe'; window.open('https://maps.google.com?q='+encodeURIComponent(q), '_blank'); }
   function getOV() { return `${form.ov_tipo}-${form.ov_numero}`; }
@@ -587,13 +673,18 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega en planta' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega en planta' })}>Entrega en planta</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de Proveedores' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de Proveedores' })}>Retiro de Proveedores</button>
               </div>
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Producto y volumen</div>
               <div style={styles.grid2}>
-                <div style={styles.formField}><label style={styles.formLabel}>Producto *</label><select style={styles.input} value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })}><option value="">Seleccionar...</option><option>Biodiesel</option><option>EMAG</option><option>Glicerina</option><option>Sebo</option><option>HFFA Vegetal</option><option>Aceite</option><option>Otro</option></select></div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Producto *</label>
+                  <input style={styles.input} type="text" placeholder="Ej: Biodiesel BEX, EMAG, Glicerina, Aceite de Soja" value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })} />
+                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Debe coincidir con la descripción de la OV u OC</span>
+                </div>
                 <div style={styles.formField}><label style={styles.formLabel}>Volumen (tn) *</label><input style={styles.input} type="number" placeholder="Ej: 60" value={form.volumen} onChange={e => setForm({ ...form, volumen: e.target.value })} /></div>
               </div>
               <div style={styles.formField}>

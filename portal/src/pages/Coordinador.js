@@ -23,7 +23,7 @@ async function subirArchivo(file, pedidoId, subidoPor) {
 }
 
 function sinTransportista(tipo) {
-  return tipo === 'Retiro del cliente';
+  return tipo === 'Retiro del cliente' || tipo === 'Entrega en planta' || tipo === 'Retiro de Proveedores';
 }
 
 function Coordinador({ usuario, onVolver }) {
