@@ -754,8 +754,21 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Logística</div>
               <div style={styles.grid2}>
-                <div style={styles.formField}><label style={styles.formLabel}>Fecha de entrega comprometida *</label><input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} /></div>
-                <div style={styles.formField}><label style={styles.formLabel}>Banda horaria de entrega</label><select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}><option value="">Seleccionar...</option><option>Mañana (6-12hs)</option><option>Tarde (12-18hs)</option><option>Noche (18-24hs)</option><option>A confirmar</option></select></div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Fecha de entrega comprometida *</label>
+                  <input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Fecha límite para completar todas las entregas</span>
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Banda horaria de entrega</label>
+                  <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
+                    <option value="">Seleccionar...</option>
+                    <option>Mañana (6-12hs)</option>
+                    <option>Tarde (12-18hs)</option>
+                    <option>Noche (18-24hs)</option>
+                    <option>A confirmar</option>
+                  </select>
+                </div>
               </div>
               <div style={{ ...styles.formField, marginTop: 4 }}>
                 <label style={styles.formLabel}>Lugar de entrega / origen *</label>
@@ -767,42 +780,44 @@ function Pedidos({ usuario, onVolver }) {
                   <div style={styles.formField}><label style={styles.formLabel}>CP</label><input style={styles.input} type="text" placeholder="Código postal" maxLength={8} value={form.cp} onChange={e => setForm({ ...form, cp: e.target.value })} /></div>
                 </div>
                 <div style={styles.mapsRow}>
-                  <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps..." value={form.mapsLink} onChange={e => setForm({ ...form, mapsLink: e.target.value })} />
+                  <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps" value={form.mapsLink} onChange={e => { setForm({ ...form, mapsLink: e.target.value }); checkMapsLink(e.target.value); }} />
                   <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
                 </div>
                 {checkMapsLink(form.mapsLink) && <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>}
               </div>
-            </div>
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #F3F4F6' }}>
-              <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Cronograma de entregas <span style={{ fontWeight: 400, textTransform: 'none', color: '#9CA3AF' }}>(opcional)</span></div>
-              <p style={styles.instruccion}>Definí las entregas parciales con volumen y fecha solicitada. Opcional — si no cargás entregas el coordinador las programará libremente.</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-                {form.cronograma.map((e, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 160px auto', gap: 8, alignItems: 'center', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '8px 10px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', textAlign: 'center' }}>N°{i+1}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Volumen (tn) *</label>
-                      <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
-                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid #F3F4F6' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Cronograma de entregas <span style={{ fontWeight: 400, textTransform: 'none', color: '#9CA3AF' }}>(opcional)</span>
+                </div>
+                <p style={{ ...styles.instruccion, marginTop: 0 }}>Definí las entregas parciales. Si no cargás entregas el coordinador las programará libremente.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                  {form.cronograma.map((e, i) => (
+                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 160px auto', gap: 8, alignItems: 'center', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '8px 10px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', textAlign: 'center' }}>N°{i+1}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <label style={{ fontSize: 10, color: '#9CA3AF' }}>Volumen (tn) *</label>
+                        <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                          value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <label style={{ fontSize: 10, color: '#9CA3AF' }}>Fecha solicitada *</label>
+                        <input style={styles.input} type="date"
+                          value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
+                      </div>
+                      <button type="button" onClick={() => quitarEntrega(i)}
+                        style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Fecha solicitada *</label>
-                      <input style={styles.input} type="date"
-                        value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
-                    </div>
-                    <button type="button" onClick={() => quitarEntrega(i)}
-                      style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>+ Agregar entrega</button>
-                {form.cronograma.length > 0 && form.volumen && (
-                  <span style={{ fontSize: 12, color: '#6B7280' }}>
-                    Asignado: <strong style={{ color: '#111827' }}>{volumenAsignado()} tn</strong> de {form.volumen} tn
-                    {volumenAsignado() > parseFloat(form.volumen || 0) && <span style={{ color: '#C8102E', marginLeft: 6 }}>⚠ Supera el total</span>}
-                  </span>
-                )}
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>+ Agregar entrega</button>
+                  {form.cronograma.length > 0 && form.volumen && (
+                    <span style={{ fontSize: 12, color: '#6B7280' }}>
+                      Asignado: <strong style={{ color: '#111827' }}>{volumenAsignado()} tn</strong> de {form.volumen} tn
+                      {volumenAsignado() > parseFloat(form.volumen || 0) && <span style={{ color: '#C8102E', marginLeft: 6 }}>⚠ Supera el total</span>}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div style={styles.seccion}>
