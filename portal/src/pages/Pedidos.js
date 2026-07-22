@@ -295,7 +295,15 @@ function Pedidos({ usuario, onVolver }) {
   function volumenAsignado() { return form.cronograma.reduce((s, e) => s + (parseFloat(e.volumen) || 0), 0); }
 
   async function exportarPedidoPDF(p) {
-    const { jsPDF } = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
+    if (!window.jspdf) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const margen = 20;
     const ancho = 210 - margen * 2;
