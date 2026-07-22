@@ -597,6 +597,8 @@ function Pedidos({ usuario, onVolver }) {
                   </div>
                   {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                     <div style={styles.cardActions}>
+                      <button style={{ padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 12, cursor: 'pointer' }}
+                        onClick={() => exportarPedidoPDF(p)}>📄 Descargar PDF</button>
                       {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
                         <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
                       )}
