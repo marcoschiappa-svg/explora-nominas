@@ -806,7 +806,7 @@ function Coordinador({ usuario, onVolver }) {
                   );
                 })}
 
-                {saldo(p) > 0 && p.estado !== 'Suspendido' && !tieneNominacionPendiente(p) && (
+                {saldo(p) > 0 && p.estado !== 'Suspendido' && !tieneNominacionPendiente(p) && cronogramaCompleto(p).length === 0 && (
                   <div style={styles.nuevoDespacho}>
                     <div style={styles.despachosTitle}>✓ Aceptar pedido — escribir en plan</div>
                     <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
@@ -834,27 +834,7 @@ function Coordinador({ usuario, onVolver }) {
                           value={aceptando[p.id]?.horario_carga || ''}
                           onChange={e => setAceptando(prev => ({ ...prev, [p.id]: { ...prev[p.id], horario_carga: e.target.value } }))} />
                       </div>
-                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
-                        <label style={styles.formLabel}>Adjuntos para el despacho</label>
-                        {(archivosNuevos[p.id] || []).length > 0 && (
-                          <div style={styles.adjuntosRow}>
-                            {(archivosNuevos[p.id] || []).map(f => (
-                              <div key={f.name} style={styles.adjuntoChipEditable}>
-                                <span style={{ fontSize: 11 }}>📎 {f.name}</span>
-                                <button type="button" onClick={() => quitarArchivoNuevo(p.id, f.name)} style={styles.adjuntoQuitar}>✕</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <button type="button" style={styles.btnAdjuntar} onClick={() => {
-                          if (!fileRefs.current[p.id]) fileRefs.current[p.id] = document.createElement('input');
-                          const input = fileRefs.current[p.id];
-                          input.type = 'file'; input.multiple = true;
-                          input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
-                          input.onchange = (e) => handleArchivosNuevos(p.id, e.target.files);
-                          input.click();
-                        }}>📎 Adjuntar archivo</button>
-                      </div>
+
                     </div>
                     <button style={{ ...styles.btnAceptar, opacity: (enviando || subiendoArchivos) ? 0.7 : 1 }}
                       disabled={enviando || subiendoArchivos}
