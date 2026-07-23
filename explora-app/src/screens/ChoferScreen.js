@@ -4,13 +4,36 @@ import {
   Alert, ActivityIndicator, Linking, Modal, TextInput
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { db } from '../config/firebase';
 import { APPS_SCRIPT_URL, HEADER_COLORS, ESTADO_LABEL } from '../config/constants';
 
 const GPS_TASK = 'explora-gps-task';
+
+// Umbral de precisión: si el GPS reporta más de 100m de radio de error,
+// descartamos la lectura — es la causa más común de que la posición
+// "salte" cuando el camión está parado cerca de estructuras metálicas,
+// tanques o galpones (señal rebotada, no movimiento real).
+const PRECISION_MAXIMA_METROS = 100;
+
+// Velocidad máxima físicamente razonable para un camión en ruta/planta.
+// Un salto que implique más que esto entre dos lecturas es ruido de GPS,
+// no movimiento real.
+const VELOCIDAD_MAXIMA_KMH = 150;
+
+// Distancia entre dos coordenadas (fórmula de Haversine), en metros.
+function distanciaMetros(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const rad = (x) => (x * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // Tarea background de GPS — corre aunque el teléfono esté bloqueado
 TaskManager.defineTask(GPS_TASK, async ({ data, error }) => {
@@ -19,20 +42,54 @@ TaskManager.defineTask(GPS_TASK, async ({ data, error }) => {
   const { locations } = data;
   const location = locations[0];
   if (!location) return;
+
+  // Filtro 1: descartar lecturas de baja precisión
+  if (location.coords.accuracy != null && location.coords.accuracy > PRECISION_MAXIMA_METROS) {
+    return;
+  }
+
   // El docId y despachoIdx se guardan en el módulo al iniciar
   const stored = global.exploraViajeActivo;
   if (!stored) return;
   try {
     const snap = await getDoc(doc(db, 'pedidos_portal', stored.docId));
     const pedido = snap.data();
+    const despachoActual = pedido.despachos[stored.despachoIdx];
+
+    // Filtro 2: descartar saltos que implican velocidad imposible
+    // (comparando contra la última posición guardada)
+    if (despachoActual.gps_lat != null && despachoActual.gps_lng != null && despachoActual.gps_ts) {
+      const metros = distanciaMetros(
+        despachoActual.gps_lat, despachoActual.gps_lng,
+        location.coords.latitude, location.coords.longitude
+      );
+      const segundos = (Date.now() - new Date(despachoActual.gps_ts).getTime()) / 1000;
+      const kmh = segundos > 0 ? (metros / segundos) * 3.6 : 0;
+      if (kmh > VELOCIDAD_MAXIMA_KMH) {
+        return;
+      }
+    }
+
     const nuevosDespachos = [...pedido.despachos];
     nuevosDespachos[stored.despachoIdx] = {
-      ...nuevosDespachos[stored.despachoIdx],
+      ...despachoActual,
       gps_lat: location.coords.latitude,
       gps_lng: location.coords.longitude,
       gps_ts: new Date().toISOString(),
     };
-    await updateDoc(doc(db, 'pedidos_portal', stored.docId), { despachos: nuevosDespachos });
+
+    // Acumula cada punto del recorrido en un array aparte (uno por
+    // despacho), para poder dibujar el recorrido completo en el mapa
+    // de Seguimiento cuando el viaje finalice.
+    const trackField = `gps_track_${stored.despachoIdx}`;
+    await updateDoc(doc(db, 'pedidos_portal', stored.docId), {
+      despachos: nuevosDespachos,
+      [trackField]: arrayUnion({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+        ts: new Date().toISOString(),
+      }),
+    });
   } catch (e) {
     console.error('GPS background write error:', e);
   }
