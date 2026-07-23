@@ -77,11 +77,8 @@ function Pedidos({ usuario, onVolver }) {
   const [fCreador, setFCreador] = useState('');
   const [fProducto, setFProducto] = useState('');
   const [fCliente, setFCliente] = useState('');
-  const [fRecipiente, setFRecipiente] = useState('');
-  const [fMesEntrega, setFMesEntrega] = useState('');
-  const [fAnioEntrega, setFAnioEntrega] = useState('');
-  const [fMesCreacion, setFMesCreacion] = useState('');
-  const [fAnioCreacion, setFAnioCreacion] = useState('');
+  const [fOV, setFOV] = useState('');
+  const [fFechaEntrega, setFFechaEntrega] = useState('');
 
   const [sugerenciaCliente, setSugerenciaCliente] = useState(null);
   const [clientesSugeridos, setClientesSugeridos] = useState([]);
@@ -159,29 +156,15 @@ function Pedidos({ usuario, onVolver }) {
     if (fCreador && p.creado_por !== fCreador) return false;
     if (fProducto && p.producto !== fProducto) return false;
     if (fCliente && p.cliente !== fCliente) return false;
-    if (fRecipiente && p.recipiente !== fRecipiente) return false;
-    if (fMesEntrega && p.fecha_entrega) {
-      const mes = parseInt(p.fecha_entrega.slice(5,7), 10);
-      if (mes !== parseInt(fMesEntrega, 10)) return false;
-    }
-    if (fAnioEntrega && p.fecha_entrega) {
-      if (p.fecha_entrega.slice(0,4) !== fAnioEntrega) return false;
-    }
-    if (fMesCreacion && p.timestamp) {
-      const mes = new Date(p.timestamp).getMonth() + 1;
-      if (mes !== parseInt(fMesCreacion, 10)) return false;
-    }
-    if (fAnioCreacion && p.timestamp) {
-      if (p.timestamp.slice(0,4) !== fAnioCreacion) return false;
-    }
+    if (fOV && !(p.ov || '').toLowerCase().includes(fOV.toLowerCase())) return false;
+    if (fFechaEntrega && p.fecha_entrega !== fFechaEntrega) return false;
     return true;
   });
 
-  const hayFiltros = fCreador || fProducto || fCliente || fRecipiente || fMesEntrega || fAnioEntrega || fMesCreacion || fAnioCreacion;
+  const hayFiltros = fCreador || fProducto || fCliente || fOV || fFechaEntrega;
 
   function limpiarFiltros() {
-    setFCreador(''); setFProducto(''); setFCliente(''); setFRecipiente('');
-    setFMesEntrega(''); setFAnioEntrega(''); setFMesCreacion(''); setFAnioCreacion('');
+    setFCreador(''); setFProducto(''); setFCliente(''); setFOV(''); setFFechaEntrega('');
   }
 
   function handleArchivoMasivo(e) {
@@ -531,11 +514,7 @@ function Pedidos({ usuario, onVolver }) {
             <div style={styles.filtroField}><label style={styles.filtroLabel}>Creado por</label><select style={styles.filtroInput} value={fCreador} onChange={e => setFCreador(e.target.value)}><option value="">Todos</option>{creadores.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
             <div style={styles.filtroField}><label style={styles.filtroLabel}>Producto</label><select style={styles.filtroInput} value={fProducto} onChange={e => setFProducto(e.target.value)}><option value="">Todos</option>{productos.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
             <div style={styles.filtroField}><label style={styles.filtroLabel}>Cliente</label><select style={styles.filtroInput} value={fCliente} onChange={e => setFCliente(e.target.value)}><option value="">Todos</option>{clientes.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-            <div style={styles.filtroField}><label style={styles.filtroLabel}>Recipiente</label><select style={styles.filtroInput} value={fRecipiente} onChange={e => setFRecipiente(e.target.value)}><option value="">Todos</option><option value="Granel">Granel</option><option value="IBC">IBC</option></select></div>
-            <div style={styles.filtroField}><label style={styles.filtroLabel}>Entrega — mes</label><select style={styles.filtroInput} value={fMesEntrega} onChange={e => setFMesEntrega(e.target.value)}><option value="">Todos</option>{MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}</select></div>
-            <div style={styles.filtroField}><label style={styles.filtroLabel}>Entrega — año</label><select style={styles.filtroInput} value={fAnioEntrega} onChange={e => setFAnioEntrega(e.target.value)}><option value="">Todos</option>{aniosEntrega.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-            <div style={styles.filtroField}><label style={styles.filtroLabel}>Creación — mes</label><select style={styles.filtroInput} value={fMesCreacion} onChange={e => setFMesCreacion(e.target.value)}><option value="">Todos</option>{MESES.map((m, i) => <option key={i+1} value={String(i+1)}>{m}</option>)}</select></div>
-            <div style={styles.filtroField}><label style={styles.filtroLabel}>Creación — año</label><select style={styles.filtroInput} value={fAnioCreacion} onChange={e => setFAnioCreacion(e.target.value)}><option value="">Todos</option>{aniosCreacion.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+
           </div>
 
           <div style={styles.filtrosResumen}>
@@ -548,15 +527,15 @@ function Pedidos({ usuario, onVolver }) {
           {pedidosFiltrados.map(p => (
             <div key={p.id} style={styles.card}>
               <div style={styles.cardRow} onClick={() => setExpandido(expandido === p.id ? null : p.id)}>
+                <span style={styles.rowNro}>{p.ov}</span>
+                <span style={styles.rowCliente}>{p.cliente}</span>
                 <span style={{ ...styles.pill, background: pillColors[p.estado]?.bg, color: pillColors[p.estado]?.color }}>{pillLabel[p.estado]||p.estado}</span>
                 {p.es_abierto && <span style={styles.badgeAbierto}>📂</span>}
                 {p.editado && <span style={styles.badgeEditado}>✏</span>}
                 {p.origen === 'carga_masiva' && <span style={styles.badgeMasivo}>📥</span>}
-                <span style={styles.rowCliente}>{p.cliente}</span>
                 <span style={styles.rowProducto}>{p.producto} · {p.volumen} tn</span>
                 <span style={styles.rowFecha}>{p.fecha_entrega}</span>
-                <span style={styles.rowCreador}>{p.creado_por}</span>
-                <span style={styles.rowNro}>{p.id}</span>
+                <span style={styles.rowCreador}>{p.creado_por} · {p.id}</span>
                 <span style={styles.rowChevron}>{expandido === p.id ? '▲' : '▼'}</span>
               </div>
               {expandido === p.id && (
