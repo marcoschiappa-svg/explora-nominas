@@ -4,7 +4,7 @@ Este documento explica, paso a paso, cómo se debe trabajar cada vez que alguien
 
 **No hace falta saber programar para seguir este documento.** Está escrito para que cualquiera de la empresa pueda entender qué se está haciendo y por qué.
 
-**Idea principal:** en varios pasos de este proceso hay una casilla que dice **"Antes de seguir, comprobar que..."**. Si esa comprobación no se cumple, **hay que parar** y arreglarlo antes de continuar. La mayoría de los problemas que tuvimos hasta ahora pasaron porque alguien saltó uno de estos pasos sin darse cuenta.
+**Idea principal:** en varios pasos de este proceso hay una casilla que dice **"Antes de seguir, comprobar que..."**. Si esa comprobación no se cumple, **hay que parar** y arreglarlo antes de continuar.
 
 ---
 
