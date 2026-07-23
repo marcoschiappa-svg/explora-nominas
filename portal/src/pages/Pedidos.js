@@ -694,15 +694,28 @@ function Pedidos({ usuario, onVolver }) {
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Producto y volumen</div>
-              <div style={styles.grid2}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>Producto *</label>
                   <input style={styles.input} type="text" placeholder="Ej: Biodiesel BEX, EMAG, Glicerina, Aceite de Soja" value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })} />
                   <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Debe coincidir con la descripción de la OV u OC</span>
                 </div>
-                <div style={styles.formField}><label style={styles.formLabel}>Volumen (tn) *</label><input style={styles.input} type="number" placeholder="Ej: 60" value={form.volumen} onChange={e => setForm({ ...form, volumen: e.target.value })} /></div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>OV / OC *</label>
+                  <div style={styles.ovRow}>
+                    <select style={{ ...styles.input, width: 80, flexShrink: 0 }} value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value, ov_numero: '' })}><option>OV</option><option>OC</option></select>
+                    <span style={styles.ovSep}>-</span>
+                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder={form.ov_tipo==='OV' ? '1234' : '12345'} maxLength={maxDigitosOV()} value={form.ov_numero} onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g,'') })} />
+                  </div>
+                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>{form.ov_tipo==='OV' ? 'OV: exactamente 4 dígitos' : 'OC: exactamente 5 dígitos'}</span>}
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Volumen (tn) *</label>
+                  <input style={styles.input} type="number" placeholder="Ej: 60" min="0.1" step="0.1" value={form.volumen} onChange={e => setForm({ ...form, volumen: e.target.value })} />
+                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Ingresar el volumen total de la OV / OC</span>
+                </div>
               </div>
-              <div style={styles.formField}>
+              <div style={{ ...styles.formField, marginTop: 10 }}>
                 <label style={styles.formLabel}>Tipo de recipiente</label>
                 <div style={styles.tipoGrid}>
                   <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='Granel' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'Granel' })}>🚛 Granel</button>
@@ -710,7 +723,7 @@ function Pedidos({ usuario, onVolver }) {
                 </div>
               </div>
               {form.recipiente === 'Granel' && parseFloat(form.volumen) > 32 && (
-                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán registrar múltiples despachos parciales hasta completar las {form.volumen} tn.</div>
+                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán programar múltiples despachos hasta completar el volumen.</div>
               )}
             </div>
             <div style={styles.seccion}>
@@ -732,28 +745,19 @@ function Pedidos({ usuario, onVolver }) {
                   )}
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC *</label>
-                  <div style={styles.ovRow}>
-                    <select style={{ ...styles.input, width: 80, flexShrink: 0 }} value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value, ov_numero: '' })}><option>OV</option><option>OC</option></select>
-                    <span style={styles.ovSep}>-</span>
-                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder={form.ov_tipo==='OV' ? '1234' : '12345'} maxLength={maxDigitosOV()} value={form.ov_numero} onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g,'') })} />
+                  <label style={styles.formLabel}>Teléfono de contacto</label>
+                  <div style={styles.telRow}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
+                      <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4} value={form.telefono_prefijo} onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g,'') })} />
+                      <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                      <input style={styles.input} type="text" placeholder="Número" maxLength={7} value={form.telefono_numero} onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g,'') })} />
+                      <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
+                    </div>
                   </div>
-                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>{form.ov_tipo==='OV' ? 'OV: exactamente 4 dígitos' : 'OC: exactamente 5 dígitos'}</span>}
+                  {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
                 </div>
-              </div>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>Teléfono de contacto</label>
-                <div style={styles.telRow}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
-                    <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4} value={form.telefono_prefijo} onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g,'') })} />
-                    <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <input style={styles.input} type="text" placeholder="Número" maxLength={7} value={form.telefono_numero} onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g,'') })} />
-                    <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
-                  </div>
-                </div>
-                {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
               </div>
             </div>
             <div style={styles.seccion}>
