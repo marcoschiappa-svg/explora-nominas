@@ -1,70 +1,83 @@
-# Getting Started with Create React App
+# Portal Explora
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Portal web de gestión logística de Explora S.A. Centraliza pedidos,
+coordinación de despachos, nominación de transportistas/choferes,
+seguimiento de viajes en mapa, administración de usuarios, y el
+tarifario de fletes.
 
-## Available Scripts
+Ver también: [Changelog](./CHANGELOG.md) · [Procedimiento de cambios y releases](../Procedimiento.md)
 
-In the project directory, you can run:
+---
 
-### `npm start`
+## Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **React** 19 (Create React App)
+- **Firebase**: Authentication (Google, restringido al dominio `explora.com.ar`) + Firestore
+- Roles de usuario: `admin`, `coordinador`, `comercial`, `transportista`, `chofer`
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Módulos
 
-### `npm test`
+| Módulo | Archivo | Para qué es |
+|---|---|---|
+| Login | `src/pages/Login.js` | Inicio de sesión con Google |
+| Home | `src/pages/Home.js` | Landing según rol |
+| Pedidos | `src/pages/Pedidos.js` | Carga y seguimiento de pedidos comerciales |
+| Coordinador | `src/pages/Coordinador.js` | Cronograma de entregas, asignación de transporte, mapa de unidades |
+| Transportista | `src/pages/Transportista.js` | Nominación de choferes/unidades por parte del transportista |
+| Chofer | `src/pages/Chofer.js` | Vista del chofer para su viaje asignado |
+| Seguimiento | `src/pages/Seguimiento.js` | Mapa en vivo del recorrido de cada viaje |
+| Admin | `src/pages/Admin.js` | Gestión de usuarios, import/export de choferes |
+| Tarifario | `src/Tarifario.js` | Consulta, edición y aprobación de tarifas de flete |
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Instalación
 
-### `npm run build`
+```bash
+npm install
+npm start
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Abre `http://localhost:3000`. Por defecto se conecta a Firebase de
+producción — ver la sección siguiente para trabajar contra una base de
+datos local, sin riesgo de tocar datos reales.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Desarrollo local con el emulador de Firestore
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+El portal puede correr contra una copia 100% local de Firestore
+(Firebase Local Emulator Suite), útil para probar cambios sin afectar
+producción y sin necesitar acceso al proyecto real de Firebase.
 
-### `npm run eject`
+Requiere Node.js, Java 21+ y el Firebase CLI (`npm install -g firebase-tools`).
+Los archivos de configuración (`firebase.json`, `.firebaserc`,
+`firestore.rules`, `firestore.indexes.json`) ya están en este repo.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+firebase emulators:start --only firestore,auth
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Con el emulador corriendo, creá un archivo `.env.local` (no se sube a
+git) en esta carpeta con:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```
+REACT_APP_USE_EMULATOR=true
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Y corré `npm start` en otra terminal. La consola del navegador va a
+mostrar `🔧 Conectado a los emuladores locales de Firebase` cuando la
+conexión sea correcta. La UI del emulador queda disponible en
+`http://127.0.0.1:4000`.
 
-## Learn More
+Sin `.env.local` presente, el portal se conecta a producción exactamente
+igual que siempre — el modo emulador nunca se activa por accidente.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Build de producción
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+npm run build
+```
 
-### Code Splitting
+Genera la carpeta `build/`, lista para desplegar.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Versionado
 
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Este proyecto usa versionado semántico (`Portal-vMAYOR.MENOR.PARCHE`).
+El detalle de cada versión está en [`CHANGELOG.md`](./CHANGELOG.md).
