@@ -72,6 +72,24 @@ function Coordinador({ usuario, onVolver }) {
   function tieneDespachoEnEspera(p) { return (p.despachos || []).some(d => d.estado === 'En espera'); }
   function proximaCarga(p) { const fechas = (p.despachos || []).filter(d => d.fecha_carga && d.estado !== 'En espera').map(d => d.fecha_carga).sort(); return fechas[0] || null; }
   function despachoDeEntrega(p, entregaIdx) { return (p.despachos || []).find(d => d.entrega_nro === entregaIdx + 1); }
+
+  function cronogramaCompleto(p) {
+    const entradas = [];
+    // Entrega N°1 viene de fecha_entrega + volumen_entrega1
+    if (p.fecha_entrega) {
+      entradas.push({
+        nro: 1,
+        volumen: p.volumen_entrega1 || p.volumen || 0,
+        fecha_solicitada: p.fecha_entrega,
+        esEntrada1: true,
+      });
+    }
+    // Entregas adicionales del array cronograma
+    (p.cronograma || []).forEach((e, i) => {
+      entradas.push({ ...e, nro: i + 2, esEntrada1: false });
+    });
+    return entradas;
+  }
   function estadoEntrega(p, entregaIdx) {
     const d = despachoDeEntrega(p, entregaIdx);
     if (!d) return 'sin_aceptar';
@@ -543,11 +561,11 @@ function Coordinador({ usuario, onVolver }) {
                 </div>
               </div>
 
-              {(p.cronograma || []).length > 0 && (
+              {(cronogramaCompleto(p).length > 0) && (
                 <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '0.5px solid #E5E7EB' }}>
                   <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de entregas</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {(p.cronograma || []).map((e, ei) => {
+                    {cronogramaCompleto(p).map((e, ei) => {
                       const keyEnt = p.id + '-ent-' + ei;
                       const ae = aceptandoEntrega[keyEnt] || {};
                       const desp = despachoDeEntrega(p, ei);
@@ -573,10 +591,42 @@ function Coordinador({ usuario, onVolver }) {
                             )}
                           </div>
                           {desp && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, fontSize: 12 }}>
-                              <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Fecha carga</span><span style={{ fontWeight: 500, color: estEnt === 'Programado' || estEnt === 'Nominado' ? '#0F6E56' : '#BA7517' }}>{desp.fecha_carga}</span></div>
-                              {desp.transporte && desp.transporte !== '—' && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Transportista</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.transporte}</span></div>}
-                              {desp.chofer && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Chofer</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.chofer}</span></div>}
+                            <div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, fontSize: 12, marginBottom: 8 }}>
+                                <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Fecha carga</span><span style={{ fontWeight: 500, color: estEnt === 'Programado' || estEnt === 'Nominado' ? '#0F6E56' : '#BA7517' }}>{desp.fecha_carga}</span></div>
+                                {desp.horario_carga && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Horario</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.horario_carga}</span></div>}
+                                {desp.transporte && desp.transporte !== '—' && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Transportista</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.transporte}</span></div>}
+                                {desp.chofer && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Chofer</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.chofer}</span></div>}
+                              </div>
+                              {desp.estado === 'Aceptado-pendiente' && !sinTransportista(p.tipo) && (
+                                <div>
+                                  {!asignando[p.id + '-' + (p.despachos || []).indexOf(desp)] ? (
+                                    <button style={{ fontSize: 11, padding: '4px 12px', borderRadius: 6, border: '0.5px solid #378ADD', background: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer' }}
+                                      onClick={() => setAsignando(prev => ({ ...prev, [p.id + '-' + (p.despachos || []).indexOf(desp)]: { transporte: '', transporte_id: '' } }))}>
+                                      Asignar transporte
+                                    </button>
+                                  ) : (
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                                      <select style={{ ...styles.input, flex: 1, fontSize: 12 }}
+                                        value={asignando[p.id + '-' + (p.despachos || []).indexOf(desp)]?.transporte_id || ''}
+                                        onChange={ev => {
+                                          const t = transportistas.find(x => x.docId === ev.target.value);
+                                          const idx = (p.despachos || []).indexOf(desp);
+                                          setAsignando(prev => ({ ...prev, [p.id + '-' + idx]: { transporte_id: ev.target.value, transporte: t ? (t.empresa||t.nombre) : '' } }));
+                                        }}>
+                                        <option value="">Seleccionar transportista...</option>
+                                        {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
+                                      </select>
+                                      <button style={{ ...styles.btnAceptar, fontSize: 11, padding: '5px 12px', opacity: enviando ? 0.7 : 1 }} disabled={enviando}
+                                        onClick={() => asignarTransportista(p, (p.despachos || []).indexOf(desp))}>
+                                        {enviando ? '...' : '✓ Confirmar'}
+                                      </button>
+                                      <button style={{ fontSize: 11, padding: '5px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', cursor: 'pointer' }}
+                                        onClick={() => setAsignando(prev => { const n={...prev}; delete n[p.id+'-'+(p.despachos||[]).indexOf(desp)]; return n; })}>✕</button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                           {aceptandoEntrega[keyEnt] !== undefined && estEnt === 'sin_aceptar' && (
