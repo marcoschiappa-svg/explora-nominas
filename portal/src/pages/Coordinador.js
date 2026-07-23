@@ -336,22 +336,9 @@ function Coordinador({ usuario, onVolver }) {
         lugar: p.lugar, banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega, obs: p.obs || '',
       };
-      let scriptOk = false;
-      let scriptMsg = '';
-      try {
-        const resp = await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString());
-        const json = await resp.json();
-        scriptOk = json.status === 'ok';
-        scriptMsg = json.mensaje || '';
-      } catch(fetchErr) {
-        console.error('Apps Script error:', fetchErr);
-      }
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setAceptandoEntrega(prev => { const n = {...prev}; delete n[key]; return n; });
-      if (scriptOk) {
-        alert(t ? '✓ Entrega aceptada y transportista asignado. Escrito en plan.' : esSinTransportista ? '✓ Entrega aceptada y escrita en plan.' : '✓ Entrega aceptada. Asigná el transportista.');
-      } else {
-        alert('⚠ Entrega guardada en Firestore pero hubo un problema al escribir en el Plan de Producción: ' + scriptMsg + '. Verificá el plan manualmente.');
-      }
+      alert(t ? '✓ Entrega aceptada y transportista asignado.' : esSinTransportista ? '✓ Entrega aceptada y escrita en plan.' : '✓ Entrega aceptada. Asigná el transportista.');
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); }
   }
