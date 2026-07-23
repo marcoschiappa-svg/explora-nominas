@@ -1,0 +1,11 @@
+﻿// SOLO PARA EL EMULADOR LOCAL — NUNCA desplegar esto a produccion.
+// Permite todo, para poder probar el diseno de datos sin friccion
+// mientras se define el esquema.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
