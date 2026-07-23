@@ -101,6 +101,7 @@ function Pedidos({ usuario, onVolver }) {
     calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '',
     adjuntos: [], archivosNuevos: [],
     cronograma: [],
+    volumen_entrega1: '',
   });
   const fileRef = useRef();
   const rol = usuario?.rol || '';
@@ -294,6 +295,100 @@ function Pedidos({ usuario, onVolver }) {
   }
   function volumenAsignado() { return form.cronograma.reduce((s, e) => s + (parseFloat(e.volumen) || 0), 0); }
 
+  async function exportarPedidoPDF(p) {
+    if (!window.jspdf) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const margen = 20;
+    const ancho = 210 - margen * 2;
+    let y = 20;
+
+    const linea = () => { doc.setDrawColor(220,220,220); doc.line(margen, y, margen + ancho, y); y += 5; };
+    const titulo = (txt) => { doc.setFontSize(8); doc.setTextColor(150); doc.setFont('helvetica','normal'); doc.text(txt.toUpperCase(), margen, y); y += 5; linea(); };
+    const campo = (label, valor) => {
+      if (!valor) return;
+      doc.setFontSize(9); doc.setTextColor(120); doc.setFont('helvetica','normal');
+      doc.text(label + ':', margen, y);
+      doc.setTextColor(30); doc.setFont('helvetica','bold');
+      const lines = doc.splitTextToSize(String(valor), ancho - 45);
+      doc.text(lines, margen + 45, y);
+      y += lines.length * 5;
+    };
+
+    // Header
+    doc.setFillColor(200, 16, 46);
+    doc.rect(0, 0, 210, 18, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text('PORTAL EXPLORA', margen, 11);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Detalle de Pedido', 210 - margen, 11, { align: 'right' });
+    y = 28;
+
+    // ID y estado
+    doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.setTextColor(30);
+    doc.text(p.id, margen, y); y += 6;
+    doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(120);
+    doc.text('Estado: ' + p.estado + '  ·  Creado por: ' + p.creado_por + '  ·  ' + p.creado_en, margen, y); y += 8;
+    linea();
+
+    titulo('Operación');
+    campo('Tipo', p.tipo);
+    campo('Producto', p.producto);
+    campo('Volumen', p.volumen + ' tn');
+    campo('Recipiente', p.recipiente);
+    y += 3;
+
+    titulo('Datos comerciales');
+    campo('Cliente / Proveedor', p.cliente);
+    campo('OV / OC', p.ov);
+    if (p.telefono) campo('Teléfono', p.telefono);
+    y += 3;
+
+    titulo('Logística');
+    campo('Entrega comprometida', p.fecha_entrega);
+    if (p.banda_horaria) campo('Banda horaria', p.banda_horaria);
+    campo('Lugar', p.lugar);
+    y += 3;
+
+    if ((p.cronograma || []).length > 0) {
+      titulo('Cronograma de entregas');
+      p.cronograma.forEach(e => {
+        campo('Entrega N°' + e.nro, e.volumen + ' tn  ·  Solicitada: ' + e.fecha_solicitada);
+      });
+      y += 3;
+    }
+
+    if (p.obs) {
+      titulo('Observaciones');
+      doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(30);
+      const obsLines = doc.splitTextToSize(p.obs, ancho);
+      doc.text(obsLines, margen, y); y += obsLines.length * 5 + 5;
+    }
+
+    if ((p.despachos || []).length > 0) {
+      titulo('Despachos');
+      p.despachos.forEach((d, i) => {
+        campo('D' + (i+1), d.volumen + ' tn  ·  ' + d.fecha_carga + '  ·  ' + d.transporte + '  ·  ' + d.estado);
+      });
+    }
+
+    // Footer
+    doc.setDrawColor(200,16,46); doc.setLineWidth(1);
+    doc.line(0, 285, 210, 285);
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont('helvetica','normal');
+    doc.text('Explora S.A. — Complejo Industrial PGSM — Puerto General San Martín, Santa Fe', 105, 290, { align: 'center' });
+
+    doc.save(p.id + '_pedido.pdf');
+  }
+
   function checkMapsLink(val) { return val.includes('maps.google') || val.includes('goo.gl') || val.includes('maps.app'); }
   function abrirMaps() { const q = [form.calle, form.numero, form.ciudad, form.provincia].filter(Boolean).join(', ') || 'Puerto General San Martín, Santa Fe'; window.open('https://maps.google.com?q='+encodeURIComponent(q), '_blank'); }
   function getOV() { return `${form.ov_tipo}-${form.ov_numero}`; }
@@ -310,13 +405,15 @@ function Pedidos({ usuario, onVolver }) {
   function abrirEditar(p) {
     setPedidoEditando(p);
     const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[] });
+    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[], volumen_entrega1: p.volumen_entrega1||'' });
     setVista('nuevo');
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.producto||!form.volumen||!form.cliente||!form.ov_numero||!form.fecha_entrega||!form.calle||!form.ciudad||!form.provincia) { alert('Completá todos los campos obligatorios'); return; }
+    const totalAsignado = parseFloat(form.volumen_entrega1 || 0) + volumenAsignado();
+    if (totalAsignado > 0 && totalAsignado > parseFloat(form.volumen || 0)) { alert('La suma de entregas (' + totalAsignado.toFixed(1) + ' tn) supera el volumen total del contrato (' + form.volumen + ' tn).'); return; }
     if (!validarOV()) { alert(form.ov_tipo==='OV' ? 'El número de OV debe tener exactamente 4 dígitos.' : 'El número de OC debe tener exactamente 5 dígitos.'); return; }
     if (!validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
     if (form.telefono_prefijo && !validarTelefono()) { alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.'); return; }
@@ -344,6 +441,7 @@ function Pedidos({ usuario, onVolver }) {
           fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria,
           lugar, calle: form.calle, numero: form.numero, ciudad: form.ciudad, provincia: form.provincia, cp: form.cp,
           mapsLink: form.mapsLink||'', obs: form.obs||'', adjuntos: adjuntosFinales,
+          volumen_entrega1: parseFloat(form.volumen_entrega1) || 0,
           cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
             nro: i + 1,
             volumen: parseFloat(e.volumen),
@@ -374,6 +472,7 @@ function Pedidos({ usuario, onVolver }) {
           es_abierto: esAbierto,
           volumen_original: parseFloat(form.volumen),
           volumen_despachado: 0,
+          volumen_entrega1: parseFloat(form.volumen_entrega1) || 0,
           cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
             nro: i + 1,
             volumen: parseFloat(e.volumen),
@@ -386,7 +485,7 @@ function Pedidos({ usuario, onVolver }) {
       }
       setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
-      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [], cronograma: [] });
+      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [], cronograma: [], volumen_entrega1: '' });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); setSubiendoArchivos(false); }
   }
@@ -503,6 +602,8 @@ function Pedidos({ usuario, onVolver }) {
                   </div>
                   {p.estado !== 'Cumplido' && p.estado !== 'Suspendido' && (
                     <div style={styles.cardActions}>
+                      <button style={{ padding: '6px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 12, cursor: 'pointer' }}
+                        onClick={() => exportarPedidoPDF(p)}>📄 Descargar PDF</button>
                       {puedeEditar(p) && (rol === 'admin' || p.creado_por_email === usuario?.email) && (
                         <button style={styles.btnEditar} onClick={() => abrirEditar(p)}>✏️ Editar</button>
                       )}
@@ -587,16 +688,34 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.seccionTitulo}>Tipo de operación</div>
               <div style={styles.tipoGrid}>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro del cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro del cliente' })}>Retiro del cliente</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega en planta' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega en planta' })}>Entrega en planta</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de Proveedores' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de Proveedores' })}>Retiro de Proveedores</button>
               </div>
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Producto y volumen</div>
-              <div style={styles.grid2}>
-                <div style={styles.formField}><label style={styles.formLabel}>Producto *</label><select style={styles.input} value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })}><option value="">Seleccionar...</option><option>Biodiesel</option><option>EMAG</option><option>Glicerina</option><option>Sebo</option><option>HFFA Vegetal</option><option>Aceite</option><option>Otro</option></select></div>
-                <div style={styles.formField}><label style={styles.formLabel}>Volumen (tn) *</label><input style={styles.input} type="number" placeholder="Ej: 60" value={form.volumen} onChange={e => setForm({ ...form, volumen: e.target.value })} /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Producto *</label>
+                  <input style={styles.input} type="text" placeholder="Ej: Biodiesel BEX, EMAG, Glicerina, Aceite de Soja" value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })} />
+                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Debe coincidir con la descripción de la OV u OC</span>
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>OV / OC *</label>
+                  <div style={styles.ovRow}>
+                    <select style={{ ...styles.input, width: 80, flexShrink: 0 }} value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value, ov_numero: '' })}><option>OV</option><option>OC</option></select>
+                    <span style={styles.ovSep}>-</span>
+                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder={form.ov_tipo==='OV' ? '1234' : '12345'} maxLength={maxDigitosOV()} value={form.ov_numero} onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g,'') })} />
+                  </div>
+                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>{form.ov_tipo==='OV' ? 'OV: exactamente 4 dígitos' : 'OC: exactamente 5 dígitos'}</span>}
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Volumen (tn) *</label>
+                  <input style={styles.input} type="number" placeholder="Ej: 60" min="0.1" step="0.1" value={form.volumen} onChange={e => setForm({ ...form, volumen: e.target.value })} />
+                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Ingresar el volumen total de la OV / OC</span>
+                </div>
               </div>
-              <div style={styles.formField}>
+              <div style={{ ...styles.formField, marginTop: 10 }}>
                 <label style={styles.formLabel}>Tipo de recipiente</label>
                 <div style={styles.tipoGrid}>
                   <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='Granel' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'Granel' })}>🚛 Granel</button>
@@ -604,40 +723,8 @@ function Pedidos({ usuario, onVolver }) {
                 </div>
               </div>
               {form.recipiente === 'Granel' && parseFloat(form.volumen) > 32 && (
-                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán registrar múltiples despachos parciales hasta completar las {form.volumen} tn.</div>
+                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán programar múltiples despachos hasta completar el volumen.</div>
               )}
-            </div>
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Cronograma de entregas</div>
-              <p style={styles.instruccion}>Definí las entregas parciales con volumen y fecha solicitada. Opcional — si no cargás entregas el coordinador las programará libremente.</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-                {form.cronograma.map((e, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 160px auto', gap: 8, alignItems: 'center', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '8px 10px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', textAlign: 'center' }}>N°{i+1}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Volumen (tn) *</label>
-                      <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
-                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <label style={{ fontSize: 10, color: '#9CA3AF' }}>Fecha solicitada *</label>
-                      <input style={styles.input} type="date"
-                        value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
-                    </div>
-                    <button type="button" onClick={() => quitarEntrega(i)}
-                      style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>+ Agregar entrega</button>
-                {form.cronograma.length > 0 && form.volumen && (
-                  <span style={{ fontSize: 12, color: '#6B7280' }}>
-                    Asignado: <strong style={{ color: '#111827' }}>{volumenAsignado()} tn</strong> de {form.volumen} tn
-                    {volumenAsignado() > parseFloat(form.volumen || 0) && <span style={{ color: '#C8102E', marginLeft: 6 }}>⚠ Supera el total</span>}
-                  </span>
-                )}
-              </div>
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos comerciales</div>
@@ -658,38 +745,109 @@ function Pedidos({ usuario, onVolver }) {
                   )}
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>OV / OC *</label>
-                  <div style={styles.ovRow}>
-                    <select style={{ ...styles.input, width: 80, flexShrink: 0 }} value={form.ov_tipo} onChange={e => setForm({ ...form, ov_tipo: e.target.value, ov_numero: '' })}><option>OV</option><option>OC</option></select>
-                    <span style={styles.ovSep}>-</span>
-                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder={form.ov_tipo==='OV' ? '1234' : '12345'} maxLength={maxDigitosOV()} value={form.ov_numero} onChange={e => setForm({ ...form, ov_numero: e.target.value.replace(/\D/g,'') })} />
+                  <label style={styles.formLabel}>Teléfono de contacto</label>
+                  <div style={styles.telRow}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
+                      <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4} value={form.telefono_prefijo} onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g,'') })} />
+                      <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                      <input style={styles.input} type="text" placeholder="Número" maxLength={7} value={form.telefono_numero} onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g,'') })} />
+                      <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
+                    </div>
                   </div>
-                  {form.ov_numero && !validarOV() && <span style={styles.fieldError}>{form.ov_tipo==='OV' ? 'OV: exactamente 4 dígitos' : 'OC: exactamente 5 dígitos'}</span>}
+                  {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
                 </div>
-              </div>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>Teléfono de contacto</label>
-                <div style={styles.telRow}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '0 0 110px' }}>
-                    <input style={styles.input} type="text" placeholder="Prefijo" maxLength={4} value={form.telefono_prefijo} onChange={e => setForm({ ...form, telefono_prefijo: e.target.value.replace(/\D/g,'') })} />
-                    <span style={styles.telHint}>Sin 0 · 3 o 4 dígitos</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <input style={styles.input} type="text" placeholder="Número" maxLength={7} value={form.telefono_numero} onChange={e => setForm({ ...form, telefono_numero: e.target.value.replace(/\D/g,'') })} />
-                    <span style={styles.telHint}>Sin 15 · 6 o 7 dígitos</span>
-                  </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Banda horaria de descarga</label>
+                  <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
+                    <option value="">Seleccionar...</option>
+                    <option>Mañana (6-12hs)</option>
+                    <option>Tarde (12-18hs)</option>
+                    <option>Noche (18-24hs)</option>
+                    <option>A confirmar</option>
+                  </select>
                 </div>
-                {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
               </div>
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Logística</div>
-              <div style={styles.grid2}>
-                <div style={styles.formField}><label style={styles.formLabel}>Fecha de entrega comprometida *</label><input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} /></div>
-                <div style={styles.formField}><label style={styles.formLabel}>Banda horaria de entrega</label><select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}><option value="">Seleccionar...</option><option>Mañana (6-12hs)</option><option>Tarde (12-18hs)</option><option>Noche (18-24hs)</option><option>A confirmar</option></select></div>
+
+              {/* ── Entrega/Retiro 1 ── */}
+              <div style={{ background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', marginBottom: 8 }}>
+                  {form.tipo === 'Retiro de Proveedores' ? 'Retiro N°1' : 'Entrega N°1'}
+                </div>
+                <div style={styles.grid2}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
+                    <input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Volumen (tn) *</label>
+                    <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                      value={form.volumen_entrega1 || ''} onChange={e => setForm({ ...form, volumen_entrega1: e.target.value })} />
+                    {form.volumen && form.volumen_entrega1 && parseFloat(form.volumen_entrega1) > parseFloat(form.volumen) && (
+                      <span style={{ fontSize: 10, color: '#C8102E' }}>⚠ Supera el total del contrato</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Volumen total contrato</label>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#111827', padding: '8px 0' }}>
+                      {form.volumen ? form.volumen + ' tn' : '—'}
+                      {form.volumen && (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) < parseFloat(form.volumen) && (
+                        <span style={{ fontSize: 11, color: '#BA7517', marginLeft: 8 }}>
+                          Saldo: {(parseFloat(form.volumen) - parseFloat(form.volumen_entrega1 || 0) - volumenAsignado()).toFixed(1)} tn
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* ── Entregas adicionales ── */}
+              {form.cronograma.map((e, i) => (
+                <div key={i} style={{ background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD' }}>
+                      {form.tipo === 'Retiro de Proveedores' ? 'Retiro' : 'Entrega'} N°{i + 2}
+                    </span>
+                    <button type="button" onClick={() => quitarEntrega(i)}
+                      style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
+                  </div>
+                  <div style={styles.grid2}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
+                      <input style={styles.input} type="date"
+                        value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Volumen (tn) *</label>
+                      <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* ── Botón agregar + resumen ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>
+                  {form.tipo === 'Retiro de Proveedores' ? '+ Agregar Retiro' : '+ Agregar Entrega'}
+                </button>
+                {form.volumen && (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > 0 && (
+                  <span style={{ fontSize: 12, color: (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > parseFloat(form.volumen) ? '#C8102E' : '#6B7280' }}>
+                    Asignado: <strong>{(parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()).toFixed(1)} tn</strong> de {form.volumen} tn
+                    {(parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > parseFloat(form.volumen) && <span style={{ marginLeft: 6 }}>⚠ Supera el total</span>}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Lugar ── */}
               <div style={{ ...styles.formField, marginTop: 4 }}>
-                <label style={styles.formLabel}>Lugar de entrega / origen *</label>
+                <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Lugar de Retiro *' : 'Lugar de Entrega *'}</label>
                 <div style={styles.grid2}>
                   <div style={styles.formField}><label style={styles.formLabel}>Calle *</label><input style={styles.input} type="text" placeholder="Nombre de la calle" value={form.calle} onChange={e => setForm({ ...form, calle: e.target.value })} /></div>
                   <div style={styles.formField}><label style={styles.formLabel}>Nº</label><input style={styles.input} type="text" placeholder="Número" value={form.numero} onChange={e => setForm({ ...form, numero: e.target.value })} /></div>
@@ -698,7 +856,7 @@ function Pedidos({ usuario, onVolver }) {
                   <div style={styles.formField}><label style={styles.formLabel}>CP</label><input style={styles.input} type="text" placeholder="Código postal" maxLength={8} value={form.cp} onChange={e => setForm({ ...form, cp: e.target.value })} /></div>
                 </div>
                 <div style={styles.mapsRow}>
-                  <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps..." value={form.mapsLink} onChange={e => setForm({ ...form, mapsLink: e.target.value })} />
+                  <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps" value={form.mapsLink} onChange={e => { setForm({ ...form, mapsLink: e.target.value }); checkMapsLink(e.target.value); }} />
                   <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
                 </div>
                 {checkMapsLink(form.mapsLink) && <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>}
