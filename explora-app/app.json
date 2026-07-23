@@ -1,29 +1,53 @@
 {
   "expo": {
-    "name": "explora-app",
-    "slug": "explora-app",
-    "version": "1.0.0",
+    "name": "TrackEx",
+    "slug": "explora-app-54",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "owner": "explora-sa",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.explora.trackex",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "TrackEx necesita tu ubicación para el seguimiento de viajes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "TrackEx necesita tu ubicación en segundo plano para registrar el recorrido activo.",
+        "NSFaceIDUsageDescription": "Usamos Face ID para que puedas ingresar de forma rápida y segura."
+      }
     },
     "android": {
+      "package": "com.explora.trackex",
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.expomarcosvale.exploraapp"
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "TrackEx necesita tu ubicación en segundo plano para registrar el recorrido activo."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "9edde43c-ffb9-4572-ba6e-aa39e174d00c"
+        "projectId": "d9e00dba-515c-4683-b3ba-d708a3d43d94"
       }
     }
   }
