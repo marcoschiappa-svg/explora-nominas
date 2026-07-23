@@ -12,6 +12,12 @@ automáticamente para Google Play, y es un dato distinto que conviene
 seguir viendo junto al semántico.
 
 ---
+## v1.0.2 - versionCode 6 - 23/07/2026
+** Filtro de precisión/velocidad GPS + recorrido completo en seguimiento**
+
+Se programa un filtro para evitar saltos imposibles que impiden una lectura limpia del recorrido del chofer en el seguimiento
+Estos cambios se perdieron anteriormente por recontrucción de las rama main
+
 ## v1.0.1 — versionCode 4 — 23/07/2026
 
 **Configuración de Android y EAS para Play Store.** Reconstrucción de
