@@ -697,8 +697,15 @@ function Pedidos({ usuario, onVolver }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>Producto *</label>
-                  <input style={styles.input} type="text" placeholder="Ej: Biodiesel BEX, EMAG, Glicerina, Aceite de Soja" value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })} />
-                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>Debe coincidir con la descripción de la OV u OC</span>
+                  <select style={styles.input} value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })}>
+                    <option value="">Seleccionar...</option>
+                    <option>Biodiesel</option>
+                    <option>EMAG</option>
+                    <option>Glicerina</option>
+                    <option>HFFA Vegetal</option>
+                    <option>Aceite</option>
+                    <option>Otro</option>
+                  </select>
                 </div>
                 <div style={styles.formField}>
                   <label style={styles.formLabel}>OV / OC *</label>
