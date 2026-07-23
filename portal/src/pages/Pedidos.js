@@ -101,6 +101,7 @@ function Pedidos({ usuario, onVolver }) {
     calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '',
     adjuntos: [], archivosNuevos: [],
     cronograma: [],
+    volumen_entrega1: '',
   });
   const fileRef = useRef();
   const rol = usuario?.rol || '';
@@ -404,14 +405,15 @@ function Pedidos({ usuario, onVolver }) {
   function abrirEditar(p) {
     setPedidoEditando(p);
     const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[] });
+    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[], volumen_entrega1: p.volumen_entrega1||'' });
     setVista('nuevo');
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.producto||!form.volumen||!form.cliente||!form.ov_numero||!form.fecha_entrega||!form.calle||!form.ciudad||!form.provincia) { alert('Completá todos los campos obligatorios'); return; }
-    if (form.cronograma.length > 0 && volumenAsignado() > parseFloat(form.volumen || 0)) { alert('La suma de las entregas (' + volumenAsignado() + ' tn) supera el volumen total (' + form.volumen + ' tn).'); return; }
+    const totalAsignado = parseFloat(form.volumen_entrega1 || 0) + volumenAsignado();
+    if (totalAsignado > 0 && totalAsignado > parseFloat(form.volumen || 0)) { alert('La suma de entregas (' + totalAsignado.toFixed(1) + ' tn) supera el volumen total del contrato (' + form.volumen + ' tn).'); return; }
     if (!validarOV()) { alert(form.ov_tipo==='OV' ? 'El número de OV debe tener exactamente 4 dígitos.' : 'El número de OC debe tener exactamente 5 dígitos.'); return; }
     if (!validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
     if (form.telefono_prefijo && !validarTelefono()) { alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.'); return; }
@@ -439,6 +441,7 @@ function Pedidos({ usuario, onVolver }) {
           fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria,
           lugar, calle: form.calle, numero: form.numero, ciudad: form.ciudad, provincia: form.provincia, cp: form.cp,
           mapsLink: form.mapsLink||'', obs: form.obs||'', adjuntos: adjuntosFinales,
+          volumen_entrega1: parseFloat(form.volumen_entrega1) || 0,
           cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
             nro: i + 1,
             volumen: parseFloat(e.volumen),
@@ -469,6 +472,7 @@ function Pedidos({ usuario, onVolver }) {
           es_abierto: esAbierto,
           volumen_original: parseFloat(form.volumen),
           volumen_despachado: 0,
+          volumen_entrega1: parseFloat(form.volumen_entrega1) || 0,
           cronograma: form.cronograma.filter(e => e.volumen && e.fecha_solicitada).map((e, i) => ({
             nro: i + 1,
             volumen: parseFloat(e.volumen),
@@ -481,7 +485,7 @@ function Pedidos({ usuario, onVolver }) {
       }
       setVista('panel');
       setSugerenciaCliente(null); setClientesSugeridos([]); setMostrarDropCliente(false);
-      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [], cronograma: [] });
+      setForm({ tipo: 'Entrega al cliente', producto: '', volumen: '', recipiente: 'Granel', cliente: '', telefono_prefijo: '', telefono_numero: '', ov_tipo: 'OV', ov_numero: '', fecha_entrega: '', banda_horaria: '', calle: '', numero: '', ciudad: '', provincia: '', cp: '', mapsLink: '', obs: '', adjuntos: [], archivosNuevos: [], cronograma: [], volumen_entrega1: '' });
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
     finally { setEnviando(false); setSubiendoArchivos(false); }
   }
@@ -754,62 +758,91 @@ function Pedidos({ usuario, onVolver }) {
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Logística</div>
-              <div style={styles.grid2}>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro comprometida *' : 'Fecha de Entrega comprometida *'}</label>
-                  <input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
-                  <span style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>
-                    {form.cronograma.length > 0 ? 'Fecha límite para completar todas las entregas' : form.tipo === 'Retiro de Proveedores' ? 'Fecha del retiro' : 'Fecha de entrega'}
-                  </span>
+
+              {/* ── Entrega/Retiro 1 ── */}
+              <div style={{ background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', marginBottom: 8 }}>
+                  {form.tipo === 'Retiro de Proveedores' ? 'Retiro N°1' : 'Entrega N°1'}
                 </div>
-                <div style={styles.formField}>
-                  <label style={styles.formLabel}>Banda horaria</label>
-                  <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
-                    <option value="">Seleccionar...</option>
-                    <option>Mañana (6-12hs)</option>
-                    <option>Tarde (12-18hs)</option>
-                    <option>Noche (18-24hs)</option>
-                    <option>A confirmar</option>
-                  </select>
+                <div style={styles.grid2}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
+                    <input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Volumen (tn) *</label>
+                    <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                      value={form.volumen_entrega1 || ''} onChange={e => setForm({ ...form, volumen_entrega1: e.target.value })} />
+                    {form.volumen && form.volumen_entrega1 && parseFloat(form.volumen_entrega1) > parseFloat(form.volumen) && (
+                      <span style={{ fontSize: 10, color: '#C8102E' }}>⚠ Supera el total del contrato</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Banda horaria</label>
+                    <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
+                      <option value="">Seleccionar...</option>
+                      <option>Mañana (6-12hs)</option>
+                      <option>Tarde (12-18hs)</option>
+                      <option>Noche (18-24hs)</option>
+                      <option>A confirmar</option>
+                    </select>
+                  </div>
+                  <div style={styles.formField}>
+                    <label style={styles.formLabel}>Volumen total contrato</label>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#111827', padding: '8px 0' }}>
+                      {form.volumen ? form.volumen + ' tn' : '—'}
+                      {form.volumen && (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) < parseFloat(form.volumen) && (
+                        <span style={{ fontSize: 11, color: '#BA7517', marginLeft: 8 }}>
+                          Saldo: {(parseFloat(form.volumen) - parseFloat(form.volumen_entrega1 || 0) - volumenAsignado()).toFixed(1)} tn
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: form.cronograma.length > 0 ? 8 : 0 }}>
-                  <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>
-                    {form.tipo === 'Retiro de Proveedores' ? '+ Agregar Retiro' : '+ Agregar Entrega'}
-                  </button>
-                  {form.cronograma.length > 0 && form.volumen && (
-                    <span style={{ fontSize: 12, color: volumenAsignado() > parseFloat(form.volumen || 0) ? '#C8102E' : '#6B7280' }}>
-                      Asignado: <strong>{volumenAsignado()} tn</strong> de {form.volumen} tn
-                      {volumenAsignado() > parseFloat(form.volumen || 0) && <span style={{ marginLeft: 6 }}>⚠ Supera el total</span>}
+              {/* ── Entregas adicionales ── */}
+              {form.cronograma.map((e, i) => (
+                <div key={i} style={{ background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD' }}>
+                      {form.tipo === 'Retiro de Proveedores' ? 'Retiro' : 'Entrega'} N°{i + 2}
                     </span>
-                  )}
-                </div>
-                {form.cronograma.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {form.cronograma.map((e, i) => (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 160px auto', gap: 8, alignItems: 'center', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 8, padding: '8px 10px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD', textAlign: 'center' }}>N°{i+1}</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <label style={{ fontSize: 10, color: '#9CA3AF' }}>Volumen (tn) *</label>
-                          <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
-                            value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <label style={{ fontSize: 10, color: '#9CA3AF' }}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha retiro *' : 'Fecha entrega *'}</label>
-                          <input style={styles.input} type="date"
-                            value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
-                        </div>
-                        <button type="button" onClick={() => quitarEntrega(i)}
-                          style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
-                      </div>
-                    ))}
+                    <button type="button" onClick={() => quitarEntrega(i)}
+                      style={{ border: 'none', background: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 16, padding: 0 }}>×</button>
                   </div>
+                  <div style={styles.grid2}>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
+                      <input style={styles.input} type="date"
+                        value={e.fecha_solicitada} onChange={ev => updateEntrega(i, 'fecha_solicitada', ev.target.value)} />
+                    </div>
+                    <div style={styles.formField}>
+                      <label style={styles.formLabel}>Volumen (tn) *</label>
+                      <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
+                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* ── Botón agregar + resumen ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <button type="button" style={styles.btnSecundario} onClick={agregarEntrega}>
+                  {form.tipo === 'Retiro de Proveedores' ? '+ Agregar Retiro' : '+ Agregar Entrega'}
+                </button>
+                {form.volumen && (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > 0 && (
+                  <span style={{ fontSize: 12, color: (parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > parseFloat(form.volumen) ? '#C8102E' : '#6B7280' }}>
+                    Asignado: <strong>{(parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()).toFixed(1)} tn</strong> de {form.volumen} tn
+                    {(parseFloat(form.volumen_entrega1 || 0) + volumenAsignado()) > parseFloat(form.volumen) && <span style={{ marginLeft: 6 }}>⚠ Supera el total</span>}
+                  </span>
                 )}
               </div>
 
-              <div style={{ ...styles.formField, marginTop: 12 }}>
+              {/* ── Lugar ── */}
+              <div style={{ ...styles.formField, marginTop: 4 }}>
                 <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Lugar de Retiro *' : 'Lugar de Entrega *'}</label>
                 <div style={styles.grid2}>
                   <div style={styles.formField}><label style={styles.formLabel}>Calle *</label><input style={styles.input} type="text" placeholder="Nombre de la calle" value={form.calle} onChange={e => setForm({ ...form, calle: e.target.value })} /></div>
