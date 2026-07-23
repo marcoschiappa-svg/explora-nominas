@@ -758,6 +758,16 @@ function Pedidos({ usuario, onVolver }) {
                   </div>
                   {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
                 </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Banda horaria de descarga</label>
+                  <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
+                    <option value="">Seleccionar...</option>
+                    <option>Mañana (6-12hs)</option>
+                    <option>Tarde (12-18hs)</option>
+                    <option>Noche (18-24hs)</option>
+                    <option>A confirmar</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div style={styles.seccion}>
@@ -782,17 +792,7 @@ function Pedidos({ usuario, onVolver }) {
                     )}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
-                  <div style={styles.formField}>
-                    <label style={styles.formLabel}>Banda horaria</label>
-                    <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
-                      <option value="">Seleccionar...</option>
-                      <option>Mañana (6-12hs)</option>
-                      <option>Tarde (12-18hs)</option>
-                      <option>Noche (18-24hs)</option>
-                      <option>A confirmar</option>
-                    </select>
-                  </div>
+                <div style={{ marginTop: 8 }}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Volumen total contrato</label>
                     <div style={{ fontSize: 13, fontWeight: 500, color: '#111827', padding: '8px 0' }}>
