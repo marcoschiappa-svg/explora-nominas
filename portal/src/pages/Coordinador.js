@@ -41,7 +41,6 @@ function Coordinador({ usuario, onVolver }) {
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
   const [archivosNuevos, setArchivosNuevos] = useState({});
-  const fileRefs = useRef({});
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
@@ -195,13 +194,6 @@ function Coordinador({ usuario, onVolver }) {
 
   function cancelarEdicionDespacho(key) {
     setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
-  }
-
-  function handleArchivosNuevos(pedidoId, files) {
-    setArchivosNuevos(prev => ({ ...prev, [pedidoId]: [...(prev[pedidoId] || []), ...Array.from(files)] }));
-  }
-  function quitarArchivoNuevo(pedidoId, nombre) {
-    setArchivosNuevos(prev => ({ ...prev, [pedidoId]: (prev[pedidoId] || []).filter(f => f.name !== nombre) }));
   }
 
   async function toggleVisibleTransportista(p, fileId, valorActual) {
