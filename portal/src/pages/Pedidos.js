@@ -148,7 +148,6 @@ function Pedidos({ usuario, onVolver }) {
   const creadores = [...new Set(pedidos.map(p => p.creado_por).filter(Boolean))].sort();
   const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
   const clientes  = [...new Set(pedidos.map(p => p.cliente).filter(Boolean))].sort();
-  const aniosEntrega  = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
 
   const pedidosFiltrados = pedidos.filter(p => {
     if (fCreador && p.creado_por !== fCreador) return false;
