@@ -14,7 +14,6 @@ const COLS_ESPERADAS     = [
   'recipiente','cliente','ov_tipo','ov_numero','fecha_entrega','banda_horaria',
   'calle','numero_calle','ciudad','provincia','cp','maps_link','obs'
 ];
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 async function subirArchivo(file, pedidoId, subidoPor) {
   return new Promise((resolve, reject) => {
@@ -150,7 +149,6 @@ function Pedidos({ usuario, onVolver }) {
   const productos = [...new Set(pedidos.map(p => p.producto).filter(Boolean))].sort();
   const clientes  = [...new Set(pedidos.map(p => p.cliente).filter(Boolean))].sort();
   const aniosEntrega  = [...new Set(pedidos.map(p => p.fecha_entrega?.slice(0,4)).filter(Boolean))].sort().reverse();
-  const aniosCreacion = [...new Set(pedidos.map(p => p.timestamp?.slice(0,4)).filter(Boolean))].sort().reverse();
 
   const pedidosFiltrados = pedidos.filter(p => {
     if (fCreador && p.creado_por !== fCreador) return false;
