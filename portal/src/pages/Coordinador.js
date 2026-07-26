@@ -635,6 +635,7 @@ function Coordinador({ usuario, onVolver }) {
                                   <input style={styles.input} type="date" max={p.fecha_entrega}
                                     value={ae.fecha_carga || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], fecha_carga: ev.target.value } }))} />
                                   <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                                  {ae.fecha_carga && ae.fecha_carga === p.fecha_entrega && <div style={{ fontSize: 11, color: '#BA7517', marginTop: 3 }}>⚠ Tu pedido quedará condicionado por la disponibilidad de transporte.</div>}
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Horario sugerido</label>
@@ -718,6 +719,7 @@ function Coordinador({ usuario, onVolver }) {
                                 value={editandoDespacho[key]?.fecha_carga || ''}
                                 onChange={e => setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], fecha_carga: e.target.value } }))} />
                               <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                              {editandoDespacho[key]?.fecha_carga && editandoDespacho[key]?.fecha_carga === p.fecha_entrega && <div style={{ fontSize: 11, color: '#BA7517', marginTop: 3 }}>⚠ Tu pedido quedará condicionado por la disponibilidad de transporte.</div>}
                             </div>
                             <div style={styles.formField}>
                               <label style={styles.formLabel}>Horario sugerido</label>
@@ -783,6 +785,7 @@ function Coordinador({ usuario, onVolver }) {
                               <label style={styles.formLabel}>Nueva fecha de carga *</label>
                               <input style={styles.input} type="date" max={p.fecha_entrega} value={rd.fecha_carga || ''} onChange={e => setReprogramando(prev => ({ ...prev, [key]: { ...prev[key], fecha_carga: e.target.value } }))} />
                               <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                              {rd.fecha_carga && rd.fecha_carga === p.fecha_entrega && <div style={{ fontSize: 11, color: '#BA7517', marginTop: 3 }}>⚠ Tu pedido quedará condicionado por la disponibilidad de transporte.</div>}
                             </div>
                             <div style={styles.formField}>
                               <label style={styles.formLabel}>Horario sugerido</label>
@@ -819,6 +822,7 @@ function Coordinador({ usuario, onVolver }) {
                           value={aceptando[p.id]?.fecha_carga || ''}
                           onChange={e => setAceptando(prev => ({ ...prev, [p.id]: { ...prev[p.id], fecha_carga: e.target.value } }))} />
                         <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                        {aceptando[p.id]?.fecha_carga && aceptando[p.id]?.fecha_carga === p.fecha_entrega && <div style={{ fontSize: 11, color: '#BA7517', marginTop: 3 }}>⚠ Tu pedido quedará condicionado por la disponibilidad de transporte.</div>}
                       </div>
                       <div style={styles.formField}>
                         <label style={styles.formLabel}>Horario de carga sugerido</label>
