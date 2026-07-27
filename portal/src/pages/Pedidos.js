@@ -471,7 +471,7 @@ function Pedidos({ usuario, onVolver }) {
   }
 
   async function suspender(p) {
-    if (rol === 'comercial' && p.creado_por_email !== usuario?.email) { alert('Solo podés suspender pedidos propios.'); return; }
+    if ((rol === 'comercial' || rol === 'coordinador') && p.creado_por_email !== usuario?.email) { alert('Solo podés suspender pedidos propios.'); return; }
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
     const despachosAnteriores = p.despachos||[];
@@ -498,10 +498,10 @@ function Pedidos({ usuario, onVolver }) {
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Pedidos</h2>
             <div style={{ display: 'flex', gap: 8 }}>
-              {(rol === 'admin' || rol === 'comercial') && (
+              {(rol === 'admin' || rol === 'comercial' || rol === 'coordinador') && (
                 <button style={styles.btnSecundario} onClick={() => { setVista('carga'); setFilasCarga([]); setErroresCarga({}); setResultadoMasivo(null); }}>📥 Carga masiva</button>
               )}
-              {(rol === 'admin' || rol === 'comercial') && (
+              {(rol === 'admin' || rol === 'comercial' || rol === 'coordinador') && (
                 <button style={styles.btnPrimary} onClick={() => { setPedidoEditando(null); setVista('nuevo'); }}>+ Nuevo pedido</button>
               )}
             </div>
