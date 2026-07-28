@@ -95,28 +95,6 @@ function Coordinador({ usuario, onVolver }) {
     return d.estado;
   }
 
-  // Resuelve un transporte por su docId leyendo SIEMPRE los datos frescos de usuarios_portal.
-  // Único punto de verdad para email/telefonos/cuit al momento de confirmar una asignación.
-  function resolverTransporte(transporteId) {
-    const t = transportistas.find(x => x.docId === transporteId);
-    if (!t) return null;
-    const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
-    const telefonos = [
-      t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
-      t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
-      t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
-    ].filter(Boolean);
-    return {
-      transporte_id: t.docId,
-      transporte: t.empresa || t.nombre,
-      emails,
-      email_transportista: emails[0] || '',
-      emails_extra: emails.slice(1),
-      telefonos,
-      cuit_transporte: t.cuit_empresa || '',
-    };
-  }
-
   function seleccionarTransportista(key, pedidoId, docId) {
     const t = transportistas.find(x => x.docId === docId);
     if (!t) { setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
@@ -146,26 +124,24 @@ function Coordinador({ usuario, onVolver }) {
     const ed = editandoDespacho[key] || {};
     if (!ed.fecha_carga) { alert('La fecha de carga es obligatoria.'); return; }
     if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega.'); return; }
-    const infoEd = ed.transporte_id ? resolverTransporte(ed.transporte_id) : null;
-    if (infoEd && infoEd.emails.length === 0) { alert('El transporte "' + infoEd.transporte + '" no tiene email cargado. Cargalo en el módulo Admin antes de cambiar el transportista.'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
       const nuevosDespachos = [...p.despachos];
       const dActual = nuevosDespachos[despachoIdx];
-      const cambioTransportista = infoEd && infoEd.transporte !== dActual.transporte;
+      const cambioTransportista = ed.transporte && ed.transporte !== dActual.transporte;
       const cambioFecha = ed.fecha_carga !== dActual.fecha_carga;
       nuevosDespachos[despachoIdx] = {
         ...dActual,
         fecha_carga: ed.fecha_carga,
         horario_carga: ed.horario_carga || dActual.horario_carga || '',
-        ...(infoEd ? {
-          transporte: infoEd.transporte,
-          transporte_id: infoEd.transporte_id,
-          email_transportista: infoEd.email_transportista,
-          emails_extra: infoEd.emails_extra,
-          telefonos: infoEd.telefonos,
-          cuit_transporte: infoEd.cuit_transporte,
+        ...(ed.transporte ? {
+          transporte: ed.transporte,
+          transporte_id: ed.transporte_id || dActual.transporte_id || '',
+          email_transportista: ed.email_transportista || dActual.email_transportista || '',
+          emails_extra: ed.emails_extra || dActual.emails_extra || [],
+          telefonos: ed.telefonos || dActual.telefonos || [],
+          cuit_transporte: ed.cuit_transporte || dActual.cuit_transporte || '',
         } : {}),
         editado_por: usuario?.nombre || 'Coordinador',
         editado_en: now,
@@ -173,12 +149,15 @@ function Coordinador({ usuario, onVolver }) {
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos });
       // Notificar si cambió algo relevante
       if (cambioFecha || cambioTransportista) {
-        const todosEmails = (infoEd ? infoEd.emails : [dActual.email_transportista, ...(dActual.emails_extra || [])].filter(Boolean)).join(',');
+        const todosEmails = [
+          ed.email_transportista || dActual.email_transportista,
+          ...(ed.emails_extra || dActual.emails_extra || [])
+        ].filter(Boolean).join(',');
         const payload = {
           accion: 'editar_despacho',
           pedido_id: p.id,
           editado_por: usuario?.nombre || 'Coordinador',
-          transporte: infoEd ? infoEd.transporte : dActual.transporte,
+          transporte: ed.transporte || dActual.transporte,
           email_transportista: todosEmails,
           fecha_carga: ed.fecha_carga,
           horario_carga: ed.horario_carga || dActual.horario_carga || '',
@@ -305,10 +284,6 @@ function Coordinador({ usuario, onVolver }) {
     if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) {
       alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return;
     }
-    if (ae.transporte_id) {
-      const infoEnt = resolverTransporte(ae.transporte_id);
-      if (infoEnt && infoEnt.emails.length === 0) { alert('El transporte "' + infoEnt.transporte + '" no tiene email cargado. Cargalo en el módulo Admin antes de asignarlo, o dejá "Asignar después".'); return; }
-    }
     const esSinTransportista = sinTransportista(p.tipo);
     setEnviando(true);
     try {
@@ -371,10 +346,7 @@ function Coordinador({ usuario, onVolver }) {
   async function asignarTransportista(p, despachoIdx) {
     const key = p.id + '-' + despachoIdx;
     const as = asignando[key] || {};
-    if (!as.transporte_id) { alert('Seleccioná un transportista.'); return; }
-    const info = resolverTransporte(as.transporte_id);
-    if (!info) { alert('Seleccioná un transportista.'); return; }
-    if (info.emails.length === 0) { alert('El transporte "' + info.transporte + '" no tiene ningún email cargado. Cargá su email en el módulo Admin antes de asignarlo: de lo contrario el transportista no recibe el aviso y no ve el despacho en su portal.'); return; }
+    if (!as.transporte) { alert('Seleccioná un transportista.'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -383,26 +355,26 @@ function Coordinador({ usuario, onVolver }) {
       nuevosDespachos[despachoIdx] = {
         ...d,
         estado: 'Programado',
-        transporte: info.transporte,
-        transporte_id: info.transporte_id,
-        email_transportista: info.email_transportista,
-        emails_extra: info.emails_extra,
-        telefonos: info.telefonos,
-        cuit_transporte: info.cuit_transporte,
+        transporte: as.transporte,
+        transporte_id: as.transporte_id || '',
+        email_transportista: as.email_transportista || '',
+        emails_extra: as.emails_extra || [],
+        telefonos: as.telefonos || [],
+        cuit_transporte: as.cuit_transporte || '',
         asignado_por: usuario?.nombre || 'Coordinador',
         asignado_en: now,
       };
       const hayPendiente = nuevosDespachos.some(dd => dd.estado === 'Aceptado-pendiente');
       const nuevoEstadoPedido = hayPendiente ? 'prog-parcial' : 'Programado';
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos, estado: nuevoEstadoPedido });
-      const todosEmails = info.emails.join(',');
+      const todosEmails = [as.email_transportista, ...(as.emails_extra || [])].filter(Boolean).join(',');
       const payload = {
         accion: 'asignar_transportista',
         pedido_id: p.id,
         asignado_por: usuario?.nombre || 'Coordinador',
         fecha_carga: d.fecha_carga,
         horario_carga: d.horario_carga || '',
-        transporte: info.transporte,
+        transporte: as.transporte,
         email_transportista: todosEmails,
         tipo: p.tipo, producto: p.producto,
         volumen: d.volumen,
