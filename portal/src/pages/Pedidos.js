@@ -72,6 +72,7 @@ function Pedidos({ usuario, onVolver }) {
   const [pedidoEditando, setPedidoEditando] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState(false);
+  const [popup30, setPopup30] = useState(null);
 
   const [fCreador, setFCreador] = useState('');
   const [fProducto, setFProducto] = useState('');
@@ -215,7 +216,6 @@ function Pedidos({ usuario, onVolver }) {
           const ov = ovKey;
           const lugar = [primera.calle, primera.numero_calle, primera.ciudad, primera.provincia, primera.cp].filter(Boolean).join(', ');
           const volumenTotal = parseFloat(primera.volumen) || 0;
-          const esAbierto = (primera.recipiente === 'Granel' || !primera.recipiente) && volumenTotal > 32;
           const cronograma = filasPedido.map((f, i) => ({
             nro: i + 1,
             volumen: parseFloat(f.volumen_entrega) || parseFloat(f.volumen) || 0,
@@ -238,7 +238,6 @@ function Pedidos({ usuario, onVolver }) {
             adjuntos: [], despachos: [],
             timestamp: new Date().toISOString(),
             origen: 'carga_masiva',
-            es_abierto: esAbierto,
             volumen_original: volumenTotal,
             volumen_despachado: 0,
             cronograma,
@@ -391,15 +390,18 @@ function Pedidos({ usuario, onVolver }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.producto||!form.volumen||!form.cliente||!form.ov_numero||!form.fecha_entrega||!form.calle||!form.ciudad||!form.provincia) { alert('Completá todos los campos obligatorios'); return; }
+    const requiereDireccion = form.tipo !== 'Entrega en planta';
+    if (!form.producto||!form.volumen||!form.cliente||!form.ov_numero||!form.fecha_entrega||(requiereDireccion && (!form.calle||!form.ciudad||!form.provincia))) { alert('Completá todos los campos obligatorios'); return; }
     const totalAsignado = parseFloat(form.volumen_entrega1 || 0) + volumenAsignado();
     if (totalAsignado > 0 && totalAsignado > parseFloat(form.volumen || 0)) { alert('La suma de entregas (' + totalAsignado.toFixed(1) + ' tn) supera el volumen total del contrato (' + form.volumen + ' tn).'); return; }
     if (!validarOV()) { alert(form.ov_tipo==='OV' ? 'El número de OV debe tener exactamente 4 dígitos.' : 'El número de OC debe tener exactamente 5 dígitos.'); return; }
-    if (!validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
+    if (form.tipo !== 'Entrega en planta' && !validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
     if (form.telefono_prefijo && !validarTelefono()) { alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.'); return; }
     const ahora = new Date().toLocaleString('es-AR');
     const ov = getOV();
-    const lugar = [form.calle, form.numero, form.ciudad, form.provincia, form.cp].filter(Boolean).join(', ');
+    const lugar = form.tipo === 'Entrega en planta'
+      ? 'Explora S.A. — Complejo Industrial PGSM, Puerto General San Martín, Santa Fe'
+      : [form.calle, form.numero, form.ciudad, form.provincia, form.cp].filter(Boolean).join(', ');
     const telefono = form.telefono_prefijo && form.telefono_numero ? `(${form.telefono_prefijo}) ${form.telefono_numero}` : '';
     setEnviando(true);
     try {
@@ -436,7 +438,6 @@ function Pedidos({ usuario, onVolver }) {
         alert(`✓ Pedido ${pedidoEditando.id} actualizado.`);
         setPedidoEditando(null);
       } else {
-        const esAbierto = form.recipiente === 'Granel' && parseFloat(form.volumen) > 32;
         const pedido = {
           id, estado: 'Pendiente', editado: false,
           creado_por: usuario?.nombre||'Usuario', creado_por_email: usuario?.email||'',
@@ -449,7 +450,6 @@ function Pedidos({ usuario, onVolver }) {
           provincia: form.provincia, cp: form.cp, mapsLink: form.mapsLink||'',
           obs: form.obs||'', adjuntos: adjuntosFinales, despachos: [],
           timestamp: new Date().toISOString(),
-          es_abierto: esAbierto,
           volumen_original: parseFloat(form.volumen),
           volumen_despachado: 0,
           volumen_entrega1: parseFloat(form.volumen_entrega1) || 0,
@@ -665,7 +665,7 @@ function Pedidos({ usuario, onVolver }) {
               <div style={styles.tipoGrid}>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega al cliente' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega al cliente' })}>Entrega al cliente</button>
                 <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Entrega en planta' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Entrega en planta' })}>Entrega en planta</button>
-                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de Proveedores' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de Proveedores' })}>Retiro de Proveedores</button>
+                <button type="button" style={{ ...styles.tipoBtn, ...(form.tipo==='Retiro de Proveedores' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, tipo: 'Retiro de Proveedores', recipiente: 'Granel' })}>Retiro de Proveedores</button>
               </div>
             </div>
             <div style={styles.seccion}>
@@ -702,12 +702,11 @@ function Pedidos({ usuario, onVolver }) {
                 <label style={styles.formLabel}>Tipo de recipiente</label>
                 <div style={styles.tipoGrid}>
                   <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='Granel' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'Granel' })}>🚛 Granel</button>
-                  <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='IBC' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'IBC' })}>📦 IBC</button>
+                  {form.tipo !== 'Retiro de Proveedores' && (
+                    <button type="button" style={{ ...styles.tipoBtn, ...(form.recipiente==='IBC' ? styles.tipoBtnActive : {}) }} onClick={() => setForm({ ...form, recipiente: 'IBC' })}>📦 IBC</button>
+                  )}
                 </div>
               </div>
-              {form.recipiente === 'Granel' && parseFloat(form.volumen) > 32 && (
-                <div style={styles.bannerAbierto}>📂 Este pedido quedará <strong>abierto</strong> — se podrán programar múltiples despachos hasta completar el volumen.</div>
-              )}
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Datos comerciales</div>
@@ -742,7 +741,7 @@ function Pedidos({ usuario, onVolver }) {
                   {form.telefono_prefijo && !validarTelefono() && <span style={styles.fieldError}>Prefijo 3 dígitos → número 7 · Prefijo 4 dígitos → número 6</span>}
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.formLabel}>Banda horaria de descarga</label>
+                  <label style={styles.formLabel}>{form.tipo === 'Entrega al cliente' ? 'Banda horaria de descarga' : 'Banda horaria de carga'}</label>
                   <select style={styles.input} value={form.banda_horaria} onChange={e => setForm({ ...form, banda_horaria: e.target.value })}>
                     <option value="">Seleccionar...</option>
                     <option>Mañana (6-12hs)</option>
@@ -764,12 +763,13 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
-                    <input style={styles.input} type="date" value={form.fecha_entrega} min={new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                    <input style={styles.input} type="date" value={form.fecha_entrega} min={form.tipo === 'Entrega en planta' ? undefined : new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
                   </div>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Volumen (tn) *</label>
                     <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
-                      value={form.volumen_entrega1 || ''} onChange={e => setForm({ ...form, volumen_entrega1: e.target.value })} />
+                      value={form.volumen_entrega1 || ''} onChange={e => setForm({ ...form, volumen_entrega1: e.target.value })}
+                      onBlur={() => { if (parseFloat(form.volumen_entrega1) > 30) setPopup30(form.tipo === 'Retiro de Proveedores' ? 'Retiro N°1' : 'Entrega N°1'); }} />
                     {form.volumen && form.volumen_entrega1 && parseFloat(form.volumen_entrega1) > parseFloat(form.volumen) && (
                       <span style={{ fontSize: 10, color: '#C8102E' }}>⚠ Supera el total del contrato</span>
                     )}
@@ -809,7 +809,8 @@ function Pedidos({ usuario, onVolver }) {
                     <div style={styles.formField}>
                       <label style={styles.formLabel}>Volumen (tn) *</label>
                       <input style={styles.input} type="number" placeholder="Ej: 30" min="0.1" step="0.1"
-                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)} />
+                        value={e.volumen} onChange={ev => updateEntrega(i, 'volumen', ev.target.value)}
+                        onBlur={() => { if (parseFloat(e.volumen) > 30) setPopup30((form.tipo === 'Retiro de Proveedores' ? 'Retiro' : 'Entrega') + ' N°' + (i + 2)); }} />
                     </div>
                   </div>
                 </div>
@@ -829,21 +830,28 @@ function Pedidos({ usuario, onVolver }) {
               </div>
 
               {/* ── Lugar ── */}
-              <div style={{ ...styles.formField, marginTop: 4 }}>
-                <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Lugar de Retiro *' : 'Lugar de Entrega *'}</label>
-                <div style={styles.grid2}>
-                  <div style={styles.formField}><label style={styles.formLabel}>Calle *</label><input style={styles.input} type="text" placeholder="Nombre de la calle" value={form.calle} onChange={e => setForm({ ...form, calle: e.target.value })} /></div>
-                  <div style={styles.formField}><label style={styles.formLabel}>Nº</label><input style={styles.input} type="text" placeholder="Número" value={form.numero} onChange={e => setForm({ ...form, numero: e.target.value })} /></div>
-                  <div style={styles.formField}><label style={styles.formLabel}>Ciudad *</label><input style={styles.input} type="text" placeholder="Ciudad" value={form.ciudad} onChange={e => setForm({ ...form, ciudad: e.target.value })} /></div>
-                  <div style={styles.formField}><label style={styles.formLabel}>Provincia *</label><input style={styles.input} type="text" placeholder="Provincia" value={form.provincia} onChange={e => setForm({ ...form, provincia: e.target.value })} /></div>
-                  <div style={styles.formField}><label style={styles.formLabel}>CP</label><input style={styles.input} type="text" placeholder="Código postal" maxLength={8} value={form.cp} onChange={e => setForm({ ...form, cp: e.target.value })} /></div>
+              {form.tipo === 'Entrega en planta' ? (
+                <div style={{ ...styles.formField, marginTop: 4 }}>
+                  <label style={styles.formLabel}>Lugar de Entrega</label>
+                  <div style={styles.origen}>📍 <strong>Explora S.A.</strong> — Complejo Industrial PGSM, Puerto General San Martín, Santa Fe</div>
                 </div>
-                <div style={styles.mapsRow}>
-                  <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps" value={form.mapsLink} onChange={e => { setForm({ ...form, mapsLink: e.target.value }); checkMapsLink(e.target.value); }} />
-                  <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
+              ) : (
+                <div style={{ ...styles.formField, marginTop: 4 }}>
+                  <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Lugar de Retiro *' : 'Lugar de Entrega *'}</label>
+                  <div style={styles.grid2}>
+                    <div style={styles.formField}><label style={styles.formLabel}>Calle *</label><input style={styles.input} type="text" placeholder="Nombre de la calle" value={form.calle} onChange={e => setForm({ ...form, calle: e.target.value })} /></div>
+                    <div style={styles.formField}><label style={styles.formLabel}>Nº</label><input style={styles.input} type="text" placeholder="Número" value={form.numero} onChange={e => setForm({ ...form, numero: e.target.value })} /></div>
+                    <div style={styles.formField}><label style={styles.formLabel}>Ciudad *</label><input style={styles.input} type="text" placeholder="Ciudad" value={form.ciudad} onChange={e => setForm({ ...form, ciudad: e.target.value })} /></div>
+                    <div style={styles.formField}><label style={styles.formLabel}>Provincia *</label><input style={styles.input} type="text" placeholder="Provincia" value={form.provincia} onChange={e => setForm({ ...form, provincia: e.target.value })} /></div>
+                    <div style={styles.formField}><label style={styles.formLabel}>CP</label><input style={styles.input} type="text" placeholder="Código postal" maxLength={8} value={form.cp} onChange={e => setForm({ ...form, cp: e.target.value })} /></div>
+                  </div>
+                  <div style={styles.mapsRow}>
+                    <input style={{ ...styles.input, flex: 1 }} type="text" placeholder="O pegar enlace de Google Maps" value={form.mapsLink} onChange={e => { setForm({ ...form, mapsLink: e.target.value }); checkMapsLink(e.target.value); }} />
+                    <button type="button" style={styles.btnMaps} onClick={abrirMaps}>📍 Buscar en Maps</button>
+                  </div>
+                  {checkMapsLink(form.mapsLink) && <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>}
                 </div>
-                {checkMapsLink(form.mapsLink) && <div style={styles.mapsPreview}>✓ Enlace de Google Maps vinculado</div>}
-              </div>
+              )}
             </div>
             <div style={styles.seccion}>
               <div style={styles.seccionTitulo}>Observaciones y adjuntos</div>
@@ -860,6 +868,18 @@ function Pedidos({ usuario, onVolver }) {
               <button type="button" style={styles.btnCancelar} onClick={() => { setVista('panel'); setPedidoEditando(null); }}>Cancelar</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {popup30 && (
+        <div style={styles.modalOverlay} onClick={() => setPopup30(null)}>
+          <div style={styles.modalCard} onClick={ev => ev.stopPropagation()}>
+            <button type="button" style={styles.modalClose} onClick={() => setPopup30(null)} aria-label="Cerrar">✕</button>
+            <div style={styles.modalIcon}>⚠</div>
+            <div style={styles.modalTitulo}>{popup30}: más de 30 tn</div>
+            <div style={styles.modalTexto}>Un camión a granel carga hasta 30 tn aproximadamente. Si este volumen va todo junto para la misma fecha, conviene dividirlo en dos renglones (por ejemplo, dos entregas de la misma fecha). Podés confirmar igual si sabés lo que hacés.</div>
+            <button type="button" style={styles.modalBtn} onClick={() => setPopup30(null)}>Entendido</button>
+          </div>
         </div>
       )}
     </div>
@@ -948,6 +968,13 @@ const styles = {
   memoriaBanner: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6, padding: '7px 10px', borderRadius: 8, background: '#EFF6FF', border: '0.5px solid #BFDBFE' },
   memoriaTexto: { fontSize: 12, color: '#1D4ED8', flex: 1 },
   memoriaBtn: { padding: '4px 10px', borderRadius: 6, border: '0.5px solid #93C5FD', background: '#DBEAFE', color: '#1D4ED8', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
+  modalCard: { position: 'relative', background: '#fff', borderRadius: 12, padding: '24px 22px', maxWidth: 380, width: '100%', boxShadow: '0 10px 40px rgba(0,0,0,0.18)', textAlign: 'center' },
+  modalClose: { position: 'absolute', top: 10, right: 12, border: 'none', background: 'none', fontSize: 16, color: '#9CA3AF', cursor: 'pointer', padding: 4, lineHeight: 1 },
+  modalIcon: { fontSize: 30, marginBottom: 8 },
+  modalTitulo: { fontSize: 15, fontWeight: 500, color: '#92400E', marginBottom: 8 },
+  modalTexto: { fontSize: 13, color: '#4B5563', lineHeight: 1.5, marginBottom: 18 },
+  modalBtn: { padding: '9px 20px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
 };
 
 export default Pedidos;
