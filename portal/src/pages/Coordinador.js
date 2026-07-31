@@ -50,6 +50,11 @@ function Coordinador({ usuario, onVolver }) {
   function tieneDespachoEnEspera(p) { return (p.despachos || []).some(d => d.estado === 'En espera'); }
   function proximaCarga(p) { const fechas = (p.despachos || []).filter(d => d.fecha_carga && d.estado !== 'En espera').map(d => d.fecha_carga).sort(); return fechas[0] || null; }
   function despachoDeEntrega(p, entregaIdx) { return (p.despachos || []).find(d => d.entrega_nro === entregaIdx + 1); }
+  function fechaSolicitadaDe(p, entregaIdx) {
+    if (entregaIdx <= 0) return p.fecha_entrega;
+    const c = (p.cronograma || [])[entregaIdx - 1];
+    return (c && c.fecha_solicitada) || p.fecha_entrega;
+  }
 
   function cronogramaCompleto(p) {
     const entradas = [];
@@ -102,7 +107,8 @@ function Coordinador({ usuario, onVolver }) {
     const key = p.id + '-' + despachoIdx;
     const ed = editandoDespacho[key] || {};
     if (!ed.fecha_carga) { alert('La fecha de carga es obligatoria.'); return; }
-    if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega.'); return; }
+    const fSolicEd = fechaSolicitadaDe(p, ((p.despachos[despachoIdx] || {}).entrega_nro || 1) - 1);
+    if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(fSolicEd + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicEd + ').'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -185,8 +191,9 @@ function Coordinador({ usuario, onVolver }) {
     const ae = aceptandoEntrega[key] || {};
     if (!ae.fecha_carga) { alert('Ingresá la fecha de carga.'); return; }
     if (!ae.volumen || Number(ae.volumen) <= 0) { alert('Ingresá el volumen.'); return; }
-    if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) {
-      alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return;
+    const fSolicAe = fechaSolicitadaDe(p, entregaIdx);
+    if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(fSolicAe + 'T00:00:00')) {
+      alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicAe + ').'); return;
     }
     const esSinTransportista = sinTransportista(p.tipo);
     setEnviando(true);
@@ -299,7 +306,8 @@ function Coordinador({ usuario, onVolver }) {
     const key = p.id + '-' + despachoIdx;
     const rd = reprogramando[key] || {};
     if (!rd.fecha_carga) { alert('Ingresá la nueva fecha de carga.'); return; }
-    if (new Date(rd.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return; }
+    const fSolicRd = fechaSolicitadaDe(p, ((p.despachos[despachoIdx] || {}).entrega_nro || 1) - 1);
+    if (new Date(rd.fecha_carga + 'T00:00:00') > new Date(fSolicRd + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicRd + ').'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -550,10 +558,10 @@ function Coordinador({ usuario, onVolver }) {
                               <div style={styles.reprogramarGrid}>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={p.fecha_entrega}
+                                  <input style={styles.input} type="date" max={e.fecha_solicitada}
                                     value={editandoDespacho[keyDesp]?.fecha_carga || ''}
                                     onChange={ev => setEditandoDespacho(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Horario sugerido</label>
@@ -590,8 +598,8 @@ function Coordinador({ usuario, onVolver }) {
                               <div style={styles.reprogramarGrid}>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Nueva fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={p.fecha_entrega} value={rd.fecha_carga || ''} onChange={ev => setReprogramando(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                                  <input style={styles.input} type="date" max={e.fecha_solicitada} value={rd.fecha_carga || ''} onChange={ev => setReprogramando(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], fecha_carga: ev.target.value } }))} />
+                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Horario sugerido</label>
@@ -614,9 +622,9 @@ function Coordinador({ usuario, onVolver }) {
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={p.fecha_entrega}
+                                  <input style={styles.input} type="date" max={e.fecha_solicitada}
                                     value={ae.fecha_carga || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Horario sugerido</label>
