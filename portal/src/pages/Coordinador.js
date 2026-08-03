@@ -149,7 +149,7 @@ function Coordinador({ usuario, onVolver }) {
           producto: p.producto, volumen: dActual.volumen,
           cliente: p.cliente, ov: p.ov, lugar: p.lugar,
         };
-        await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+        fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
       }
       setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista ? ' Se notificó al transportista.' : ''));
@@ -247,7 +247,7 @@ function Coordinador({ usuario, onVolver }) {
         lugar: p.lugar, banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega, obs: p.obs || '',
       };
-      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
       setAceptandoEntrega(prev => { const n = {...prev}; delete n[key]; return n; });
       alert(t ? '✓ Entrega aceptada y transportista asignado.' : esSinTransportista ? '✓ Entrega aceptada y escrita en plan.' : '✓ Entrega aceptada. Asigná el transportista.');
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
@@ -293,7 +293,7 @@ function Coordinador({ usuario, onVolver }) {
         lugar: p.lugar, banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega, obs: p.obs || '',
       };
-      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
       setAsignando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Transportista asignado. Se notificó por email.');
     } catch (err) {
@@ -318,7 +318,7 @@ function Coordinador({ usuario, onVolver }) {
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos, estado: hayEspera ? 'prog-parcial' : 'Programado' });
       const todosEmails = [despachoActual.email_transportista, ...(despachoActual.emails_extra || [])].filter(Boolean).join(',');
       const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
-      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
       setReprogramando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Despacho reprogramado. Se notificó al transportista.');
     } catch (err) { console.error(err); alert('Error al reprogramar: ' + err.message); }
@@ -331,7 +331,7 @@ function Coordinador({ usuario, onVolver }) {
     const despachosAnteriores = p.despachos || [];
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
     const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre || '', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: despachosAnteriores[0]?.email_transportista || '', transporte: despachosAnteriores[0]?.transporte || '' };
-    await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+    fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
 
@@ -533,9 +533,8 @@ function Coordinador({ usuario, onVolver }) {
                                       <select style={{ ...styles.input, flex: 1, fontSize: 12 }}
                                         value={asignando[p.id + '-' + (p.despachos || []).indexOf(desp)]?.transporte_id || ''}
                                         onChange={ev => {
-                                          const t = transportistas.find(x => x.docId === ev.target.value);
                                           const idx = (p.despachos || []).indexOf(desp);
-                                          setAsignando(prev => ({ ...prev, [p.id + '-' + idx]: { transporte_id: ev.target.value, transporte: t ? (t.empresa||t.nombre) : '' } }));
+                                          seleccionarTransportista(p.id + '-' + idx, p.id, ev.target.value);
                                         }}>
                                         <option value="">Seleccionar transportista...</option>
                                         {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
