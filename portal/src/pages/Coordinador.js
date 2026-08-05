@@ -1,8 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
+
+async function subirArchivo(file, pedidoId, subidoPor) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const base64 = e.target.result.split(',')[1];
+        const payload = { accion: 'subir_adjunto', nombre: file.name, tipo_mime: file.type || 'application/octet-stream', base64, pedido_id: pedidoId, subido_por: subidoPor };
+        const response = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (data.status === 'ok') resolve(data.data);
+        else reject(new Error(data.mensaje || 'Error subiendo archivo'));
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Error leyendo archivo'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function sinTransportista(tipo) {
   return tipo === 'Retiro del cliente' || tipo === 'Entrega en planta' || tipo === 'Retiro de Proveedores';
@@ -15,11 +33,15 @@ function Coordinador({ usuario, onVolver }) {
   const [filtro, setFiltro] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
   const [expandido, setExpandido] = useState(null);
+  const [aceptando, setAceptando] = useState({});
   const [asignando, setAsignando] = useState({});
   const [reprogramando, setReprogramando] = useState({});
   const [editandoDespacho, setEditandoDespacho] = useState({});
   const [aceptandoEntrega, setAceptandoEntrega] = useState({});
   const [enviando, setEnviando] = useState(false);
+  const [subiendoArchivos, setSubiendoArchivos] = useState(false);
+  const [archivosNuevos, setArchivosNuevos] = useState({});
+  const fileRefs = useRef({});
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'pedidos_portal'), (snap) => {
@@ -50,11 +72,6 @@ function Coordinador({ usuario, onVolver }) {
   function tieneDespachoEnEspera(p) { return (p.despachos || []).some(d => d.estado === 'En espera'); }
   function proximaCarga(p) { const fechas = (p.despachos || []).filter(d => d.fecha_carga && d.estado !== 'En espera').map(d => d.fecha_carga).sort(); return fechas[0] || null; }
   function despachoDeEntrega(p, entregaIdx) { return (p.despachos || []).find(d => d.entrega_nro === entregaIdx + 1); }
-  function fechaSolicitadaDe(p, entregaIdx) {
-    if (entregaIdx <= 0) return p.fecha_entrega;
-    const c = (p.cronograma || [])[entregaIdx - 1];
-    return (c && c.fecha_solicitada) || p.fecha_entrega;
-  }
 
   function cronogramaCompleto(p) {
     const entradas = [];
@@ -107,8 +124,7 @@ function Coordinador({ usuario, onVolver }) {
     const key = p.id + '-' + despachoIdx;
     const ed = editandoDespacho[key] || {};
     if (!ed.fecha_carga) { alert('La fecha de carga es obligatoria.'); return; }
-    const fSolicEd = fechaSolicitadaDe(p, ((p.despachos[despachoIdx] || {}).entrega_nro || 1) - 1);
-    if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(fSolicEd + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicEd + ').'); return; }
+    if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega.'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -116,7 +132,6 @@ function Coordinador({ usuario, onVolver }) {
       const dActual = nuevosDespachos[despachoIdx];
       const cambioTransportista = ed.transporte && ed.transporte !== dActual.transporte;
       const cambioFecha = ed.fecha_carga !== dActual.fecha_carga;
-      const cambioHorario = (ed.horario_carga || '') !== (dActual.horario_carga || '');
       nuevosDespachos[despachoIdx] = {
         ...dActual,
         fecha_carga: ed.fecha_carga,
@@ -134,7 +149,7 @@ function Coordinador({ usuario, onVolver }) {
       };
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos });
       // Notificar si cambió algo relevante
-      if (cambioFecha || cambioTransportista || cambioHorario) {
+      if (cambioFecha || cambioTransportista) {
         const todosEmails = [
           ed.email_transportista || dActual.email_transportista,
           ...(ed.emails_extra || dActual.emails_extra || [])
@@ -150,10 +165,10 @@ function Coordinador({ usuario, onVolver }) {
           producto: p.producto, volumen: dActual.volumen,
           cliente: p.cliente, ov: p.ov, lugar: p.lugar,
         };
-        fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
+        await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       }
       setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
-      alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista || cambioHorario ? ' Se notificó al transportista.' : ''));
+      alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista ? ' Se notificó al transportista.' : ''));
     } catch (err) {
       console.error(err);
       alert('Error: ' + err.message);
@@ -182,9 +197,91 @@ function Coordinador({ usuario, onVolver }) {
     setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
   }
 
+  function handleArchivosNuevos(pedidoId, files) {
+    setArchivosNuevos(prev => ({ ...prev, [pedidoId]: [...(prev[pedidoId] || []), ...Array.from(files)] }));
+  }
+  function quitarArchivoNuevo(pedidoId, nombre) {
+    setArchivosNuevos(prev => ({ ...prev, [pedidoId]: (prev[pedidoId] || []).filter(f => f.name !== nombre) }));
+  }
+
   async function toggleVisibleTransportista(p, fileId, valorActual) {
     const adjuntosActualizados = (p.adjuntos || []).map(a => a.file_id === fileId ? { ...a, visible_transportista: !valorActual } : a);
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { adjuntos: adjuntosActualizados });
+  }
+
+  async function aceptarDespacho(pedidoId) {
+    const ac = aceptando[pedidoId] || {};
+    if (!ac.volumen || !ac.fecha_carga) { alert('Completá volumen y fecha de carga.'); return; }
+    const p = pedidos.find(x => x.id === pedidoId);
+    if (Number(ac.volumen) > saldo(p)) { alert(`El volumen (${ac.volumen} tn) supera el saldo disponible (${saldo(p)} tn).`); return; }
+    const fechaCarga = new Date(ac.fecha_carga + 'T00:00:00');
+    const fechaEntrega = new Date(p.fecha_entrega + 'T00:00:00');
+    if (fechaCarga > fechaEntrega) { alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return; }
+
+    const esSinTransportista = sinTransportista(p.tipo);
+    setEnviando(true);
+    try {
+      let adjuntosActualizados = [...(p.adjuntos || [])];
+      const archivosCoord = archivosNuevos[pedidoId] || [];
+      if (archivosCoord.length > 0) {
+        setSubiendoArchivos(true);
+        for (const file of archivosCoord) {
+          try { adjuntosActualizados.push(await subirArchivo(file, p.id, usuario?.nombre || 'Coordinador')); }
+          catch (err) { console.error('Error subiendo ' + file.name + ':', err); }
+        }
+        setSubiendoArchivos(false);
+        setArchivosNuevos(prev => ({ ...prev, [pedidoId]: [] }));
+      }
+
+      const now = new Date().toLocaleString('es-AR');
+      const estadoDespacho = esSinTransportista ? 'Programado' : 'Aceptado-pendiente';
+
+      const despacho = {
+        id: 'D' + ((p.despachos || []).length + 1),
+        volumen: Number(ac.volumen),
+        fecha_carga: ac.fecha_carga,
+        horario_carga: ac.horario_carga || '',
+        estado: estadoDespacho,
+        aceptado_por: usuario?.nombre || 'Coordinador',
+        aceptado_en: now,
+        transporte: esSinTransportista ? '—' : '',
+        transporte_id: '', email_transportista: '',
+        emails_extra: [], telefonos: [], cuit_transporte: '',
+      };
+
+      const nuevosDespachos = [...(p.despachos || []), despacho];
+      const volDespachado = nuevosDespachos.reduce((s, d) => s + Number(d.volumen), 0);
+      const hayPendiente = nuevosDespachos.some(d => d.estado === 'Aceptado-pendiente');
+      const nuevoEstado = hayPendiente ? 'prog-parcial' : volDespachado >= Number(p.volumen) ? 'Programado' : 'prog-parcial';
+
+      await updateDoc(doc(db, 'pedidos_portal', p.docId), {
+        despachos: nuevosDespachos,
+        estado: nuevoEstado,
+        adjuntos: adjuntosActualizados,
+        volumen_despachado: volDespachado,
+      });
+
+      const payload = {
+        accion: 'programar_despacho',
+        pedido_id: p.id,
+        programado_por: usuario?.nombre || 'Coordinador',
+        fecha_carga: ac.fecha_carga,
+        horario_carga: ac.horario_carga || '',
+        transporte: esSinTransportista ? '—' : 'Pendiente de asignación',
+        email_transportista: '',
+        tipo: p.tipo, producto: p.producto,
+        volumen: Number(ac.volumen),
+        cliente: p.cliente, ov: p.ov,
+        lugar: p.lugar, banda_horaria: p.banda_horaria || '',
+        fecha_entrega: p.fecha_entrega, obs: p.obs || '',
+      };
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
+      setAceptando(prev => { const n = {...prev}; delete n[pedidoId]; return n; });
+      alert(esSinTransportista ? '✓ Despacho aceptado y escrito en el plan.' : '✓ Despacho aceptado y escrito en el plan. Asigná el transportista cuando esté disponible.');
+    } catch (err) {
+      console.error(err);
+      alert('Error: ' + err.message);
+    } finally { setEnviando(false); setSubiendoArchivos(false); }
   }
 
   async function aceptarEntrega(p, entregaIdx) {
@@ -192,9 +289,8 @@ function Coordinador({ usuario, onVolver }) {
     const ae = aceptandoEntrega[key] || {};
     if (!ae.fecha_carga) { alert('Ingresá la fecha de carga.'); return; }
     if (!ae.volumen || Number(ae.volumen) <= 0) { alert('Ingresá el volumen.'); return; }
-    const fSolicAe = fechaSolicitadaDe(p, entregaIdx);
-    if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(fSolicAe + 'T00:00:00')) {
-      alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicAe + ').'); return;
+    if (new Date(ae.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) {
+      alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return;
     }
     const esSinTransportista = sinTransportista(p.tipo);
     setEnviando(true);
@@ -248,7 +344,7 @@ function Coordinador({ usuario, onVolver }) {
         lugar: p.lugar, banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega, obs: p.obs || '',
       };
-      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setAceptandoEntrega(prev => { const n = {...prev}; delete n[key]; return n; });
       alert(t ? '✓ Entrega aceptada y transportista asignado.' : esSinTransportista ? '✓ Entrega aceptada y escrita en plan.' : '✓ Entrega aceptada. Asigná el transportista.');
     } catch (err) { console.error(err); alert('Error: ' + err.message); }
@@ -294,7 +390,7 @@ function Coordinador({ usuario, onVolver }) {
         lugar: p.lugar, banda_horaria: p.banda_horaria || '',
         fecha_entrega: p.fecha_entrega, obs: p.obs || '',
       };
-      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setAsignando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Transportista asignado. Se notificó por email.');
     } catch (err) {
@@ -307,8 +403,7 @@ function Coordinador({ usuario, onVolver }) {
     const key = p.id + '-' + despachoIdx;
     const rd = reprogramando[key] || {};
     if (!rd.fecha_carga) { alert('Ingresá la nueva fecha de carga.'); return; }
-    const fSolicRd = fechaSolicitadaDe(p, ((p.despachos[despachoIdx] || {}).entrega_nro || 1) - 1);
-    if (new Date(rd.fecha_carga + 'T00:00:00') > new Date(fSolicRd + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicRd + ').'); return; }
+    if (new Date(rd.fecha_carga + 'T00:00:00') > new Date(p.fecha_entrega + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha de entrega (' + p.fecha_entrega + ').'); return; }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -319,7 +414,7 @@ function Coordinador({ usuario, onVolver }) {
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos, estado: hayEspera ? 'prog-parcial' : 'Programado' });
       const todosEmails = [despachoActual.email_transportista, ...(despachoActual.emails_extra || [])].filter(Boolean).join(',');
       const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
-      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
+      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setReprogramando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Despacho reprogramado. Se notificó al transportista.');
     } catch (err) { console.error(err); alert('Error al reprogramar: ' + err.message); }
@@ -331,9 +426,8 @@ function Coordinador({ usuario, onVolver }) {
     if (!motivo) return;
     const despachosAnteriores = p.despachos || [];
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
-    const emailsTransportistas = [...new Set(despachosAnteriores.flatMap(d => [d.email_transportista, ...(d.emails_extra || [])]).filter(Boolean))].join(',');
-    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre || '', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: emailsTransportistas, transporte: despachosAnteriores[0]?.transporte || '' };
-    fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
+    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre || '', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: despachosAnteriores[0]?.email_transportista || '', transporte: despachosAnteriores[0]?.transporte || '' };
+    await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
 
@@ -469,16 +563,13 @@ function Coordinador({ usuario, onVolver }) {
 
               {(cronogramaCompleto(p).length > 0) && (
                 <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '0.5px solid #E5E7EB' }}>
-                  {cronogramaCompleto(p).length > 1 && <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de entregas</div>}
+                  <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de entregas</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {cronogramaCompleto(p).map((e, ei) => {
                       const keyEnt = p.id + '-ent-' + ei;
                       const ae = aceptandoEntrega[keyEnt] || {};
                       const desp = despachoDeEntrega(p, ei);
                       const estEnt = estadoEntrega(p, ei);
-                      const despIdx = desp ? (p.despachos || []).indexOf(desp) : -1;
-                      const keyDesp = p.id + '-' + despIdx;
-                      const rd = reprogramando[keyDesp] || {};
                       const colorBorder = estEnt === 'Programado' || estEnt === 'Nominado' ? '#5DCAA5' : estEnt === 'Aceptado-pendiente' ? '#F59E0B' : '#E5E7EB';
                       const colorBg = estEnt === 'Programado' || estEnt === 'Nominado' ? '#F0FDF4' : estEnt === 'Aceptado-pendiente' ? '#FFFBF2' : '#F9FAFB';
                       return (
@@ -498,9 +589,6 @@ function Coordinador({ usuario, onVolver }) {
                                 {aceptandoEntrega[keyEnt] !== undefined ? 'Cancelar' : 'Aceptar'}
                               </button>
                             )}
-                            {desp && ['Programado', 'Aceptado-pendiente'].includes(desp.estado) && !editandoDespacho[keyDesp] && p.estado !== 'Suspendido' && (
-                              <button style={styles.btnEditarDespacho} onClick={() => abrirEdicionDespacho(p, despIdx)}>✏️ Editar</button>
-                            )}
                           </div>
                           {desp && (
                             <div>
@@ -509,20 +597,7 @@ function Coordinador({ usuario, onVolver }) {
                                 {desp.horario_carga && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Horario</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.horario_carga}</span></div>}
                                 {desp.transporte && desp.transporte !== '—' && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Transportista</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.transporte}</span></div>}
                                 {desp.chofer && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Chofer</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.chofer}</span></div>}
-                                {desp.email_transportista && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Email</span><span style={{ fontWeight: 500, color: '#111827', wordBreak: 'break-all' }}>{desp.email_transportista}</span></div>}
-                                {(desp.telefonos || []).length > 0 && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Teléfonos</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.telefonos.join(' · ')}</span></div>}
                               </div>
-                              {desp.estado === 'Nominado' && (
-                                <div style={{ marginTop: 4, marginBottom: 8, paddingTop: 8, borderTop: '0.5px solid #E5E7EB' }}>
-                                  <div style={{ fontSize: 10, fontWeight: 500, color: '#3C3489', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Nominación</div>
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, fontSize: 12 }}>
-                                    {desp.dni_chofer && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>DNI</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.dni_chofer}</span></div>}
-                                    {desp.patente_tractor && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Patente tractor</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.patente_tractor}</span></div>}
-                                    {desp.patente_semi && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>Patente semi</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.patente_semi}</span></div>}
-                                    {desp.cuit_transporte && <div><span style={{ fontSize: 10, color: '#9CA3AF', display: 'block' }}>CUIT empresa</span><span style={{ fontWeight: 500, color: '#111827' }}>{desp.cuit_transporte}</span></div>}
-                                  </div>
-                                </div>
-                              )}
                               {desp.estado === 'Aceptado-pendiente' && !sinTransportista(p.tipo) && (
                                 <div>
                                   {!asignando[p.id + '-' + (p.despachos || []).indexOf(desp)] ? (
@@ -535,8 +610,9 @@ function Coordinador({ usuario, onVolver }) {
                                       <select style={{ ...styles.input, flex: 1, fontSize: 12 }}
                                         value={asignando[p.id + '-' + (p.despachos || []).indexOf(desp)]?.transporte_id || ''}
                                         onChange={ev => {
+                                          const t = transportistas.find(x => x.docId === ev.target.value);
                                           const idx = (p.despachos || []).indexOf(desp);
-                                          seleccionarTransportista(p.id + '-' + idx, p.id, ev.target.value);
+                                          setAsignando(prev => ({ ...prev, [p.id + '-' + idx]: { transporte_id: ev.target.value, transporte: t ? (t.empresa||t.nombre) : '' } }));
                                         }}>
                                         <option value="">Seleccionar transportista...</option>
                                         {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
@@ -553,65 +629,6 @@ function Coordinador({ usuario, onVolver }) {
                               )}
                             </div>
                           )}
-                          {desp && editandoDespacho[keyDesp] && (
-                            <div style={styles.editarDespachoBox}>
-                              <div style={styles.editarDespachoTitulo}>✏️ Editar despacho</div>
-                              <div style={styles.reprogramarGrid}>
-                                <div style={styles.formField}>
-                                  <label style={styles.formLabel}>Fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={e.fecha_solicitada}
-                                    value={editandoDespacho[keyDesp]?.fecha_carga || ''}
-                                    onChange={ev => setEditandoDespacho(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
-                                </div>
-                                <div style={styles.formField}>
-                                  <label style={styles.formLabel}>Horario sugerido</label>
-                                  <input style={styles.input} type="text" placeholder="Ej: 08:00hs"
-                                    value={editandoDespacho[keyDesp]?.horario_carga || ''}
-                                    onChange={ev => setEditandoDespacho(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], horario_carga: ev.target.value } }))} />
-                                </div>
-                              </div>
-                              {!sinTransportista(p.tipo) && (
-                                <div style={{ ...styles.formField, marginTop: 8 }}>
-                                  <label style={styles.formLabel}>Cambiar transportista (opcional)</label>
-                                  <select style={styles.input}
-                                    value={editandoDespacho[keyDesp]?.transporte_id || ''}
-                                    onChange={ev => seleccionarTransportistaEdit(keyDesp, ev.target.value)}>
-                                    <option value="">Mantener actual: {desp.transporte || '—'}</option>
-                                    {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
-                                  </select>
-                                </div>
-                              )}
-                              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                                <button style={{ ...styles.btnAsignar, opacity: enviando ? 0.7 : 1 }} disabled={enviando}
-                                  onClick={() => guardarEdicionDespacho(p, despIdx)}>
-                                  {enviando ? 'Guardando...' : '✓ Guardar cambios'}
-                                </button>
-                                <button style={styles.btnCancelarEdicion} onClick={() => cancelarEdicionDespacho(keyDesp)}>
-                                  Cancelar
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                          {desp && desp.estado === 'En espera' && (
-                            <div style={styles.reprogramarBox}>
-                              <div style={styles.reprogramarTitulo}>🔄 Reprogramar despacho</div>
-                              <div style={styles.reprogramarGrid}>
-                                <div style={styles.formField}>
-                                  <label style={styles.formLabel}>Nueva fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={e.fecha_solicitada} value={rd.fecha_carga || ''} onChange={ev => setReprogramando(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
-                                </div>
-                                <div style={styles.formField}>
-                                  <label style={styles.formLabel}>Horario sugerido</label>
-                                  <input style={styles.input} type="text" placeholder="Ej: 08:00hs" value={rd.horario_carga || ''} onChange={ev => setReprogramando(prev => ({ ...prev, [keyDesp]: { ...prev[keyDesp], horario_carga: ev.target.value } }))} />
-                                </div>
-                              </div>
-                              <button style={{ ...styles.btnReprogramar, opacity: enviando ? 0.7 : 1 }} disabled={enviando} onClick={() => reprogramarDespacho(p, despIdx)}>
-                                {enviando ? 'Guardando...' : '✓ Confirmar reprogramación'}
-                              </button>
-                            </div>
-                          )}
                           {aceptandoEntrega[keyEnt] !== undefined && estEnt === 'sin_aceptar' && (
                             <div style={{ marginTop: 10, padding: '10px 12px', background: '#EFF6FF', border: '0.5px solid #93C5FD', borderRadius: 8 }}>
                               <div style={{ fontSize: 10, fontWeight: 500, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Aceptar entrega</div>
@@ -623,9 +640,9 @@ function Coordinador({ usuario, onVolver }) {
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Fecha de carga *</label>
-                                  <input style={styles.input} type="date" max={e.fecha_solicitada}
+                                  <input style={styles.input} type="date" max={p.fecha_entrega}
                                     value={ae.fecha_carga || ''} onChange={ev => setAceptandoEntrega(prev => ({ ...prev, [keyEnt]: { ...prev[keyEnt], fecha_carga: ev.target.value } }))} />
-                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {e.fecha_solicitada}</span>
+                                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
                                 </div>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Horario sugerido</label>
@@ -653,20 +670,16 @@ function Coordinador({ usuario, onVolver }) {
                       );
                     })}
                   </div>
-                  {cronogramaCompleto(p).length > 1 && (
-                    <div style={{ marginTop: 8, padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB', fontSize: 12, display: 'flex', gap: 16 }}>
-                      <span style={{ color: '#6B7280' }}>Aceptado: <strong style={{ color: '#111827' }}>{volAsignado(p)} tn</strong></span>
-                      <span style={{ color: '#6B7280' }}>Saldo: <strong style={{ color: saldo(p) > 0 ? '#BA7517' : '#0F6E56' }}>{saldo(p)} tn</strong></span>
-                    </div>
-                  )}
+                  <div style={{ marginTop: 8, padding: '8px 10px', background: '#F9FAFB', borderRadius: 8, border: '0.5px solid #E5E7EB', fontSize: 12, display: 'flex', gap: 16 }}>
+                    <span style={{ color: '#6B7280' }}>Aceptado: <strong style={{ color: '#111827' }}>{volAsignado(p)} tn</strong></span>
+                    <span style={{ color: '#6B7280' }}>Saldo: <strong style={{ color: saldo(p) > 0 ? '#BA7517' : '#0F6E56' }}>{saldo(p)} tn</strong></span>
+                  </div>
                 </div>
               )}
 
-              {(p.despachos || []).some(d => !d.entrega_nro) && (
               <div style={styles.despachosSection}>
-                <div style={styles.despachosTitle}>Despachos sin entrega asociada</div>
+                <div style={styles.despachosTitle}>Despachos</div>
                 {(p.despachos || []).map((d, i) => {
-                  if (d.entrega_nro) return null;
                   const key = p.id + '-' + i;
                   const rd = reprogramando[key] || {};
                   const as = asignando[key] || {};
@@ -744,7 +757,7 @@ function Coordinador({ usuario, onVolver }) {
                         </div>
                       )}
 
-                      {d.estado === 'Aceptado-pendiente' && !sinTransportista(p.tipo) && !d.entrega_nro && (
+                      {d.estado === 'Aceptado-pendiente' && !sinTransportista(p.tipo) && (
                         <div style={styles.asignarBox}>
                           <div style={styles.asignarTitulo}>🚛 Asignar transportista</div>
                           <div style={styles.despachoGrid}>
@@ -793,8 +806,64 @@ function Coordinador({ usuario, onVolver }) {
                   );
                 })}
 
+                {saldo(p) > 0 && p.estado !== 'Suspendido' && !tieneNominacionPendiente(p) && (
+                  <div style={styles.nuevoDespacho}>
+                    <div style={styles.despachosTitle}>✓ Aceptar pedido — escribir en plan</div>
+                    <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
+                      {sinTransportista(p.tipo)
+                        ? 'Al aceptar se escribe en el Plan de Producción. El flujo queda completo.'
+                        : 'Al aceptar se escribe en el Plan de Producción. Asignás el transportista después.'}
+                    </p>
+                    <div style={styles.despachoGrid}>
+                      <div style={styles.formField}>
+                        <label style={styles.formLabel}>Volumen (tn) — saldo: {saldo(p)} tn</label>
+                        <input style={styles.input} type="number" placeholder={saldo(p)}
+                          value={aceptando[p.id]?.volumen || ''}
+                          onChange={e => setAceptando(prev => ({ ...prev, [p.id]: { ...prev[p.id], volumen: e.target.value } }))} />
+                      </div>
+                      <div style={styles.formField}>
+                        <label style={styles.formLabel}>Fecha de carga</label>
+                        <input style={styles.input} type="date" max={p.fecha_entrega}
+                          value={aceptando[p.id]?.fecha_carga || ''}
+                          onChange={e => setAceptando(prev => ({ ...prev, [p.id]: { ...prev[p.id], fecha_carga: e.target.value } }))} />
+                        <span style={{ fontSize: 10, color: '#9CA3AF' }}>máx. {p.fecha_entrega}</span>
+                      </div>
+                      <div style={styles.formField}>
+                        <label style={styles.formLabel}>Horario de carga sugerido</label>
+                        <input style={styles.input} type="text" placeholder="Ej: 08:00hs"
+                          value={aceptando[p.id]?.horario_carga || ''}
+                          onChange={e => setAceptando(prev => ({ ...prev, [p.id]: { ...prev[p.id], horario_carga: e.target.value } }))} />
+                      </div>
+                      <div style={{ ...styles.formField, gridColumn: '1/-1' }}>
+                        <label style={styles.formLabel}>Adjuntos para el despacho</label>
+                        {(archivosNuevos[p.id] || []).length > 0 && (
+                          <div style={styles.adjuntosRow}>
+                            {(archivosNuevos[p.id] || []).map(f => (
+                              <div key={f.name} style={styles.adjuntoChipEditable}>
+                                <span style={{ fontSize: 11 }}>📎 {f.name}</span>
+                                <button type="button" onClick={() => quitarArchivoNuevo(p.id, f.name)} style={styles.adjuntoQuitar}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <button type="button" style={styles.btnAdjuntar} onClick={() => {
+                          if (!fileRefs.current[p.id]) fileRefs.current[p.id] = document.createElement('input');
+                          const input = fileRefs.current[p.id];
+                          input.type = 'file'; input.multiple = true;
+                          input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+                          input.onchange = (e) => handleArchivosNuevos(p.id, e.target.files);
+                          input.click();
+                        }}>📎 Adjuntar archivo</button>
+                      </div>
+                    </div>
+                    <button style={{ ...styles.btnAceptar, opacity: (enviando || subiendoArchivos) ? 0.7 : 1 }}
+                      disabled={enviando || subiendoArchivos}
+                      onClick={() => aceptarDespacho(p.id)}>
+                      {subiendoArchivos ? 'Subiendo archivos...' : enviando ? 'Guardando...' : '✓ Aceptar y escribir en plan'}
+                    </button>
+                  </div>
+                )}
               </div>
-              )}
 
               <div style={styles.cardActions}>
                 <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
