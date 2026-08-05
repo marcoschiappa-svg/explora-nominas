@@ -116,6 +116,7 @@ function Coordinador({ usuario, onVolver }) {
       const dActual = nuevosDespachos[despachoIdx];
       const cambioTransportista = ed.transporte && ed.transporte !== dActual.transporte;
       const cambioFecha = ed.fecha_carga !== dActual.fecha_carga;
+      const cambioHorario = (ed.horario_carga || '') !== (dActual.horario_carga || '');
       nuevosDespachos[despachoIdx] = {
         ...dActual,
         fecha_carga: ed.fecha_carga,
@@ -133,7 +134,7 @@ function Coordinador({ usuario, onVolver }) {
       };
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos });
       // Notificar si cambió algo relevante
-      if (cambioFecha || cambioTransportista) {
+      if (cambioFecha || cambioTransportista || cambioHorario) {
         const todosEmails = [
           ed.email_transportista || dActual.email_transportista,
           ...(ed.emails_extra || dActual.emails_extra || [])
@@ -152,7 +153,7 @@ function Coordinador({ usuario, onVolver }) {
         fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
       }
       setEditandoDespacho(prev => { const n = {...prev}; delete n[key]; return n; });
-      alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista ? ' Se notificó al transportista.' : ''));
+      alert('✓ Despacho actualizado.' + (cambioFecha || cambioTransportista || cambioHorario ? ' Se notificó al transportista.' : ''));
     } catch (err) {
       console.error(err);
       alert('Error: ' + err.message);
@@ -330,7 +331,8 @@ function Coordinador({ usuario, onVolver }) {
     if (!motivo) return;
     const despachosAnteriores = p.despachos || [];
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido' });
-    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre || '', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: despachosAnteriores[0]?.email_transportista || '', transporte: despachosAnteriores[0]?.transporte || '' };
+    const emailsTransportistas = [...new Set(despachosAnteriores.flatMap(d => [d.email_transportista, ...(d.emails_extra || [])]).filter(Boolean))].join(',');
+    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre || '', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: emailsTransportistas, transporte: despachosAnteriores[0]?.transporte || '' };
     fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' }).catch(err => console.error('Apps Script (segundo plano):', err));
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
