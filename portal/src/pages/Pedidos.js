@@ -374,7 +374,9 @@ function Pedidos({ usuario, onVolver }) {
   function validarOV() { if (form.ov_tipo==='OV') return /^\d{4}$/.test(form.ov_numero.trim()); if (form.ov_tipo==='OC') return /^\d{5}$/.test(form.ov_numero.trim()); return false; }
   function maxDigitosOV() { return form.ov_tipo==='OV' ? 4 : 5; }
   function validarTelefono() { const pre = form.telefono_prefijo.replace(/\D/g,''); const num = form.telefono_numero.replace(/\D/g,''); if (!pre && !num) return true; if (pre.length===3 && num.length===7) return true; if (pre.length===4 && num.length===6) return true; return false; }
-  function validarFecha(fecha) { const hoy = new Date(); hoy.setHours(0,0,0,0); return new Date(fecha+'T00:00:00') > hoy; }
+  function esFechaPasada(fecha) { const hoy = new Date(); hoy.setHours(0,0,0,0); return new Date(fecha+'T00:00:00') < hoy; }
+  function fechaEsHoy(fecha) { if (!fecha) return false; const hoy = new Date(); hoy.setHours(0,0,0,0); return (new Date(fecha+'T00:00:00').getTime() - hoy.getTime()) === 0; }
+  function hoyLocalISO() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split('T')[0]; }
   function puedeEditar(p) {
     if (p.estado==='Suspendido'||p.estado==='Cumplido') return false;
     const nominados = (p.despachos||[]).filter(d => d.estado==='Nominado');
@@ -395,7 +397,7 @@ function Pedidos({ usuario, onVolver }) {
     const totalAsignado = parseFloat(form.volumen_entrega1 || 0) + volumenAsignado();
     if (totalAsignado > 0 && totalAsignado > parseFloat(form.volumen || 0)) { alert('La suma de entregas (' + totalAsignado.toFixed(1) + ' tn) supera el volumen total del contrato (' + form.volumen + ' tn).'); return; }
     if (!validarOV()) { alert(form.ov_tipo==='OV' ? 'El número de OV debe tener exactamente 4 dígitos.' : 'El número de OC debe tener exactamente 5 dígitos.'); return; }
-    if (form.tipo !== 'Entrega en planta' && !validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
+    if (esFechaPasada(form.fecha_entrega)) { alert('La fecha de entrega no puede ser una fecha pasada.'); return; }
     if (form.telefono_prefijo && !validarTelefono()) { alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.'); return; }
     const ahora = new Date().toLocaleString('es-AR');
     const ov = getOV();
@@ -763,7 +765,10 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
-                    <input style={styles.input} type="date" value={form.fecha_entrega} min={form.tipo === 'Entrega en planta' ? undefined : new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                    <input style={styles.input} type="date" value={form.fecha_entrega} min={hoyLocalISO()} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                    {fechaEsHoy(form.fecha_entrega) && (
+                      <div style={{ fontSize: 11, color: '#B45309', marginTop: 4, lineHeight: 1.3 }}>⚠ Confirmar disponibilidad con el Coordinador.</div>
+                    )}
                   </div>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Volumen (tn) *</label>
