@@ -5,8 +5,12 @@ import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 function sinTransportista(tipo) {
-  return tipo === 'Retiro del cliente' || tipo === 'Entrega en planta' || tipo === 'Retiro de Proveedores';
+  return tipo === 'Retiro del cliente' || tipo === 'Entrega en planta';
 }
+
+// Terminología según el tipo: "Retiro" para Retiro de Proveedores, "Entrega" para el resto.
+function nEnt(tipo) { return tipo === 'Retiro de Proveedores' ? 'Retiro' : 'Entrega'; }
+function nEntPlural(tipo) { return tipo === 'Retiro de Proveedores' ? 'retiros' : 'entregas'; }
 
 function Coordinador({ usuario, onVolver }) {
   const [pedidos, setPedidos] = useState([]);
@@ -406,7 +410,7 @@ function Coordinador({ usuario, onVolver }) {
                 <span style={styles.cardDot}>·</span>
                 <span style={styles.cardProducto}>{p.producto} {p.volumen} tn</span>
                 <span style={styles.cardDot}>·</span>
-                <span style={styles.cardEntrega}>Entrega: {p.fecha_entrega}</span>
+                <span style={styles.cardEntrega}>{nEnt(p.tipo)}: {p.fecha_entrega}</span>
               </div>
             </div>
             {proximaCarga(p) && <span style={styles.cardFechaCarga}>📦 {proximaCarga(p)}</span>}
@@ -428,7 +432,7 @@ function Coordinador({ usuario, onVolver }) {
                 <div style={styles.field}><span style={styles.label}>Cliente / Proveedor</span><span>{p.cliente}</span></div>
                 <div style={styles.field}><span style={styles.label}>OV / OC</span><span>{p.ov}</span></div>
                 <div style={styles.field}><span style={styles.label}>Teléfono</span><span>{p.telefono || '—'}</span></div>
-                <div style={styles.field}><span style={styles.label}>Entrega comprometida</span><span>{p.fecha_entrega}</span></div>
+                <div style={styles.field}><span style={styles.label}>{p.tipo === 'Retiro de Proveedores' ? 'Retiro comprometido' : 'Entrega comprometida'}</span><span>{p.fecha_entrega}</span></div>
                 {p.banda_horaria && <div style={styles.field}><span style={styles.label}>Banda horaria</span><span>{p.banda_horaria}</span></div>}
                 <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Lugar</span><span>{p.lugar}</span></div>
                 {p.obs && <div style={{ ...styles.field, gridColumn: '1/-1' }}><span style={styles.label}>Observaciones</span><span>{p.obs}</span></div>}
@@ -467,7 +471,7 @@ function Coordinador({ usuario, onVolver }) {
 
               {(cronogramaCompleto(p).length > 0) && (
                 <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '0.5px solid #E5E7EB' }}>
-                  {cronogramaCompleto(p).length > 1 && <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de entregas</div>}
+                  {cronogramaCompleto(p).length > 1 && <div style={{ fontSize: 11, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Cronograma de {nEntPlural(p.tipo)}</div>}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {cronogramaCompleto(p).map((e, ei) => {
                       const keyEnt = p.id + '-ent-' + ei;
@@ -482,7 +486,7 @@ function Coordinador({ usuario, onVolver }) {
                       return (
                         <div key={ei} style={{ border: '0.5px solid ' + colorBorder, borderRadius: 8, padding: '10px 12px', background: colorBg }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: desp || aceptandoEntrega[keyEnt] !== undefined ? 8 : 0 }}>
-                            <span style={{ fontSize: 11, fontWeight: 500, color: '#6B7280' }}>Entrega N°{e.nro}</span>
+                            <span style={{ fontSize: 11, fontWeight: 500, color: '#6B7280' }}>{nEnt(p.tipo)} N°{e.nro}</span>
                             {estEnt === 'sin_aceptar' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#F3F4F6', color: '#6B7280', border: '0.5px solid #E5E7EB' }}>Sin aceptar</span>}
                             {estEnt !== 'sin_aceptar' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: despachoColors[estEnt]?.bg || '#F3F4F6', color: despachoColors[estEnt]?.color || '#6B7280', border: '0.5px solid #E5E7EB' }}>{despachoLabel[estEnt] || estEnt}</span>}
                             <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 'auto' }}>Solicitada: {e.fecha_solicitada}</span>
@@ -613,7 +617,7 @@ function Coordinador({ usuario, onVolver }) {
                           )}
                           {aceptandoEntrega[keyEnt] !== undefined && estEnt === 'sin_aceptar' && (
                             <div style={{ marginTop: 10, padding: '10px 12px', background: '#EFF6FF', border: '0.5px solid #93C5FD', borderRadius: 8 }}>
-                              <div style={{ fontSize: 10, fontWeight: 500, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Aceptar entrega</div>
+                              <div style={{ fontSize: 10, fontWeight: 500, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Aceptar {nEnt(p.tipo).toLowerCase()}</div>
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 8 }}>
                                 <div style={styles.formField}>
                                   <label style={styles.formLabel}>Volumen (tn) *</label>
@@ -644,7 +648,7 @@ function Coordinador({ usuario, onVolver }) {
                               </div>
                               <button style={{ ...styles.btnAceptar, opacity: enviando ? 0.7 : 1 }} disabled={enviando}
                                 onClick={() => aceptarEntrega(p, ei)}>
-                                {enviando ? 'Guardando...' : '✓ Confirmar entrega'}
+                                {enviando ? 'Guardando...' : '✓ Confirmar ' + nEnt(p.tipo).toLowerCase()}
                               </button>
                             </div>
                           )}
