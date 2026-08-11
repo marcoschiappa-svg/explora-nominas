@@ -56,7 +56,7 @@ function normalizarFecha(v) {
     const dd = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
     return `${dd.getUTCFullYear()}-${String(dd.getUTCMonth()+1).padStart(2,'0')}-${String(dd.getUTCDate()).padStart(2,'0')}`;
   }
-  const mm = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/); // dd/mm/aaaa o dd-mm-aaaa
+  const mm = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/); // dd/mm/aaaa o dd-mm-aaaa
   if (mm) return `${mm[3]}-${mm[2].padStart(2,'0')}-${mm[1].padStart(2,'0')}`;
   return s;
 }
