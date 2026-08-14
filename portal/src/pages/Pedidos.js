@@ -6,7 +6,7 @@ import { collection, addDoc, doc, updateDoc, onSnapshot } from 'firebase/firesto
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
 const PRODUCTOS_VALIDOS  = ['Biodiesel','EMAG','Glicerina','Sebo','HFFA Vegetal','Aceite','Otro'];
-const TIPOS_VALIDOS      = ['Retiro del cliente','Entrega al cliente'];
+const TIPOS_VALIDOS      = ['Entrega al cliente','Entrega en planta','Retiro de Proveedores'];
 const OV_TIPOS_VALIDOS   = ['OV','OC'];
 const BANDAS_VALIDAS     = ['Mañana (6-12hs)','Tarde (12-18hs)','Noche (18-24hs)','A confirmar',''];
 const COLS_ESPERADAS     = [
@@ -42,6 +42,25 @@ function genNro() {
   return `PED-${y}${m}${d}-${r}`;
 }
 
+// Normaliza una fecha venga como venga (Date de Excel, serial, dd/mm/aaaa, texto) a AAAA-MM-DD
+function normalizarFecha(v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const y = v.getFullYear(), m = String(v.getMonth()+1).padStart(2,'0'), d = String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;                 // ya está en AAAA-MM-DD
+  const n = Number(s);                                         // serial de Excel
+  if (!isNaN(n) && n > 30000 && n < 90000) {
+    const dd = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+    return `${dd.getUTCFullYear()}-${String(dd.getUTCMonth()+1).padStart(2,'0')}-${String(dd.getUTCDate()).padStart(2,'0')}`;
+  }
+  const mm = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/); // dd/mm/aaaa o dd-mm-aaaa
+  if (mm) return `${mm[3]}-${mm[2].padStart(2,'0')}-${mm[1].padStart(2,'0')}`;
+  return s;
+}
+
 function validarFila(fila) {
   const err = [];
   const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -58,9 +77,11 @@ function validarFila(fila) {
     if (isNaN(f.getTime()))  err.push('Fecha inválida (usar AAAA-MM-DD)');
     else if (f <= hoy)       err.push('Fecha debe ser futura');
   }
-  if (!fila.calle?.trim())    err.push('Calle requerida');
-  if (!fila.ciudad?.trim())   err.push('Ciudad requerida');
-  if (!fila.provincia?.trim()) err.push('Provincia requerida');
+  if (fila.tipo !== 'Entrega en planta') {
+    if (!fila.calle?.trim())    err.push('Calle requerida');
+    if (!fila.ciudad?.trim())   err.push('Ciudad requerida');
+    if (!fila.provincia?.trim()) err.push('Provincia requerida');
+  }
   if (fila.banda_horaria && !BANDAS_VALIDAS.includes(fila.banda_horaria)) err.push('Banda horaria inválida');
   return err;
 }
@@ -171,7 +192,7 @@ function Pedidos({ usuario, onVolver }) {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const wb = XLSX.read(ev.target.result, { type: 'binary' });
+        const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: true });
         const ws = wb.Sheets['Pedidos'];
         if (!ws) { alert('El archivo no tiene una hoja llamada "Pedidos".'); return; }
         const datos = XLSX.utils.sheet_to_json(ws, { header: 1, range: 3 });
@@ -180,7 +201,17 @@ function Pedidos({ usuario, onVolver }) {
         if (filas.length > 100) { alert('Máximo 100 pedidos por archivo.'); return; }
         const pedidosLeidos = filas.map(row => {
           const obj = {};
-          COLS_ESPERADAS.forEach((col, i) => { obj[col] = row[i] !== undefined ? String(row[i]).trim() : ''; });
+          COLS_ESPERADAS.forEach((col, i) => {
+            const raw = row[i];
+            if (col === 'fecha_entrega' || col === 'fecha_solicitada_entrega') {
+              obj[col] = normalizarFecha(raw);
+            } else if (col === 'banda_horaria') {
+              const b = (raw !== undefined && raw !== null) ? String(raw).trim() : '';
+              obj[col] = BANDAS_VALIDAS.includes(b) ? b : '';   // banda inválida → vacía (no traba la fila)
+            } else {
+              obj[col] = (raw !== undefined && raw !== null) ? String(raw).trim() : '';
+            }
+          });
           return obj;
         });
         const errores = {};
@@ -207,6 +238,26 @@ function Pedidos({ usuario, onVolver }) {
         if (!grupos[ovKey]) grupos[ovKey] = [];
         grupos[ovKey].push(fila);
       });
+      // Chequeo: total declarado (col C) vs suma de las entregas (col D) por OC
+      const descalces = [];
+      Object.keys(grupos).forEach(ovKey => {
+        const g = grupos[ovKey];
+        const total = parseFloat(g[0].volumen) || 0;
+        const esUnica = g.length === 1;
+        const sumaEnt = g.reduce((s, f) => {
+          const vd = parseFloat(f.volumen_entrega) || (esUnica ? parseFloat(f.volumen) : 0) || 0;
+          return s + (vd > 0 ? vd : 0);
+        }, 0);
+        if (Math.abs(total - sumaEnt) > 0.01) {
+          descalces.push(`• ${ovKey}: total (col C) ${total} tn ≠ suma de entregas (col D) ${sumaEnt} tn`);
+        }
+      });
+      if (descalces.length > 0) {
+        const msg = 'En estos pedidos el volumen total (col C) no coincide con la suma de las entregas (col D):\n\n'
+          + descalces.join('\n')
+          + '\n\nEl total del pedido quedará según la col C y el cronograma según la col D.\n¿Cargar de todos modos?';
+        if (!window.confirm(msg)) return;
+      }
       for (const ovKey of Object.keys(grupos)) {
         const filasPedido = grupos[ovKey];
         const primera = filasPedido[0];
@@ -214,11 +265,18 @@ function Pedidos({ usuario, onVolver }) {
           const id = genNro();
           const ahora = new Date().toLocaleString('es-AR');
           const ov = ovKey;
-          const lugar = [primera.calle, primera.numero_calle, primera.ciudad, primera.provincia, primera.cp].filter(Boolean).join(', ');
+          const lugar = primera.tipo === 'Entrega en planta'
+            ? 'Explora S.A. — Complejo Industrial PGSM, Puerto General San Martín, Santa Fe'
+            : [primera.calle, primera.numero_calle, primera.ciudad, primera.provincia, primera.cp].filter(Boolean).join(', ');
           const volumenTotal = parseFloat(primera.volumen) || 0;
-          const cronograma = filasPedido.map((f, i) => ({
+          const esUnicaEntrega = filasPedido.length === 1;
+          // 1ª entrega: volumen de col D de la primera fila; si es única y col D vacía, el total (col C).
+          const volEntrega1 = parseFloat(primera.volumen_entrega) || (esUnicaEntrega ? volumenTotal : 0) || 0;
+          const fechaEntrega1 = primera.fecha_solicitada_entrega || primera.fecha_entrega || '';
+          // Entregas de la 2ª en adelante van al cronograma (igual que el formulario manual).
+          const cronograma = filasPedido.slice(1).map((f, i) => ({
             nro: i + 1,
-            volumen: parseFloat(f.volumen_entrega) || parseFloat(f.volumen) || 0,
+            volumen: parseFloat(f.volumen_entrega) || 0,
             fecha_solicitada: f.fecha_solicitada_entrega || f.fecha_entrega || '',
           })).filter(e => e.volumen > 0);
           const pedido = {
@@ -230,7 +288,7 @@ function Pedidos({ usuario, onVolver }) {
             volumen: volumenTotal, recipiente: primera.recipiente||'Granel',
             cliente: primera.cliente, ov, telefono: '',
             telefono_prefijo: '', telefono_numero: '',
-            fecha_entrega: primera.fecha_entrega,
+            fecha_entrega: fechaEntrega1,
             banda_horaria: primera.banda_horaria||'',
             lugar, calle: primera.calle, numero: primera.numero_calle||'',
             ciudad: primera.ciudad, provincia: primera.provincia, cp: primera.cp||'',
@@ -240,6 +298,7 @@ function Pedidos({ usuario, onVolver }) {
             origen: 'carga_masiva',
             volumen_original: volumenTotal,
             volumen_despachado: 0,
+            volumen_entrega1: volEntrega1,
             cronograma,
           };
           await addDoc(collection(db, 'pedidos_portal'), pedido);
@@ -374,7 +433,9 @@ function Pedidos({ usuario, onVolver }) {
   function validarOV() { if (form.ov_tipo==='OV') return /^\d{4}$/.test(form.ov_numero.trim()); if (form.ov_tipo==='OC') return /^\d{5}$/.test(form.ov_numero.trim()); return false; }
   function maxDigitosOV() { return form.ov_tipo==='OV' ? 4 : 5; }
   function validarTelefono() { const pre = form.telefono_prefijo.replace(/\D/g,''); const num = form.telefono_numero.replace(/\D/g,''); if (!pre && !num) return true; if (pre.length===3 && num.length===7) return true; if (pre.length===4 && num.length===6) return true; return false; }
-  function validarFecha(fecha) { const hoy = new Date(); hoy.setHours(0,0,0,0); return new Date(fecha+'T00:00:00') > hoy; }
+  function esFechaPasada(fecha) { const hoy = new Date(); hoy.setHours(0,0,0,0); return new Date(fecha+'T00:00:00') < hoy; }
+  function fechaEsHoy(fecha) { if (!fecha) return false; const hoy = new Date(); hoy.setHours(0,0,0,0); return (new Date(fecha+'T00:00:00').getTime() - hoy.getTime()) === 0; }
+  function hoyLocalISO() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split('T')[0]; }
   function puedeEditar(p) {
     if (p.estado==='Suspendido'||p.estado==='Cumplido') return false;
     const nominados = (p.despachos||[]).filter(d => d.estado==='Nominado');
@@ -395,7 +456,7 @@ function Pedidos({ usuario, onVolver }) {
     const totalAsignado = parseFloat(form.volumen_entrega1 || 0) + volumenAsignado();
     if (totalAsignado > 0 && totalAsignado > parseFloat(form.volumen || 0)) { alert('La suma de entregas (' + totalAsignado.toFixed(1) + ' tn) supera el volumen total del contrato (' + form.volumen + ' tn).'); return; }
     if (!validarOV()) { alert(form.ov_tipo==='OV' ? 'El número de OV debe tener exactamente 4 dígitos.' : 'El número de OC debe tener exactamente 5 dígitos.'); return; }
-    if (form.tipo !== 'Entrega en planta' && !validarFecha(form.fecha_entrega)) { alert('La fecha de entrega no puede ser el mismo día ni una fecha pasada.'); return; }
+    if (esFechaPasada(form.fecha_entrega)) { alert('La fecha de entrega no puede ser una fecha pasada.'); return; }
     if (form.telefono_prefijo && !validarTelefono()) { alert('Teléfono: prefijo 3 dígitos → número 7. Prefijo 4 dígitos → número 6.'); return; }
     const ahora = new Date().toLocaleString('es-AR');
     const ov = getOV();
@@ -765,7 +826,10 @@ function Pedidos({ usuario, onVolver }) {
                 <div style={styles.grid2}>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>{form.tipo === 'Retiro de Proveedores' ? 'Fecha de Retiro *' : 'Fecha de Entrega *'}</label>
-                    <input style={styles.input} type="date" value={form.fecha_entrega} min={form.tipo === 'Entrega en planta' ? undefined : new Date(Date.now()+86400000).toISOString().split('T')[0]} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                    <input style={styles.input} type="date" value={form.fecha_entrega} min={hoyLocalISO()} onChange={e => setForm({ ...form, fecha_entrega: e.target.value })} />
+                    {fechaEsHoy(form.fecha_entrega) && (
+                      <div style={{ fontSize: 11, color: '#B45309', marginTop: 4, lineHeight: 1.3 }}>⚠ Confirmar disponibilidad con el Coordinador.</div>
+                    )}
                   </div>
                   <div style={styles.formField}>
                     <label style={styles.formLabel}>Volumen (tn) *</label>
