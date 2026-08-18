@@ -12,6 +12,15 @@ automáticamente para Google Play, y es un dato distinto que conviene
 seguir viendo junto al semántico.
 
 ---
+
+## v1.0.3 - versionCode 7 - 18/08/2026
+** Corrección permisos de ubicación en la aplicación
+
+Se corrige la utilización de permisos de ubicacion otorgados por el usuario para, inicialmente pedir usar la ubicación en primer
+plano y posteriormente utilizar la ubicación en segundo plano para trackear el viaje sin necesidad de que tenga la pantalla prendida
+
+Asi como tambien se corrigen las notificaciones para que se muestre información util y no sea molesto al uso.
+
 ## v1.0.2 - versionCode 6 - 23/07/2026
 ** Filtro de precisión/velocidad GPS + recorrido completo en seguimiento**
 

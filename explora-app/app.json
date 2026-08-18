@@ -31,7 +31,8 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -41,7 +42,10 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "TrackEx necesita tu ubicación en segundo plano para registrar el recorrido activo."
+          "locationAlwaysAndWhenInUsePermission": "TrackEx necesita tu ubicación en segundo plano para registrar el recorrido activo.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ]
     ],
