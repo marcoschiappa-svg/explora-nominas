@@ -1,3 +1,71 @@
+/**
+ * =============================================================================
+ * Admin.js — Administración del portal (Portal Explora)
+ * =============================================================================
+ *
+ * PROPÓSITO
+ * Pantalla de administración, con dos responsabilidades:
+ *
+ *   1. GESTIÓN DE USUARIOS del portal: alta, edición, activación, reseteo de
+ *      contraseña y baja, para los cinco roles (admin, coordinador, comercial,
+ *      transportista, chofer). Incluye importación masiva de choferes desde
+ *      Excel y exportación a CSV.
+ *
+ *   2. SUPERVISIÓN DE VIAJES: lista los viajes en curso y permite cerrarlos a
+ *      mano cuando el chofer se olvidó de hacerlo desde la app, más el historial
+ *      de los finalizados recientes.
+ *
+ * -----------------------------------------------------------------------------
+ * LOS DOS LOGIN: EMAIL Y DNI
+ * -----------------------------------------------------------------------------
+ * Firebase Authentication exige un email para autenticar, pero los choferes
+ * ingresan con su DNI. La solución es sintética: a cada chofer se le crea un
+ * email ficticio `{dni}@explora-portal.com` (constante `CHOFER_DOMAIN`), que
+ * nunca se usa para enviar correo. La app y el portal arman ese mismo string a
+ * partir del DNI que tipea el chofer.
+ *
+ * Consecuencia práctica: un chofer NO puede recuperar su contraseña por email,
+ * porque su email no existe. Por eso se guarda `password_visible` en su
+ * documento y el admin puede reenviársela. Es una decisión consciente de
+ * usabilidad sobre seguridad, para una población que en general no tiene email
+ * corporativo.
+ *
+ * -----------------------------------------------------------------------------
+ * LA SEGUNDA INSTANCIA DE FIREBASE
+ * -----------------------------------------------------------------------------
+ * `createUserWithEmailAndPassword` inicia sesión automáticamente con el usuario
+ * recién creado. Si se usara la instancia principal, el admin quedaría logueado
+ * como el usuario que acaba de dar de alta y perdería su propia sesión.
+ *
+ * Por eso se levanta una app secundaria (`secondary`) con la misma config, que
+ * se usa solo para crear cuentas y de la que se cierra sesión enseguida.
+ *
+ * -----------------------------------------------------------------------------
+ * CAMBIOS (agosto 2026)
+ * -----------------------------------------------------------------------------
+ *   1. CORRECCIÓN DEL TIMESTAMP DE CIERRE MANUAL. `finalizarViaje()` escribía
+ *      `chofer_fin_ts` con `toLocaleString('es-AR')`, que produce un texto en
+ *      formato 12 horas SIN AM/PM — ambiguo e imposible de parsear con
+ *      `new Date()`. La app TrackEx escribe ese mismo campo en ISO 8601, así que
+ *      convivían dos formatos incompatibles en el mismo campo.
+ *
+ *      La consecuencia era concreta: la pantalla de Seguimiento ordena el
+ *      historial con `new Date(chofer_fin_ts)` y mostraba "Invalid Date" con un
+ *      orden impredecible para todo viaje cerrado a mano. Ahora se escribe ISO.
+ *
+ *   2. TRAZABILIDAD DEL CIERRE MANUAL. Se agregan `finalizado_manual`,
+ *      `finalizado_por` y `finalizado_en`. Antes un viaje cerrado por el admin
+ *      era indistinguible de uno cerrado por el chofer, y eso importa: si un
+ *      chofer nunca cierra sus viajes, es un problema de uso de la app que
+ *      conviene poder detectar.
+ *
+ *   3. SECCIÓN DE VIAJES FINALIZADOS. El bloque "Viajes activos" filtra por
+ *      `recibido/iniciado/demorado`, así que un viaje terminado desaparecía de
+ *      la pantalla sin dejar rastro y no había ninguna vista que lo recuperara.
+ *      Ahora hay un historial desplegable con duración y estado del GPS.
+ * =============================================================================
+ */
+
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { db, auth } from '../firebase';
@@ -15,11 +83,19 @@ const firebaseConfig = {
   messagingSenderId: "871895783017",
   appId: "1:871895783017:web:9503299046accde84774f8"
 };
+// Se reutiliza la instancia si ya existe: `initializeApp` con un nombre repetido
+// lanza excepción, y este módulo puede evaluarse más de una vez en desarrollo.
 const secondaryApp  = getApps().find(a => a.name === 'secondary') || initializeApp(firebaseConfig, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
+/**
+ * Dominio sintético para el login de choferes por DNI.
+ * No es un dominio real y nunca recibe correo: existe solo porque Firebase Auth
+ * necesita un email como identificador.
+ */
 const CHOFER_DOMAIN = '@explora-portal.com';
 
+/** Estado inicial del formulario de usuario. */
 const FORM_VACIO = {
   nombre: '', email_1: '', email_2: '', email_3: '',
   prefijo_1: '', numero_1: '',
@@ -31,6 +107,74 @@ const FORM_VACIO = {
   cuit_chofer: '',
 };
 
+/** Cantidad de viajes finalizados que se muestran antes de "ver todos". */
+const LIMITE_FINALIZADOS = 15;
+
+/**
+ * Parsea un timestamp de forma tolerante.
+ *
+ * Conviven dos formatos en la base: ISO 8601 (lo que escribe la app TrackEx y,
+ * desde este cambio, también el cierre manual) y `toLocaleString('es-AR')` en 12h
+ * sin AM/PM, que quedó en registros históricos y que `new Date()` no puede
+ * interpretar.
+ *
+ * @param {string} valor
+ * @returns {number|null} Milisegundos desde época, o null si no es parseable.
+ */
+function msSeguroA(valor) {
+  if (!valor) return null;
+  const ms = new Date(valor).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Formatea un timestamp como 'DD/MM HH:MM'.
+ * Si no es parseable devuelve el texto original en vez de "Invalid Date".
+ *
+ * @param {string} valor
+ * @returns {string}
+ */
+function formatTsA(valor) {
+  if (!valor) return '—';
+  const ms = msSeguroA(valor);
+  if (ms === null) return String(valor);
+  return new Date(ms).toLocaleString('es-AR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/**
+ * Duración entre dos timestamps, en lenguaje natural.
+ *
+ * Devuelve '—' si alguno de los dos no es parseable, en vez de un número
+ * absurdo: es preferible no informar a informar mal.
+ *
+ * @param {string} inicio ISO 8601.
+ * @param {string} fin ISO 8601.
+ * @returns {string} 'Xh Ym', 'Ym', o '—'.
+ */
+function duracionViaje(inicio, fin) {
+  const msIni = msSeguroA(inicio);
+  const msFin = msSeguroA(fin);
+  if (msIni === null || msFin === null || msFin < msIni) return '—';
+  const min = Math.round((msFin - msIni) / 60000);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+/* =============================================================================
+ * COMPONENTE
+ * ========================================================================== */
+
+/**
+ * Pantalla de administración.
+ *
+ * @param {Object} props
+ * @param {Object} props.usuario Perfil autenticado; se usa `nombre` para dejar
+ *   registro de quién creó cada usuario y quién cerró cada viaje a mano.
+ * @param {Function} props.onVolver Callback para volver al inicio del portal.
+ */
 function Admin({ usuario, onVolver }) {
   const [usuarios, setUsuarios] = useState([]);
   const [filtroRol, setFiltroRol] = useState('todos');
@@ -49,9 +193,18 @@ function Admin({ usuario, onVolver }) {
   const [modalExport, setModalExport] = useState(false);
   const [empresaExport, setEmpresaExport] = useState('');
   const [seleccionados, setSeleccionados] = useState([]);
-  const [eliminandoMasivo, setEliminandoMasivo] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
+  const [eliminandoMasivo, setEliminandoMasivo] = useState(false);
 
+  /** ¿Está desplegado el historial de viajes finalizados? */
+  const [verFinalizados, setVerFinalizados] = useState(false);
+
+  /** ¿Se muestran todos los finalizados o solo los primeros LIMITE_FINALIZADOS? */
+  const [verTodosFinalizados, setVerTodosFinalizados] = useState(false);
+
+  /* ---------------------------------------------------------------------------
+   * Suscripciones
+   * ------------------------------------------------------------------------ */
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'usuarios_portal'), (snap) => {
       const data = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
@@ -67,6 +220,14 @@ function Admin({ usuario, onVolver }) {
     });
     return () => unsub();
   }, []);
+
+  /* ---------------------------------------------------------------------------
+   * Derivación de viajes desde los pedidos
+   *
+   * Los viajes no son una colección propia: hay que recorrer todos los pedidos y
+   * todos sus despachos. Se hace en el cuerpo del componente y no en un estado
+   * aparte para que siempre refleje el último snapshot sin sincronización extra.
+   * ------------------------------------------------------------------------ */
 
   // Viajes activos: despachos con estado_chofer en recibido/iniciado/demorado
   const viajesActivos = [];
@@ -91,16 +252,93 @@ function Admin({ usuario, onVolver }) {
     });
   });
 
+  /**
+   * Viajes finalizados, del más reciente al más antiguo.
+   *
+   * Existe porque el bloque de arriba filtra los finalizados, y hasta ahora no
+   * había NINGUNA vista del portal que los recuperara: un viaje terminado
+   * desaparecía de la pantalla sin dejar rastro.
+   */
+  const viajesFinalizados = [];
+  pedidos.forEach(p => {
+    (p.despachos || []).forEach((d, i) => {
+      if ((d.estado_chofer || '') !== 'finalizado') return;
+      viajesFinalizados.push({
+        docId: p.docId,
+        pedidoId: p.id,
+        despachoIdx: i,
+        uid: p.id + '-D' + (i + 1),
+        chofer: d.chofer || 'Sin nombre',
+        dni_chofer: d.dni_chofer || '',
+        transporte: d.transporte || '',
+        producto: p.producto,
+        cliente: p.cliente,
+        ov: p.ov,
+        fecha_carga: d.fecha_carga || '',
+        patente_tractor: d.patente_tractor || '',
+        chofer_inicio_ts: d.chofer_inicio_ts || '',
+        chofer_fin_ts: d.chofer_fin_ts || '',
+        gps_estado: d.gps_estado || '',
+        // Cantidad de puntos de la traza. Sirve para detectar de un vistazo si el
+        // seguimiento funcionó: un viaje largo con 0 puntos es una señal de que
+        // el GPS del chofer no está registrando.
+        puntosGps: (p[`gps_track_${i}`] || []).length,
+        finalizado_manual: !!d.finalizado_manual,
+        finalizado_por: d.finalizado_por || '',
+      });
+    });
+  });
+  // Orden descendente por fin de viaje. Si el timestamp no es parseable (formato
+  // local de registros históricos), se cae a la fecha de carga.
+  viajesFinalizados.sort((a, b) => {
+    const msA = msSeguroA(a.chofer_fin_ts) ?? msSeguroA(a.fecha_carga) ?? 0;
+    const msB = msSeguroA(b.chofer_fin_ts) ?? msSeguroA(b.fecha_carga) ?? 0;
+    return msB - msA;
+  });
+
+  const finalizadosVisibles = verTodosFinalizados
+    ? viajesFinalizados
+    : viajesFinalizados.slice(0, LIMITE_FINALIZADOS);
+
+  /* ---------------------------------------------------------------------------
+   * Acciones sobre viajes
+   * ------------------------------------------------------------------------ */
+
+  /**
+   * Cierra manualmente un viaje que el chofer no cerró desde la app.
+   *
+   * Limpia las coordenadas de "última posición" porque el camión ya no está en
+   * viaje y no corresponde seguir mostrándolo en el mapa en vivo. NO toca la
+   * traza `gps_track_{i}`, que es el historial del recorrido y debe conservarse.
+   *
+   * El timestamp se escribe en ISO 8601. Antes se usaba `toLocaleString('es-AR')`,
+   * que genera un texto en 12 horas sin AM/PM: ambiguo, no ordenable, y que
+   * `new Date()` no puede parsear. Como la app escribe este mismo campo en ISO,
+   * convivían dos formatos incompatibles y la pantalla de Seguimiento mostraba
+   * "Invalid Date" para todo viaje cerrado a mano.
+   *
+   * @param {Object} v Viaje activo a cerrar.
+   */
   async function finalizarViaje(v) {
     if (!window.confirm(`¿Finalizar manualmente el viaje de ${v.chofer}?\nEsto limpiará el estado GPS y marcará el viaje como finalizado.`)) return;
     setFinalizando(v.uid);
     try {
       const pedido = pedidos.find(p => p.docId === v.docId);
       const nuevosDespachos = [...pedido.despachos];
+      const ahoraISO = new Date().toISOString();
       nuevosDespachos[v.despachoIdx] = {
         ...nuevosDespachos[v.despachoIdx],
         estado_chofer: 'finalizado',
-        chofer_fin_ts: new Date().toLocaleString('es-AR'),
+        estado_chofer_ts: ahoraISO,
+        chofer_fin_ts: ahoraISO,
+        // Trazabilidad: distingue un cierre administrativo de uno hecho por el
+        // chofer. Si un chofer nunca cierra sus viajes, es un problema de uso de
+        // la app que conviene poder detectar.
+        finalizado_manual: true,
+        finalizado_por: usuario?.nombre || 'Admin',
+        finalizado_en: ahoraISO,
+        // Última posición: se limpia porque el viaje terminó. La traza completa
+        // vive en `gps_track_{i}` a nivel del documento y no se toca.
         gps_lat: null,
         gps_lng: null,
         gps_ts: null,
@@ -116,9 +354,31 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
+  /* ---------------------------------------------------------------------------
+   * Importación y exportación de choferes
+   * ------------------------------------------------------------------------ */
+
+  /**
+   * Importa choferes desde un Excel, creando la cuenta de Auth y el documento.
+   *
+   * Formato esperado por columna: 0 número de orden, 1 nombre, 3 DNI, 4 CUIT,
+   * 5 empresa, 6 contraseña (opcional). Las filas se detectan por tener un número
+   * en la columna 0, lo que descarta encabezados y filas sueltas sin depender de
+   * que el archivo tenga siempre la misma cantidad de líneas de título.
+   *
+   * Si el archivo no trae contraseña se genera una con el patrón
+   * `Nombre` + `2026`, que es fácil de dictar por teléfono.
+   *
+   * Los errores se acumulan por fila en vez de abortar: que un chofer falle no
+   * debe impedir que se creen los otros cuarenta.
+   *
+   * @param {Event} e Evento change del input file.
+   */
   async function importarChoferes(e) {
     const file = e.target.files[0];
     if (!file) return;
+    // Se limpia el input para que volver a elegir el mismo archivo dispare el
+    // evento de nuevo.
     e.target.value = '';
     setImportando(true);
     setResultadoImport(null);
@@ -166,10 +426,22 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
+  /** Empresas transportistas que tienen al menos un chofer cargado. */
   function empresasDisponibles() {
     return [...new Set(usuarios.filter(u => u.rol === 'chofer' && u.empresa).map(u => u.empresa))].sort();
   }
 
+  /**
+   * Descarga un CSV con los choferes, opcionalmente filtrados por empresa.
+   *
+   * Incluye `password_visible` porque es el mecanismo por el que se le entregan
+   * las credenciales al chofer: no tiene email para recuperarlas.
+   *
+   * Las comillas se duplican según el estándar CSV, para que un nombre con comas
+   * no rompa la estructura del archivo.
+   *
+   * @param {string} empresa Empresa a filtrar, o cadena vacía para todas.
+   */
   function descargarChoferes(empresa) {
     const choferesFiltrados = usuarios.filter(u =>
       u.rol === 'chofer' && (!empresa || u.empresa === empresa)
@@ -186,19 +458,31 @@ function Admin({ usuario, onVolver }) {
     const a = document.createElement('a');
     const nombre = empresa ? empresa.replace(/\s+/g, '_') : 'todos';
     a.href = url; a.download = `choferes_${nombre}.csv`; a.click();
+    // Liberar el object URL: si no, el blob queda en memoria hasta recargar.
     URL.revokeObjectURL(url);
     setModalExport(false);
   }
 
+  /** Abre el modal de exportación con el filtro en blanco. */
   function exportarChoferes() {
     setEmpresaExport('');
     setModalExport(true);
   }
 
+  /* ---------------------------------------------------------------------------
+   * Formulario de usuario
+   * ------------------------------------------------------------------------ */
+
+  /**
+   * Genera un handler de cambio para un campo del formulario.
+   * @param {string} field Nombre del campo.
+   * @returns {Function} Handler de onChange.
+   */
   function f(field) {
     return e => setForm(prev => ({ ...prev, [field]: e.target.value }));
   }
 
+  /** Abre el formulario en blanco para crear un usuario nuevo. */
   function abrirNuevo() {
     setEditando(null);
     setCredencialCreada(null);
@@ -208,6 +492,14 @@ function Admin({ usuario, onVolver }) {
     setVista('form');
   }
 
+  /**
+   * Abre el formulario precargado para editar un usuario.
+   *
+   * `email_1` se completa con `u.email` como respaldo: los usuarios más viejos
+   * guardaban un solo campo `email` antes de que existieran los tres.
+   *
+   * @param {Object} u Usuario a editar.
+   */
   function abrirEditar(u) {
     setEditando(u);
     setCredencialCreada(null);
@@ -236,6 +528,10 @@ function Admin({ usuario, onVolver }) {
     setVista('form');
   }
 
+  /**
+   * Copia las credenciales al portapapeles con un texto listo para WhatsApp.
+   * El mensaje difiere según el rol porque el chofer ingresa por otra pantalla.
+   */
   function copiarCredencial() {
     if (!credencialCreada) return;
     let texto;
@@ -248,6 +544,14 @@ function Admin({ usuario, onVolver }) {
     alert('✓ Credenciales copiadas al portapapeles.');
   }
 
+  /**
+   * Envía un email de recuperación de contraseña.
+   *
+   * No funciona para choferes: su email es sintético y no existe como buzón. Por
+   * eso el botón que la invoca se muestra solo cuando `esEmailPassword` da true.
+   *
+   * @param {Object} u Usuario.
+   */
   async function generarResetLink(u) {
     const email = u.email_1 || u.email;
     if (!email) { alert('El usuario no tiene email registrado.'); return; }
@@ -264,6 +568,21 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
+  /**
+   * Crea o actualiza un usuario.
+   *
+   * En ALTA: crea la cuenta en Auth con la instancia secundaria, cierra esa
+   * sesión enseguida para no desplazar la del admin, y escribe el documento en
+   * `usuarios_portal` usando el UID como ID. Esa correspondencia entre UID y ID
+   * de documento es importante: la app resuelve el perfil del chofer con
+   * `getDoc(usuarios_portal/{uid})`.
+   *
+   * En EDICIÓN: el email no se puede cambiar (está en `disabled`), porque
+   * cambiarlo en Firestore no lo cambiaría en Auth y el usuario quedaría con dos
+   * identidades distintas.
+   *
+   * @param {Event} e Evento submit.
+   */
   async function guardar(e) {
     e.preventDefault();
     const esChofer = form.rol === 'chofer';
@@ -275,6 +594,7 @@ function Admin({ usuario, onVolver }) {
     if (!editando && form.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
     if (editando && form.nueva_password && form.nueva_password.length < 6) { alert('La nueva contraseña debe tener al menos 6 caracteres.'); return; }
 
+    // El chofer se autentica con un email sintético derivado de su DNI.
     const emailAuth = esChofer
       ? form.dni.trim().replace(/\D/g, '') + CHOFER_DOMAIN
       : form.email_1;
@@ -304,12 +624,17 @@ function Admin({ usuario, onVolver }) {
       if (editando) {
         await updateDoc(doc(db, 'usuarios_portal', editando.docId), datos);
         if (form.nueva_password) {
+          // El cambio de contraseña no se hace directo: se dispara el flujo de
+          // recuperación por email, que es el único camino seguro desde el
+          // cliente sin privilegios de administrador de Auth.
           try {
             await sendPasswordResetEmail(auth, form.email_1);
             const textoWpp = `Portal Explora — Nueva contraseña\nUsuario: ${form.email_1}\nSe enviará un email de recuperación para que puedas establecer tu nueva contraseña.\nAcceso: https://portal-ivory-zeta.vercel.app`;
             navigator.clipboard.writeText(textoWpp);
             alert('✓ Usuario actualizado.\nSe envió un email de recuperación de contraseña al usuario.\nEl mensaje fue copiado al portapapeles para enviarlo por WhatsApp.');
           } catch (errReset) {
+            // Los datos ya se guardaron: se informa el fallo del reset sin
+            // hacerle creer al admin que se perdió la edición.
             alert('✓ Datos actualizados, pero hubo un error al enviar el reset de contraseña: ' + errReset.message);
           }
         } else {
@@ -318,7 +643,10 @@ function Admin({ usuario, onVolver }) {
         setVista('lista');
       } else {
         const cred = await createUserWithEmailAndPassword(secondaryAuth, emailAuth, form.password);
+        // Cerrar la sesión secundaria enseguida: la principal (la del admin) no
+        // se ve afectada porque es otra instancia de Firebase.
         await secondaryAuth.signOut();
+        // El ID del documento ES el UID de Auth. La app depende de esto.
         await setDoc(doc(db, 'usuarios_portal', cred.user.uid), {
           uid: cred.user.uid,
           email: emailAuth,
@@ -345,11 +673,27 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
+  /**
+   * Activa o desactiva un usuario.
+   *
+   * Un usuario inactivo deja de aparecer como opción asignable, pero conserva su
+   * cuenta de Auth y todo su historial: es una baja lógica, no física.
+   *
+   * @param {Object} u Usuario.
+   */
   async function toggleEstado(u) {
     const nuevoEstado = u.estado === 'activo' ? 'inactivo' : 'activo';
     await updateDoc(doc(db, 'usuarios_portal', u.docId), { estado: nuevoEstado });
   }
 
+  /**
+   * Elimina los usuarios seleccionados de Firestore.
+   *
+   * IMPORTANTE: solo borra el documento, no la cuenta de Firebase Auth — eso
+   * requiere privilegios de administrador que el cliente no tiene. El usuario
+   * podría seguir autenticándose, aunque sin perfil quedaría fuera del portal.
+   * Por eso la confirmación lo advierte explícitamente.
+   */
   async function eliminarSeleccionados() {
     if (seleccionados.length === 0) return;
     if (!window.confirm(`¿Eliminar ${seleccionados.length} usuario(s) de Firestore?\n\nRecordá eliminarlos también de Firebase Authentication desde la consola.`)) return;
@@ -367,16 +711,27 @@ function Admin({ usuario, onVolver }) {
     }
   }
 
+  /** Marca o desmarca un usuario en la selección múltiple. @param {string} docId */
   function toggleSeleccion(docId) {
     setSeleccionados(prev => prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]);
   }
 
+  /**
+   * Elimina un usuario individual. Misma salvedad que `eliminarSeleccionados`:
+   * la cuenta de Auth sobrevive.
+   * @param {Object} u Usuario.
+   */
   async function eliminarUsuario(u) {
     if (!window.confirm(`¿Eliminar a ${u.nombre}? Esta acción no se puede deshacer.\n\nNota: el usuario será eliminado del portal. Para eliminarlo completamente de Firebase Authentication, hacelo desde la consola de Firebase.`)) return;
     await deleteDoc(doc(db, 'usuarios_portal', u.docId));
     alert('✓ Usuario eliminado del portal.');
   }
 
+  /* ---------------------------------------------------------------------------
+   * Presentación
+   * ------------------------------------------------------------------------ */
+
+  /** Colores de la insignia de rol. */
   const rolColors = {
     admin:         { bg: '#1D1D1D', color: '#fff' },
     coordinador:   { bg: '#E1F5EE', color: '#085041' },
@@ -385,27 +740,50 @@ function Admin({ usuario, onVolver }) {
     chofer:        { bg: '#EAF3DE', color: '#27500A' },
   };
 
+  /** Colores de la insignia de estado del viaje. */
   const estadoChoferColors = {
-    recibido: { bg: '#EFF6FF', color: '#1D4ED8' },
-    iniciado: { bg: '#E1F5EE', color: '#085041' },
-    demorado: { bg: '#FAEEDA', color: '#633806' },
-  };
-  const estadoChoferLabel = {
-    recibido: 'Viaje recibido',
-    iniciado: 'En ruta',
-    demorado: 'Demorado',
+    recibido:   { bg: '#EFF6FF', color: '#1D4ED8' },
+    iniciado:   { bg: '#E1F5EE', color: '#085041' },
+    demorado:   { bg: '#FAEEDA', color: '#633806' },
+    finalizado: { bg: '#F3F4F6', color: '#374151' },
   };
 
+  /** Etiquetas de estado del viaje. */
+  const estadoChoferLabel = {
+    recibido:   'Viaje recibido',
+    iniciado:   'En ruta',
+    demorado:   'Demorado',
+    finalizado: 'Entregado',
+  };
+
+  /**
+   * Arma un teléfono legible a partir del prefijo y el número.
+   * @returns {string|null} null si no hay ningún dato, para poder omitir el campo.
+   */
   function telFormateado(pre, num) {
     if (!pre && !num) return null;
     if (pre && num) return `(${pre}) ${num}`;
     return pre || num;
   }
 
+  /**
+   * ¿Este usuario puede recuperar su contraseña por email?
+   *
+   * Los `@explora.com.ar` entran con Google, así que el reset por email no
+   * aplica: su contraseña la maneja Google. El resto —incluidos los choferes con
+   * su email sintético— usa email y contraseña.
+   *
+   * @param {Object} u Usuario.
+   * @returns {boolean}
+   */
   function esEmailPassword(u) {
     const email = u.email_1 || u.email || '';
     return !email.endsWith('@explora.com.ar');
   }
+
+  /* ===========================================================================
+   * RENDER
+   * ======================================================================== */
 
   return (
     <div style={styles.wrap}>
@@ -417,6 +795,7 @@ function Admin({ usuario, onVolver }) {
         <button style={styles.btnVolver} onClick={onVolver}>← Inicio</button>
       </div>
 
+      {/* Modal de exportación de choferes a CSV */}
       {modalExport && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: '1.5rem', maxWidth: 380, width: '100%' }}>
@@ -450,12 +829,16 @@ function Admin({ usuario, onVolver }) {
           <div style={styles.panelHeader}>
             <h2 style={styles.titulo}>Usuarios del portal</h2>
             <button style={styles.btnPrimary} onClick={abrirNuevo}>+ Nuevo usuario</button>
+            {/* El input file va oculto dentro del label: los navegadores no
+                permiten estilar el botón nativo de selección de archivo. */}
             <label style={{ padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {importando ? 'Importando...' : '📥 Importar choferes'}
               <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={importarChoferes} disabled={importando} />
             </label>
             <button style={{ padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, cursor: 'pointer' }} onClick={exportarChoferes}>📤 Exportar choferes</button>
           </div>
+
+          {/* Cantidad de usuarios por rol */}
           <div style={styles.metrics}>
             {['admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(rol => (
               <div key={rol} style={styles.metric}>
@@ -500,6 +883,76 @@ function Admin({ usuario, onVolver }) {
             </div>
           )}
 
+          {/* ══ VIAJES FINALIZADOS ══
+              Va colapsado por defecto: es información de consulta, no de acción,
+              y esta pantalla es principalmente de gestión de usuarios. */}
+          {viajesFinalizados.length > 0 && (
+            <div style={styles.finalizadosSection}>
+              <button style={styles.finalizadosToggle} onClick={() => setVerFinalizados(v => !v)}>
+                <span style={styles.finalizadosTitulo}>
+                  ✓ Viajes finalizados — {viajesFinalizados.length}
+                </span>
+                <span style={{ fontSize: 11, color: '#6B7280' }}>{verFinalizados ? '▲ Ocultar' : '▼ Ver'}</span>
+              </button>
+
+              {verFinalizados && (
+                <div style={{ marginTop: 10 }}>
+                  <p style={styles.finalizadosDesc}>
+                    Historial de viajes cerrados. El recorrido completo se ve en Seguimiento → Historial.
+                  </p>
+
+                  {finalizadosVisibles.map(v => (
+                    <div key={v.uid} style={styles.viajeCard}>
+                      <div style={styles.viajeHeader}>
+                        <span style={{ ...styles.pill, background: estadoChoferColors.finalizado.bg, color: estadoChoferColors.finalizado.color }}>
+                          Entregado
+                        </span>
+                        <span style={styles.viajeChofer}>{v.chofer}</span>
+                        {/* Distinguir el cierre administrativo del cierre del chofer:
+                            si un chofer nunca cierra sus viajes, conviene saberlo. */}
+                        {v.finalizado_manual && (
+                          <span style={styles.badgeManual} title={v.finalizado_por ? 'Cerrado por ' + v.finalizado_por : ''}>
+                            Cierre manual
+                          </span>
+                        )}
+                        <span style={styles.viajeId}>{v.pedidoId}</span>
+                      </div>
+                      <div style={styles.viajeGrid}>
+                        <div style={styles.field}><span style={styles.label}>Cliente</span><span>{v.cliente}</span></div>
+                        <div style={styles.field}><span style={styles.label}>Transportista</span><span>{v.transporte || '—'}</span></div>
+                        <div style={styles.field}><span style={styles.label}>Inicio</span><span>{formatTsA(v.chofer_inicio_ts)}</span></div>
+                        <div style={styles.field}><span style={styles.label}>Fin</span><span>{formatTsA(v.chofer_fin_ts)}</span></div>
+                        <div style={styles.field}><span style={styles.label}>Duración</span><span>{duracionViaje(v.chofer_inicio_ts, v.chofer_fin_ts)}</span></div>
+                        {/* Sin puntos de traza el viaje no aparece en el historial
+                            de Seguimiento, que exige al menos dos. Marcarlo acá
+                            permite detectar los choferes cuyo GPS no registra. */}
+                        <div style={styles.field}>
+                          <span style={styles.label}>Traza GPS</span>
+                          <span style={{ color: v.puntosGps >= 2 ? '#085041' : '#9A3412' }}>
+                            {v.puntosGps >= 2
+                              ? `${v.puntosGps} puntos`
+                              : v.gps_estado === 'sin_permiso' ? 'Sin permiso'
+                              : v.gps_estado === 'solo_primer_plano' ? 'Solo app abierta'
+                              : 'Sin registro'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {viajesFinalizados.length > LIMITE_FINALIZADOS && (
+                    <button style={styles.btnVerMas} onClick={() => setVerTodosFinalizados(v => !v)}>
+                      {verTodosFinalizados
+                        ? '▲ Mostrar solo los últimos ' + LIMITE_FINALIZADOS
+                        : `▼ Ver los ${viajesFinalizados.length} viajes`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Barra de acciones de la selección múltiple */}
           {seleccionados.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: '#FEF2F2', border: '0.5px solid #FECACA', borderRadius: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 13, color: '#A32D2D', flex: 1 }}>{seleccionados.length} usuario(s) seleccionado(s)</span>
@@ -511,6 +964,8 @@ function Admin({ usuario, onVolver }) {
                 onClick={() => setSeleccionados([])}>Cancelar</button>
             </div>
           )}
+
+          {/* Resultado de la última importación */}
           {resultadoImport && (
             <div style={{ padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '0.5px solid #5DCAA5', marginBottom: 10, fontSize: 13 }}>
               <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>✓ Importación completada</div>
@@ -519,6 +974,8 @@ function Admin({ usuario, onVolver }) {
               <button style={{ fontSize: 11, marginTop: 6, padding: '3px 10px', borderRadius: 6, border: '0.5px solid #E5E7EB', background: '#fff', cursor: 'pointer' }} onClick={() => setResultadoImport(null)}>Cerrar</button>
             </div>
           )}
+
+          {/* Filtro por rol y buscador */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }} id="filtros-bar">
             {['todos', 'admin', 'coordinador', 'comercial', 'transportista', 'chofer'].map(r => (
               <button key={r} style={{ padding: '5px 14px', borderRadius: 20, border: '0.5px solid #E5E7EB', background: filtroRol === r ? '#FDECEA' : '#fff', color: filtroRol === r ? '#C8102E' : '#6B7280', fontSize: 12, fontWeight: filtroRol === r ? 500 : 400, cursor: 'pointer', borderColor: filtroRol === r ? '#C8102E' : '#E5E7EB' }}
@@ -568,6 +1025,8 @@ function Admin({ usuario, onVolver }) {
                 </div>
                 <div style={styles.cardActions}>
                   <button style={styles.btnEditar} onClick={() => abrirEditar(u)}>✏️ Editar</button>
+                  {/* El reset por email no se ofrece a los usuarios de Google:
+                      su contraseña la maneja Google, no este portal. */}
                   {esEmailPassword(u) && (
                     <button style={styles.btnReset} onClick={() => generarResetLink(u)} disabled={generandoLink}>
                       🔑 Reset contraseña
@@ -595,6 +1054,9 @@ function Admin({ usuario, onVolver }) {
             <button style={styles.btnVolver} onClick={() => { setVista('lista'); setCredencialCreada(null); }}>← Volver</button>
           </div>
 
+          {/* Credenciales recién creadas. Es la ÚNICA vez que se muestra la
+              contraseña en claro para usuarios que no son chofer, por eso el
+              banner reemplaza al formulario en lugar de aparecer al costado. */}
           {credencialCreada && (
             <div style={styles.credencialBanner}>
               <div style={styles.credencialTitulo}>✓ Usuario creado correctamente</div>
@@ -641,6 +1103,9 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
 
+              {/* Emails. Deshabilitados para choferes: su email es sintético y se
+                  deriva del DNI. Y no editables en modo edición, porque cambiar
+                  el email en Firestore no lo cambiaría en Firebase Auth. */}
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Emails</div>
                 <div style={styles.grid2}>
@@ -663,6 +1128,7 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
 
+              {/* Tres teléfonos, generados en bucle para no repetir el bloque. */}
               <div style={styles.seccion}>
                 <div style={styles.seccionTitulo}>Teléfonos / WhatsApp</div>
                 {[1, 2, 3].map(n => (
@@ -684,6 +1150,7 @@ function Admin({ usuario, onVolver }) {
                 ))}
               </div>
 
+              {/* Contraseña inicial: solo en alta. */}
               {!editando && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Contraseña de acceso</div>
@@ -703,6 +1170,8 @@ function Admin({ usuario, onVolver }) {
                 </div>
               )}
 
+              {/* Cambio de contraseña: solo en edición y solo para usuarios que
+                  se autentican con email y contraseña. */}
               {editando && esEmailPassword(editando) && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Cambiar contraseña</div>
@@ -756,6 +1225,7 @@ function Admin({ usuario, onVolver }) {
                 </div>
               </div>
 
+              {/* Campos específicos según el rol elegido. */}
               {(form.rol === 'transportista' || form.rol === 'admin') && (
                 <div style={styles.seccion}>
                   <div style={styles.seccionTitulo}>Datos empresa</div>
@@ -818,7 +1288,17 @@ function Admin({ usuario, onVolver }) {
   );
 }
 
+/* =============================================================================
+ * ESTILOS
+ *
+ * Objeto plano de estilos en línea, siguiendo la convención del resto del portal.
+ * Paleta institucional: #C8102E (rojo Explora), #0F6E56 (verde).
+ *
+ * Los viajes activos van en tonos ámbar (requieren atención) y los finalizados en
+ * grises (información de consulta, ya cerrada).
+ * ========================================================================== */
 const styles = {
+  // --- Contenedor y barra superior ---
   wrap: { maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '0.5px solid #E5E7EB', marginBottom: '1.5rem' },
   logoArea: { display: 'flex', alignItems: 'center', gap: 8 },
@@ -827,11 +1307,15 @@ const styles = {
   panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' },
   titulo: { fontSize: 18, fontWeight: 500, color: '#111827' },
   btnPrimary: { padding: '8px 16px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+
+  // --- Métricas ---
   metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10, marginBottom: '1.5rem' },
   metric: { background: '#F9FAFB', borderRadius: 8, padding: '12px 14px' },
   metricLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4, textTransform: 'capitalize' },
   metricValue: { fontSize: 20, fontWeight: 500 },
   empty: { textAlign: 'center', padding: '2rem', color: '#9CA3AF', fontSize: 13 },
+
+  // --- Viajes activos (ámbar: requieren atención) ---
   viajesSection: { marginBottom: '1.5rem', padding: '14px', background: '#FFF7ED', border: '0.5px solid #FCD34D', borderRadius: 12 },
   viajesTitulo: { fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 4 },
   viajesDesc: { fontSize: 12, color: '#B45309', marginBottom: 12 },
@@ -842,6 +1326,16 @@ const styles = {
   viajeId: { fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' },
   viajeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 10 },
   btnFinalizarViaje: { padding: '7px 14px', borderRadius: 8, border: 'none', background: '#0F6E56', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' },
+
+  // --- Viajes finalizados (gris: consulta, ya cerrado) ---
+  finalizadosSection: { marginBottom: '1.5rem', padding: '12px 14px', background: '#F9FAFB', border: '0.5px solid #E5E7EB', borderRadius: 12 },
+  finalizadosToggle: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', border: 'none', background: 'none', cursor: 'pointer', padding: 0 },
+  finalizadosTitulo: { fontSize: 13, fontWeight: 600, color: '#374151' },
+  finalizadosDesc: { fontSize: 12, color: '#6B7280', marginBottom: 12, marginTop: 0 },
+  badgeManual: { fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', border: '0.5px solid #F59E0B', flexShrink: 0 },
+  btnVerMas: { width: '100%', padding: '7px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
+
+  // --- Tarjeta de usuario ---
   card: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#F9FAFB', flexWrap: 'wrap' },
   pill: { fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0, textTransform: 'capitalize' },
@@ -857,6 +1351,8 @@ const styles = {
   btnReset: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', color: '#6B7280', fontSize: 12, cursor: 'pointer' },
   btnToggle: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#fff', fontSize: 12, cursor: 'pointer' },
   btnEliminar: { padding: '6px 12px', borderRadius: 8, border: '0.5px solid #FECACA', background: '#FEF2F2', color: '#A32D2D', fontSize: 12, cursor: 'pointer' },
+
+  // --- Formulario ---
   form: { background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.5rem' },
   seccion: { marginBottom: '1.5rem' },
   seccionTitulo: { fontSize: 12, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10, paddingBottom: 6, borderBottom: '0.5px solid #F3F4F6' },
@@ -874,6 +1370,8 @@ const styles = {
   resetInfo: { background: '#FFFBEB', border: '0.5px solid #FCD34D', borderRadius: 8, padding: '10px 12px', marginBottom: 12 },
   resetInfoText: { fontSize: 12, color: '#92400E' },
   btnResetDirecto: { padding: '8px 14px', borderRadius: 8, border: '0.5px solid #E5E7EB', background: '#F9FAFB', color: '#374151', fontSize: 12, cursor: 'pointer' },
+
+  // --- Banner de credenciales creadas ---
   credencialBanner: { background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' },
   credencialTitulo: { fontSize: 14, fontWeight: 600, color: '#085041', marginBottom: 12 },
   credencialFila: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 },
