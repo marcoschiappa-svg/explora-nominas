@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.explora.trackex",
-      "versionCode": 3,
+      "versionCode": 3, //version code queda obsoleto, la version del codigo se calcula remotamente segun eas.json
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
