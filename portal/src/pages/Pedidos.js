@@ -494,7 +494,8 @@ function Pedidos({ usuario, onVolver }) {
           creado_por_email: pedidoEditando.creado_por_email||usuario?.email||'',
           despachos: despachosAnteriores.map(d => ({ ...d, estado: 'En espera' })),
         });
-        const payload = { accion: 'editar_pedido', id: pedidoEditando.id, editado_por: usuario?.nombre||'', editado_en: ahora, estado_anterior: pedidoEditando.estado, tenia_programacion: despachosAnteriores.length > 0, tipo: form.tipo, producto: form.producto, volumen: parseFloat(form.volumen), cliente: form.cliente, ov, fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria, lugar, obs: form.obs||'', email_transportista: despachosAnteriores[0]?.email_transportista||'', transporte: despachosAnteriores[0]?.transporte||'' };
+        const emailsTransportistas = [...new Set(despachosAnteriores.flatMap(d => [d.email_transportista, ...(d.emails_extra || [])]).filter(Boolean))].join(',');
+        const payload = { accion: 'editar_pedido', id: pedidoEditando.id, editado_por: usuario?.nombre||'', editado_en: ahora, estado_anterior: pedidoEditando.estado, tenia_programacion: despachosAnteriores.length > 0, tipo: form.tipo, producto: form.producto, volumen: parseFloat(form.volumen), cliente: form.cliente, ov, fecha_entrega: form.fecha_entrega, banda_horaria: form.banda_horaria, lugar, obs: form.obs||'', email_transportista: emailsTransportistas, transporte: despachosAnteriores[0]?.transporte||'' };
         await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
         alert(`✓ Pedido ${pedidoEditando.id} actualizado.`);
         setPedidoEditando(null);
@@ -537,7 +538,8 @@ function Pedidos({ usuario, onVolver }) {
     if (!motivo) return;
     const despachosAnteriores = p.despachos||[];
     await updateDoc(doc(db, 'pedidos_portal', p.docId), { estado: 'Suspendido', suspendido_por: usuario?.nombre||'', suspendido_en: new Date().toLocaleString('es-AR'), motivo_suspension: motivo });
-    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre||'', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: despachosAnteriores[0]?.email_transportista||'', transporte: despachosAnteriores[0]?.transporte||'' };
+    const emailsTransportistas = [...new Set(despachosAnteriores.flatMap(d => [d.email_transportista, ...(d.emails_extra || [])]).filter(Boolean))].join(',');
+    const payload = { accion: 'suspender_pedido', id: p.id, motivo, suspendido_por: usuario?.nombre||'', estado_anterior: p.estado, tenia_programacion: despachosAnteriores.length > 0, producto: p.producto, volumen: p.volumen, cliente: p.cliente, ov: p.ov, fecha_entrega: p.fecha_entrega, lugar: p.lugar, email_transportista: emailsTransportistas, transporte: despachosAnteriores[0]?.transporte||'' };
     await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
     alert('Pedido suspendido. Se notificó a los involucrados.');
   }
