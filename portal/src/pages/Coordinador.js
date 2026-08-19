@@ -415,16 +415,39 @@ function Coordinador({ usuario, onVolver }) {
    * @param {string} pedidoId
    * @param {string} docId ID del transportista en `usuarios_portal`.
    */
-  function seleccionarTransportista(key, pedidoId, docId) {
+  /**
+   * Punto ÚNICO de verdad para los datos de contacto del transporte.
+   * Resuelve mail, CUIT y teléfonos desde la ficha en `usuarios_portal`.
+   * Cualquier camino de asignación debe pasar por acá, para que ningún
+   * selector de la UI pueda guardar un transporte sin su correo.
+   *
+   * @param {string} docId ID del transportista en `usuarios_portal`.
+   * @returns {object|null} Datos de contacto, o null si no se encuentra.
+   */
+  function resolverContactoTransportista(docId) {
     const t = transportistas.find(x => x.docId === docId);
-    if (!t) { setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
+    if (!t) return null;
     const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
     const telefonos = [
       t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
       t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
       t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
     ].filter(Boolean);
-    setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa || t.nombre, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
+    return {
+      transporte_id: t.docId,
+      transporte: t.empresa || t.nombre,
+      emails,
+      email_transportista: emails[0] || '',
+      emails_extra: emails.slice(1),
+      telefonos,
+      cuit_transporte: t.cuit_empresa || '',
+    };
+  }
+
+  function seleccionarTransportista(key, pedidoId, docId) {
+    const c = resolverContactoTransportista(docId);
+    if (!c) { setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
+    setAsignando(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: c.transporte_id, transporte: c.transporte, email_transportista: c.email_transportista, emails_extra: c.emails_extra, telefonos: c.telefonos, cuit_transporte: c.cuit_transporte } }));
   }
 
   /**
@@ -436,15 +459,9 @@ function Coordinador({ usuario, onVolver }) {
    * @param {string} docId ID del transportista.
    */
   function seleccionarTransportistaEdit(key, docId) {
-    const t = transportistas.find(x => x.docId === docId);
-    if (!t) { setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
-    const emails = [t.email_1, t.email_2, t.email_3].filter(Boolean);
-    const telefonos = [
-      t.prefijo_1 && t.numero_1 ? `(${t.prefijo_1}) ${t.numero_1}` : null,
-      t.prefijo_2 && t.numero_2 ? `(${t.prefijo_2}) ${t.numero_2}` : null,
-      t.prefijo_3 && t.numero_3 ? `(${t.prefijo_3}) ${t.numero_3}` : null,
-    ].filter(Boolean);
-    setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: t.docId, transporte: t.empresa || t.nombre, email_transportista: emails[0] || '', emails_extra: emails.slice(1), telefonos, cuit_transporte: t.cuit_empresa || '' } }));
+    const c = resolverContactoTransportista(docId);
+    if (!c) { setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: '', transporte: '', email_transportista: '', emails_extra: [], telefonos: [] } })); return; }
+    setEditandoDespacho(prev => ({ ...prev, [key]: { ...prev[key], transporte_id: c.transporte_id, transporte: c.transporte, email_transportista: c.email_transportista, emails_extra: c.emails_extra, telefonos: c.telefonos, cuit_transporte: c.cuit_transporte } }));
   }
 
   /* ===========================================================================
@@ -470,6 +487,15 @@ function Coordinador({ usuario, onVolver }) {
     // input date y hay que normalizar la hora.
     const fSolicEd = fechaSolicitadaDe(p, ((p.despachos[despachoIdx] || {}).entrega_nro || 1) - 1);
     if (new Date(ed.fecha_carga + 'T00:00:00') > new Date(fSolicEd + 'T00:00:00')) { alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicEd + ').'); return; }
+
+    // Si se cambió el transportista en la edición, exigir que tenga correo cargado en su ficha.
+    if (ed.transporte_id && ed.transporte && ed.transporte !== (p.despachos[despachoIdx] || {}).transporte) {
+      const cEd = resolverContactoTransportista(ed.transporte_id);
+      if (cEd && cEd.emails.length === 0) {
+        alert('El transporte "' + cEd.transporte + '" no tiene ningún correo cargado en su perfil.\n\nCargá al menos un email en la ficha del transportista (módulo Usuarios) antes de reasignarlo. Sin correo, el chofer no puede ver el viaje ni recibir el aviso.');
+        return;
+      }
+    }
 
     setEnviando(true);
     try {
@@ -594,6 +620,15 @@ function Coordinador({ usuario, onVolver }) {
       alert('La fecha de carga no puede ser posterior a la fecha solicitada de la entrega (' + fSolicAe + ').'); return;
     }
     const esSinTransportista = sinTransportista(p.tipo);
+    // Si se eligió transportista al aceptar, exigir que tenga correo cargado en su ficha.
+    if (ae.transporte_id) {
+      const cAe = resolverContactoTransportista(ae.transporte_id);
+      if (!cAe) { alert('No se encontró el transportista seleccionado. Actualizá la página e intentá de nuevo.'); return; }
+      if (cAe.emails.length === 0) {
+        alert('El transporte "' + cAe.transporte + '" no tiene ningún correo cargado en su perfil.\n\nCargá al menos un email en la ficha del transportista (módulo Usuarios) antes de asignarlo. Sin correo, el chofer no puede ver el viaje en el portal ni recibir el aviso.');
+        return;
+      }
+    }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -664,7 +699,16 @@ function Coordinador({ usuario, onVolver }) {
   async function asignarTransportista(p, despachoIdx) {
     const key = p.id + '-' + despachoIdx;
     const as = asignando[key] || {};
-    if (!as.transporte) { alert('Seleccioná un transportista.'); return; }
+    if (!as.transporte_id) { alert('Seleccioná un transportista.'); return; }
+    // Fondo del arreglo: resolver SIEMPRE los datos desde la ficha del usuario,
+    // sin importar por cuál selector se eligió, y frenar si el transporte no
+    // tiene ningún correo cargado. Así ningún despacho puede nacer sin mail.
+    const c = resolverContactoTransportista(as.transporte_id);
+    if (!c) { alert('No se encontró el transportista seleccionado. Actualizá la página e intentá de nuevo.'); return; }
+    if (c.emails.length === 0) {
+      alert('El transporte "' + c.transporte + '" no tiene ningún correo cargado en su perfil.\n\nCargá al menos un email en la ficha del transportista (módulo Usuarios) antes de asignarlo. Sin correo, el chofer no puede ver el viaje en el portal ni recibir el aviso.');
+      return;
+    }
     setEnviando(true);
     try {
       const now = new Date().toLocaleString('es-AR');
@@ -673,12 +717,12 @@ function Coordinador({ usuario, onVolver }) {
       nuevosDespachos[despachoIdx] = {
         ...d,
         estado: 'Programado',
-        transporte: as.transporte,
-        transporte_id: as.transporte_id || '',
-        email_transportista: as.email_transportista || '',
-        emails_extra: as.emails_extra || [],
-        telefonos: as.telefonos || [],
-        cuit_transporte: as.cuit_transporte || '',
+        transporte: c.transporte,
+        transporte_id: c.transporte_id,
+        email_transportista: c.email_transportista,
+        emails_extra: c.emails_extra,
+        telefonos: c.telefonos,
+        cuit_transporte: c.cuit_transporte,
         asignado_por: usuario?.nombre || 'Coordinador',
         asignado_en: now,
       };
@@ -687,14 +731,14 @@ function Coordinador({ usuario, onVolver }) {
       const hayPendiente = nuevosDespachos.some(dd => dd.estado === 'Aceptado-pendiente');
       const nuevoEstadoPedido = hayPendiente ? 'prog-parcial' : 'Programado';
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos, estado: nuevoEstadoPedido });
-      const todosEmails = [as.email_transportista, ...(as.emails_extra || [])].filter(Boolean).join(',');
+      const todosEmails = c.emails.join(',');
       const payload = {
         accion: 'asignar_transportista',
         pedido_id: p.id,
         asignado_por: usuario?.nombre || 'Coordinador',
         fecha_carga: d.fecha_carga,
         horario_carga: d.horario_carga || '',
-        transporte: as.transporte,
+        transporte: c.transporte,
         email_transportista: todosEmails,
         tipo: p.tipo, producto: p.producto,
         volumen: d.volumen,
@@ -752,6 +796,7 @@ function Coordinador({ usuario, onVolver }) {
    * @param {Object} p Pedido.
    */
   async function suspender(p) {
+    if (p.estado === 'Suspendido') { alert('Este pedido ya está suspendido.'); return; }
     const motivo = prompt('Motivo de la suspensión (requerido):');
     if (!motivo) return;
     const despachosAnteriores = p.despachos || [];
@@ -1007,9 +1052,8 @@ function Coordinador({ usuario, onVolver }) {
                                       <select style={{ ...styles.input, flex: 1, fontSize: 12 }}
                                         value={asignando[p.id + '-' + (p.despachos || []).indexOf(desp)]?.transporte_id || ''}
                                         onChange={ev => {
-                                          const t = transportistas.find(x => x.docId === ev.target.value);
                                           const idx = (p.despachos || []).indexOf(desp);
-                                          setAsignando(prev => ({ ...prev, [p.id + '-' + idx]: { transporte_id: ev.target.value, transporte: t ? (t.empresa||t.nombre) : '' } }));
+                                          seleccionarTransportista(p.id + '-' + idx, p.id, ev.target.value);
                                         }}>
                                         <option value="">Seleccionar transportista...</option>
                                         {transportistas.map(t => <option key={t.docId} value={t.docId}>{t.empresa || t.nombre}</option>)}
@@ -1283,7 +1327,9 @@ function Coordinador({ usuario, onVolver }) {
               )}
 
               <div style={styles.cardActions}>
-                <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
+                {p.estado !== 'Suspendido' && (
+                  <button style={styles.btnSuspender} onClick={() => suspender(p)}>Suspender</button>
+                )}
               </div>
             </div>
           )}
