@@ -48,7 +48,17 @@ producción y sin necesitar acceso al proyecto real de Firebase.
 
 Requiere Node.js, Java 21+ y el Firebase CLI (`npm install -g firebase-tools`).
 Los archivos de configuración (`firebase.json`, `.firebaserc`,
-`firestore.rules`, `firestore.indexes.json`) ya están en este repo.
+`firestore.rules.produccion`, `firestore.indexes.json`) ya están en este repo.
+
+**El emulador corre con las reglas reales de producción**
+(`firestore.rules.produccion`), no con reglas permisivas. Esto es a
+propósito: lo que se prueba local es lo que va a pasar en producción. Si
+una operación falla con `permission-denied` en el emulador, no es un
+problema del entorno — es que las reglas la rechazan de verdad.
+
+El archivo `firestore.rules.emulador` queda en el repo solo como
+referencia histórica de las reglas permisivas que se usaban antes. No lo
+usa nadie.
 
 ```bash
 firebase emulators:start --only firestore,auth
