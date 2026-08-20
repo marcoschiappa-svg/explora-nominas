@@ -216,6 +216,92 @@ Al crear la versión (Parte D5), hay una sección **"Novedades de esta versión"
 Mantener en el repo un archivo `CHANGELOG.md` con una línea por versión (versionCode + fecha + resumen). Así queda un registro central e histórico que no depende de entrar a Play Console a mirar.
 ---
 
+## Paso 8 — Cambiar los permisos de la base de datos (reglas de Firestore)
+
+Las "reglas de Firestore" son las que deciden **quién puede ver y modificar
+cada cosa** en la base de datos. Por ejemplo: que un chofer pueda ver sus
+viajes pero no pueda modificar la lista de usuarios.
+
+Antes, estas reglas se cambiaban directamente en la página web de Firebase.
+El problema de hacerlo así es que el cambio quedaba solo ahí: nadie tenía
+registro de qué se cambió, cuándo, ni por qué, y la copia guardada en el
+proyecto podía quedar vieja sin que nadie se diera cuenta.
+
+**Desde agosto de 2026 esto cambió.** Las reglas viven en el archivo
+`portal/firestore.rules.produccion`, dentro del proyecto, y se publican
+desde ahí. Eso significa que cada cambio queda registrado en el historial,
+igual que cualquier otro cambio de la app.
+
+### Cómo se hace
+
+1. Modificar el archivo `portal/firestore.rules.produccion` siguiendo los
+   Pasos 1 a 4 de este documento (versión actualizada, rama separada,
+   commit, revisión).
+
+2. Comprobar que se va a publicar sobre el proyecto correcto:
+
+```bash
+cd portal
+firebase use
+```
+
+- Tiene que decir **`explora-portal`**. Si dice cualquier otra cosa, parar.
+
+3. Comprobar que ninguna regla quedó abierta a todo el mundo:
+
+```bash
+findstr /C:"if true" firestore.rules.produccion | findstr /V /C:"//"
+```
+
+- **No tiene que devolver ninguna línea.** Si devuelve algo, significa que
+  hay una regla que le da acceso a cualquiera a esa parte de la base de
+  datos. Parar y revisar.
+
+4. Hacer una prueba sin publicar, para verificar que el archivo no tiene
+   errores:
+
+```bash
+firebase deploy --only firestore:rules --dry-run
+```
+
+- Tiene que terminar con `Dry run complete!` y sin errores.
+
+**Antes de seguir, comprobar que:** los tres puntos anteriores dieron
+bien. Los tres, no dos de tres.
+
+5. Publicar:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+- Termina con `Deploy complete!`.
+
+6. Verificar en la consola web de Firebase (Firestore → Reglas) que
+   aparezca la versión nueva en el historial.
+
+### Lo que no hay que hacer
+
+**No editar las reglas desde la página web de Firebase.** Si se editan ahí,
+el archivo del proyecto queda desactualizado y nadie se entera — es
+exactamente el mismo tipo de problema que teníamos con las copias viejas
+del código. Si por una urgencia hubiera que tocarlas en la web, hay que
+copiar el resultado al archivo del proyecto y guardarlo enseguida.
+
+**No confundir los dos archivos de reglas.** En el proyecto hay dos:
+
+| Archivo | Para qué es |
+| --- | --- |
+| `portal/firestore.rules.produccion` | Las reglas reales. Es el que se publica. |
+| `portal/firestore.rules.emulador` | Referencia histórica. **No se usa.** |
+
+El archivo del emulador contiene reglas que le dan acceso a todo a
+cualquiera. Publicarlo por error dejaría la base de datos entera abierta.
+Por eso ninguno de los dos se llama `firestore.rules` a secas: si alguna
+configuración apunta a un nombre equivocado, el sistema falla y avisa, en
+vez de publicar lo que no corresponde.
+
+
 ## Resumen rápido (para tener a mano)
 
 1. Traer la versión más actualizada del proyecto.
@@ -225,6 +311,7 @@ Mantener en el repo un archivo `CHANGELOG.md` con una línea por versión (versi
 5. Generar el archivo nuevo **comprobando primero que el proyecto conectado es el correcto.**
 6. Subir el archivo a Google Play, escribir las novedades, y enviar a revisión.
 7. Documentar cambios
+8. Si el cambio toca los permisos de la base de datos, seguir el Paso 8.
 
 Cualquier paso marcado como "comprobar antes de seguir" que no se cumpla es motivo suficiente para frenar y pedir ayuda, en vez de continuar asumiendo que "seguramente está bien".
 

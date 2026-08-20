@@ -12,6 +12,42 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.0.3 — 20/08/2026
+
+**Las reglas de Firestore pasan a versionarse en el repo.** Hasta esta
+versión, las reglas de producción se editaban y publicaban a mano desde
+la consola web de Firebase, y el repo tenía una copia informativa que
+podía divergir sin que nadie se enterara. Además, la configuración del
+CLI apuntaba a un proyecto que no existe (`explora-portal-dev`), así que
+`firebase deploy` nunca había funcionado en este repo.
+
+- **Renombrado**: `portal/firestore.rules` → `portal/firestore.rules.emulador`
+  (queda como referencia histórica, ya no lo usa nadie).
+- **Movido**: `firestore.rules.produccion` de la raíz del repo a `portal/`,
+  donde vive `firebase.json` y donde el CLI resuelve las rutas.
+- **Modificado**: `portal/firebase.json` — la clave `firestore.rules` ahora
+  apunta a `firestore.rules.produccion`. Ningún archivo se llama
+  `firestore.rules` a secas: si algo apunta mal, el deploy falla en vez de
+  publicar reglas equivocadas.
+- **Corregido**: `portal/.firebaserc` — el proyecto pasa de
+  `explora-portal-dev` (inexistente) a `explora-portal` (el real).
+- **Modificado**: encabezado de `firestore.rules.produccion` — documenta el
+  procedimiento de publicación y las comprobaciones previas. Las reglas en
+  sí no se modificaron.
+- **Cambio de comportamiento local**: el emulador ahora usa las reglas de
+  producción en vez de las permisivas. Lo que se prueba local es lo que
+  corre en la realidad.
+
+Las reglas publicadas no cambiaron: el primer deploy por CLI fue
+deliberadamente idéntico a lo que ya estaba en producción, para validar el
+mecanismo sin alterar comportamiento.
+
+Pendiente conocido, sin resolver en esta versión: la regla de
+`pedidos_portal` sigue permitiendo lectura y escritura a cualquier usuario
+autenticado, incluidos los choferes sobre pedidos que no les corresponden.
+
+---
+
 ## v1.0.2 — 18/08/2026
 
 **El portal ahora refleja el estado del viaje del chofer.** Hasta esta

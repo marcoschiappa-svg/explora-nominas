@@ -3,14 +3,28 @@ rules_version = '2';
 // =============================================================================
 // REGLAS DE FIRESTORE — PRODUCCION (proyecto: explora-portal)
 //
-// ATENCION: estas son las reglas de la base de datos REAL.
+// Este archivo es la FUENTE DE VERDAD de las reglas de la base real.
+// Se versiona en el repo y se publica desde acá. No se edita en la consola
+// web: si alguien la edita ahí, el repo queda desactualizado en silencio.
 //
-// NO desplegar con `firebase deploy` desde la carpeta portal/. El archivo
-// portal/firestore.rules es del EMULADOR (allow read, write: if true) y
-// desplegarlo abriria la base entera a cualquiera. Las reglas de produccion se
-// editan y publican desde la consola web de Firebase.
+// COMO PUBLICAR
+//   cd portal
+//   firebase use              -> tiene que decir: explora-portal
+//   firebase deploy --only firestore:rules
 //
-// Ultima modificacion: agosto 2026 — se agrego la coleccion `app_logs`.
+// ANTES DE PUBLICAR, COMPROBAR QUE:
+//   1. `firebase use` devuelve explora-portal (no otro proyecto).
+//   2. Ninguna regla permite acceso sin condicion. Verificar con:
+//        findstr /C:"if true" firestore.rules.produccion | findstr /V /C:"//"
+//      Tiene que devolver VACIO. Si devuelve algo, PARAR: hay una regla
+//      que abre la base entera.
+//
+// El archivo firestore.rules.emulador queda en el repo solo como referencia
+// historica de las reglas permisivas. El emulador usa ESTE archivo, igual que
+// produccion, para que lo que se prueba local sea lo que corre en la realidad.
+//
+// Ultima modificacion: agosto 2026 — se versiona en el repo y se pasa a
+// publicar por firebase deploy (antes se editaba en la consola web).
 // =============================================================================
 
 service cloud.firestore {
