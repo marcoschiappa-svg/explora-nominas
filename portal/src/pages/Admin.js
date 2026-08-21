@@ -68,24 +68,24 @@
 
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { db, auth } from '../firebase';
+import { db, auth, CONFIG_ACTIVA } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 
-// Segunda instancia de Firebase solo para crear/modificar usuarios sin romper la sesión del admin
-const firebaseConfig = {
-  apiKey: "AIzaSyA_cmSLuKPVYXjgQu75varhmEBkaY0uwss",
-  authDomain: "explora-portal.firebaseapp.com",
-  projectId: "explora-portal",
-  storageBucket: "explora-portal.firebasestorage.app",
-  messagingSenderId: "871895783017",
-  appId: "1:871895783017:web:9503299046accde84774f8"
-};
+// Segunda instancia de Firebase solo para crear/modificar usuarios sin romper la
+// sesión del admin.
+//
+// IMPORTANTE: la configuración se importa de `../firebase`, no se copia acá.
+// Antes estaba hardcodeada apuntando a producción, y eso significaba que crear
+// un usuario desde el entorno de prueba creaba la cuenta de Auth en la base
+// REAL, mientras el perfil se escribía en la de prueba. Importándola, esta
+// instancia secundaria siempre apunta al mismo proyecto que el resto del portal.
+//
 // Se reutiliza la instancia si ya existe: `initializeApp` con un nombre repetido
 // lanza excepción, y este módulo puede evaluarse más de una vez en desarrollo.
-const secondaryApp  = getApps().find(a => a.name === 'secondary') || initializeApp(firebaseConfig, 'secondary');
+const secondaryApp  = getApps().find(a => a.name === 'secondary') || initializeApp(CONFIG_ACTIVA, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
 /**

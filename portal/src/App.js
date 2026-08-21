@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth } from './firebase';
+import { auth, ENTORNO } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
@@ -13,7 +13,58 @@ import Seguimiento from './pages/Seguimiento';
 import Admin from './pages/Admin';
 import Tarifario from './Tarifario';
 
-function App() {
+/**
+ * Franja de aviso que aparece arriba de todo cuando el portal NO está
+ * apuntando a la base de datos real.
+ *
+ * Existe para evitar el accidente más caro posible: creer que estás en la
+ * base de prueba y estar tocando producción, o al revés. Si no ves ninguna
+ * franja, estás en la base REAL.
+ *
+ * No se renderiza nada en producción, así que el portal real queda
+ * exactamente igual que antes.
+ */
+function FranjaEntorno() {
+  if (ENTORNO === 'produccion') return null;
+
+  const config = {
+    staging: {
+      texto: '🧪 ENTORNO DE PRUEBA — entorno-prueba-explora · Nada de lo que hagas acá afecta a producción',
+      fondo: '#7C4A12',
+    },
+    emulador: {
+      texto: '🔧 EMULADOR LOCAL — los datos viven en tu máquina y se borran al cerrar el emulador',
+      fondo: '#374151',
+    },
+  }[ENTORNO];
+
+  return (
+    <div style={{
+      background: config.fondo,
+      color: '#fff',
+      padding: '6px 16px',
+      fontSize: 12,
+      fontWeight: 600,
+      textAlign: 'center',
+      letterSpacing: '0.03em',
+      position: 'sticky',
+      top: 0,
+      zIndex: 9999,
+    }}>
+      {config.texto}
+    </div>
+  );
+}
+
+/**
+ * Contenido del portal. Es lo que antes era `App()` completo: la lógica de
+ * sesión y el ruteo entre módulos, sin ningún cambio.
+ *
+ * Se separó en su propia función porque tiene varios `return` distintos, y la
+ * franja de entorno tiene que aparecer en todos ellos — incluida la pantalla
+ * de login y la de carga.
+ */
+function Contenido() {
   const [usuario, setUsuario] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [modulo, setModulo] = useState('home');
@@ -82,6 +133,19 @@ function App() {
   }
 
   return <Home usuario={usuario} onModulo={setModulo} onLogout={handleLogout} />;
+}
+
+/**
+ * Punto de entrada del portal: la franja de entorno (si corresponde) y el
+ * contenido.
+ */
+function App() {
+  return (
+    <>
+      <FranjaEntorno />
+      <Contenido />
+    </>
+  );
 }
 
 export default App;

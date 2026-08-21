@@ -12,6 +12,67 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+
+## v1.0.4 — 21/08/2026
+
+**Entorno de prueba con datos reales.** Se agrega un tercer entorno al que
+el portal puede apuntar: un proyecto de Firebase separado
+(`entorno-prueba-explora`) con una copia de los datos de producción. Sirve
+para probar cambios que tocan la base de datos sin riesgo, en particular la
+migración del modelo de datos que viene.
+
+- **Modificado**: `src/firebase.js` — dos configuraciones de proyecto
+  (producción y prueba) y una variable de entorno que elige cuál. Nuevo
+  export `ENTORNO`. Sin `.env.local`, el portal apunta a producción
+  exactamente igual que antes de este cambio.
+- **Modificado**: `src/App.js` — franja de aviso arriba de todo cuando el
+  portal NO está apuntando a producción. En producción no se renderiza
+  nada, así que el portal real queda idéntico.
+- **Corregido**: `src/pages/Admin.js` tenía la configuración de Firebase
+  hardcodeada apuntando a producción, para la instancia secundaria que usa
+  al crear usuarios. Eso significaba que crear un usuario desde el entorno
+  de prueba habría creado la cuenta de Auth en la base REAL, mientras el
+  perfil se escribía en la de prueba. Ahora importa la configuración
+  activa, así que la instancia secundaria siempre apunta al mismo proyecto
+  que el resto del portal.
+- **Corregido**: `src/pages/Login.js` descartaba el error original del
+  login con Google y mostraba siempre el mismo mensaje genérico. Eso hacía
+  imposible distinguir "Google rechazó el login" de "Firestore rechazó la
+  lectura del perfil", que son problemas completamente distintos. Ahora el
+  código de error se registra en la consola y se incluye en el mensaje.
+- **Nuevo**: `scripts/copiar-a-staging.js` — copia las colecciones de
+  producción al entorno de prueba conservando los IDs de documento
+  (imprescindible: el ID de un documento de `usuarios_portal` ES el UID de
+  Firebase Auth). Tiene modo simulación, recorre subcolecciones, y verifica
+  el `project_id` de cada credencial antes de escribir, para que pasar las
+  claves al revés no pueda escribir sobre producción.
+- **Nuevo**: `ENTORNO_PRUEBA.md` — guía completa del entorno: cómo
+  activarlo, cómo volver a producción, cómo refrescar los datos, y qué se
+  copia y qué no.
+- **Corregido**: `.gitignore` — la regla de `firestore-debug.log` estaba
+  escrita en UTF-16 y Git no la interpretaba (se leía como caracteres
+  sueltos separados por espacios). Se reescriben los tres `.gitignore` del
+  repo en UTF-8 y se agregan reglas para las claves de cuentas de servicio
+  y para la exportación de cuentas de Auth, que contiene hashes de
+  contraseñas.
+
+Las cuentas de Firebase Auth se importaron al entorno de prueba con sus
+UIDs originales (`firebase auth:export` / `auth:import`), así que las
+credenciales de acceso son las mismas que en producción.
+
+Sin impacto en producción: sin `.env.local`, el comportamiento es idéntico
+al de la versión anterior. Se verificó arrancando el portal sin el archivo
+y confirmando que no aparece ninguna franja.
+
+Pendiente conocido, sin resolver en esta versión: la app TrackEx sigue
+apuntando siempre a producción — su configuración está hardcodeada en
+`explora-app/src/config/firebase.js`. Y `Login.js` crea su propio
+`GoogleAuthProvider` en vez de usar el que exporta `firebase.js`, así que
+la restricción de dominio `hd: 'explora.com.ar'` está configurada pero
+nunca se aplica.
+
+---
+
 ## v1.0.3 — 20/08/2026
 
 **Las reglas de Firestore pasan a versionarse en el repo.** Hasta esta

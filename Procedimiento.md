@@ -199,6 +199,29 @@ eas build --platform android --profile production
 
 **Antes de seguir, comprobar que:** no quedó ningún error pendiente en la pantalla de confirmación antes de enviar.
 
+### Después de mergear: actualizar tu copia
+
+Cuando apretás "Merge pull request" en la web, GitHub crea el commit de
+fusión **en sus servidores**, no en tu computadora. Tu copia local no se
+entera: sigue teniendo tus cambios, pero no el commit que los declara parte
+de `main`.
+
+Si no actualizás, la próxima rama que crees va a nacer de un `main` viejo —
+y ese es exactamente el problema que hace que dos personas terminen
+pisándose el trabajo.
+
+Así que después de mergear, siempre:
+
+```bash
+git checkout main
+git fetch origin
+git pull origin main
+```
+
+**Antes de seguir, comprobar que:** `git status` dice `Your branch is up to
+date with 'origin/main'` y no menciona commits pendientes en ninguna
+dirección.
+
 ## Paso 7 - Documentar qué cambió
 
 Play Console permite registrar los cambios de cada versión, y es lo que responde tu pregunta de "cómo dejar documentado qué se cambió".
