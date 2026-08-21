@@ -41,7 +41,11 @@ function Login({ onLogin }) {
       if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva. Contactá al administrador.'); await auth.signOut(); return; }
       onLogin({ uid: result.user.uid, email: result.user.email, ...perfil });
     } catch (err) {
-      setError('Error al iniciar sesión con Google. Intentá de nuevo.');
+      // El código de error se registra además de mostrarse. Descartarlo hacía
+      // imposible distinguir "Google rechazó el login" de "Firestore rechazó la
+      // lectura del perfil", que son problemas completamente distintos.
+      console.error('Login Google falló:', err?.code || err?.name || 'desconocido', err?.message || '', err);
+      setError(`Error al iniciar sesión con Google (${err?.code || 'desconocido'}). Intentá de nuevo.`);
     } finally { setCargando(false); }
   }
 

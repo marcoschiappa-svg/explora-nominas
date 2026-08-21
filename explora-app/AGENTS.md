@@ -159,7 +159,9 @@ las formas más fáciles de meter un bug silencioso en producción.
 | **Timestamps mezclados** | Conviven ISO 8601 y `toLocaleString('es-AR')` en 12h **sin AM/PM** (ambiguo y no ordenable). Todo lo nuevo va en ISO 8601. |
 | **`git status` sin `git fetch`** | No es confiable. Correr `git fetch origin` primero. |
 | **CRLF/LF en Windows** | Genera diffs espurios. `git reset --hard origin/main` es el reset confiable. |
-| **Reglas de Firestore** | Las de producción **no están versionadas**: viven solo en la consola. El `portal/firestore.rules` del repo es del emulador y no debe desplegarse nunca. |
+| **Reglas de Firestore** | Versionadas en `portal/firestore.rules.produccion` y publicadas con `firebase deploy` desde el repo (no desde la consola web). Ver `Procedimiento.md`, Paso 8. |
+| **Tres entornos de base de datos** | El portal puede apuntar a producción, al entorno de prueba (`entorno-prueba-explora`) o al emulador, según `portal/.env.local`. La app TrackEx **siempre** apunta a producción. Ver `portal/ENTORNO_PRUEBA.md`. |
+| **Codificación de archivos en Windows** | Agregar líneas con `>>` en PowerShell escribe en UTF-16 y rompe el archivo en silencio (le pasó a `.gitignore`). Editar siempre desde VS Code, guardando en UTF-8. |
 
 ---
 

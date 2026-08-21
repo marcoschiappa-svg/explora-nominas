@@ -39,3 +39,14 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Claves de cuentas de servicio de Firebase.
+# Estas SI son secretas: dan acceso total a la base ignorando todas las
+# reglas de seguridad. Se guardan fuera del repositorio, pero quedan
+# ignoradas por nombre por las dudas.
+*serviceAccount*.json
+*firebase-adminsdk*.json
+
+# Credenciales de Google Play / EAS submit.
+google-play-service-account.json
+*.keystore

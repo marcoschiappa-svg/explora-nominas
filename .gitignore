@@ -1,3 +1,48 @@
+# =============================================================================
+# .gitignore de la raiz del monorepo
+#
+# Cada subproyecto (portal/, explora-app/) tiene ademas su propio .gitignore
+# con las reglas especificas de su stack. Este archivo cubre lo que aplica a
+# todo el repositorio.
+# =============================================================================
+
+# Dependencias
+node_modules/
 portal/node_modules
+explora-app/node_modules
+
+# Despliegue
 .vercel
-.env*
+
+# Variables de entorno — nunca se suben, cada uno tiene las suyas.
+.env
+.env.*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+
+# Logs del Firebase CLI y del emulador local.
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+pubsub-debug.log
+database-debug.log
+
+# Claves de cuentas de servicio de Firebase.
+# Estas SI son secretas: dan acceso total a la base ignorando todas las
+# reglas de seguridad. Se guardan fuera del repositorio, pero quedan
+# ignoradas por nombre por las dudas.
+*serviceAccount*.json
+*firebase-adminsdk*.json
+clave-produccion.json
+clave-staging.json
+
+# Exportacion de cuentas de Firebase Auth (contiene hashes de contrasenas).
+usuarios-prod.json
+usuarios-*.json
