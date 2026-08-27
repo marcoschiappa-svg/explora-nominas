@@ -12,6 +12,19 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.0.5 — Rediseño del modelo de datos (documentación)
+
+Se descarta el enfoque de dual-write y migración incremental. El modelo nuevo
+se construye al lado del actual y los pedidos vivos terminan su ciclo donde
+están.
+
+- Nuevos: MODELO_DATOS.md (as-is), RELEVAMIENTO_PEDIDOS_PORTAL.md,
+  MODELO_DATOS_TOBE.md, COMPORTAMIENTO.md
+- Se retiran MODELO_DATOS_v2.md, PLAN_FASE_1.md y PLAN_MIGRACION.md
+- mapa-normalizacion.js: los IDs derivados del nombre se reemplazan por
+  clave_normalizada como campo de deduplicación
+- Sin cambios en el código que corre.
+
 
 ## v1.0.4 — 21/08/2026
 
