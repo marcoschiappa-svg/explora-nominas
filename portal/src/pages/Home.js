@@ -62,7 +62,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { tieneAlgunRol } from '../sesion';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { marca, colorEstado, tipografia, paletaTexto } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 
 /* -----------------------------------------------------------------------------

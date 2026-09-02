@@ -99,7 +99,7 @@
  *   respeta.
  * ========================================================================== */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { esInterno, motivoSinAcceso } from '../sesion';
@@ -324,7 +324,7 @@ export default function Pedidos({ usuario, onVolver }) {
     return principal ? domsPorId.get(principal.domicilio_id) || null : null;
   }, [orgPropia, vinculos, domsPorId]);
 
-  function domiciliosDeCliente(clienteOrgId) {
+  const domiciliosDeCliente = useCallback((clienteOrgId) => {
     if (!clienteOrgId) return [];
     return vinculos
       .filter(v => v.organizacion_id === clienteOrgId)
@@ -334,11 +334,11 @@ export default function Pedidos({ usuario, onVolver }) {
         if (!!a.principal !== !!b.principal) return a.principal ? -1 : 1;
         return textoDomicilio(a).localeCompare(textoDomicilio(b), 'es');
       });
-  }
+  }, [vinculos, domsPorId]);
 
   const domiciliosDelCliente = useMemo(
     () => domiciliosDeCliente(form.cliente_org_id),
-    [form.cliente_org_id, vinculos, domsPorId]
+    [form.cliente_org_id, domiciliosDeCliente]
   );
 
   const pedidosConEstado = useMemo(

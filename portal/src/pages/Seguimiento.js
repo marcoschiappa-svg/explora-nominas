@@ -57,7 +57,7 @@
  *   sin topbar propio (BarraSuperior ya cubre logo/volver).
  * ========================================================================== */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, where, doc, getDocs, orderBy } from 'firebase/firestore';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
@@ -260,7 +260,7 @@ function Seguimiento({ usuario, onVolver }) {
   const orgsPorId = useMemo(() => new Map(organizaciones.map(o => [o.id, o])), [organizaciones]);
   const choferesPorUid = useMemo(() => new Map(choferesInfo.map(c => [c.id, c])), [choferesInfo]);
 
-  function enriquecer(v) {
+  const enriquecer = useCallback((v) => {
     return {
       ...v,
       chofer: (choferesPorUid.get(v.chofer_uid) || {}).nombre || v.chofer_dni || 'Sin nombre',
@@ -268,10 +268,10 @@ function Seguimiento({ usuario, onVolver }) {
       transporte_key: v.transportista_org_id || 'sin_transportista',
       chofer_key: v.chofer_dni || v.chofer_uid || 'sin_chofer',
     };
-  }
+  }, [choferesPorUid, orgsPorId]);
 
-  const vivosEnriquecidos = useMemo(() => viajesVivos.map(enriquecer), [viajesVivos, choferesPorUid, orgsPorId]);
-  const historialEnriquecido = useMemo(() => viajesHistorial.map(enriquecer), [viajesHistorial, choferesPorUid, orgsPorId]);
+  const vivosEnriquecidos = useMemo(() => viajesVivos.map(enriquecer), [viajesVivos, enriquecer]);
+  const historialEnriquecido = useMemo(() => viajesHistorial.map(enriquecer), [viajesHistorial, enriquecer]);
 
   useEffect(() => {
     if (window.google) { initMap(); return; }

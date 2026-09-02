@@ -45,7 +45,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { tieneRol, miDni, motivoSinAcceso } from '../sesion';
+import { miDni, motivoSinAcceso } from '../sesion';
 import { VIAJE, ETIQUETA_VIAJE } from '../estados';
 import {
   iniciarViaje, reportarDemora, finalizarViaje,

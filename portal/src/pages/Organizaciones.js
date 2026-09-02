@@ -73,7 +73,7 @@ import { esComercial, esAdmin, motivoSinAcceso } from '../sesion';
 // así. Webpack resuelve la interoperabilidad: el import con nombres funciona.
 import { claveNormalizada, normalizarCuit } from '../mapa-normalizacion';
 import Domicilios from './Domicilios';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { colorEstado, espacio, tipografia, paletaTexto } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';

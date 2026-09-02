@@ -72,7 +72,7 @@ import {
   emailDeChofer,
   traducirErrorAuth,
 } from '../alta-usuarios';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { colorEstado, espacio, tipografia, paletaTexto } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';

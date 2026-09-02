@@ -34,7 +34,7 @@ import {
 import { db } from './firebase';
 import { enTransaccion, calcularDiferencias } from './datos';
 import {
-  DESPACHO, despachoVivo, estadoEntrega, estadoPedido, deltaContadores,
+  DESPACHO, despachoVivo, estadoEntrega, deltaContadores,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
 } from './estados';
 

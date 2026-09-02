@@ -436,19 +436,6 @@ function PedidosLegacy({ usuario, onVolver }) {
   function esFechaPasada(fecha) { const hoy = new Date(); hoy.setHours(0,0,0,0); return new Date(fecha+'T00:00:00') < hoy; }
   function fechaEsHoy(fecha) { if (!fecha) return false; const hoy = new Date(); hoy.setHours(0,0,0,0); return (new Date(fecha+'T00:00:00').getTime() - hoy.getTime()) === 0; }
   function hoyLocalISO() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().split('T')[0]; }
-  function puedeEditar(p) {
-    if (p.estado==='Suspendido'||p.estado==='Cumplido') return false;
-    const nominados = (p.despachos||[]).filter(d => d.estado==='Nominado');
-    if (nominados.length > 0) { const fc = new Date((nominados[0].fecha_carga||'')+'T00:00:00'); const hoy = new Date(); hoy.setHours(0,0,0,0); if (fc < hoy) return false; }
-    return true;
-  }
-  function abrirEditar(p) {
-    setPedidoEditando(p);
-    const ovParts = (p.ov||'OV-').split('-');
-    setForm({ tipo: p.tipo||'Entrega al cliente', producto: p.producto||'', volumen: String(p.volumen||''), recipiente: p.recipiente||'Granel', cliente: p.cliente||'', telefono_prefijo: p.telefono_prefijo||'', telefono_numero: p.telefono_numero||'', ov_tipo: ovParts[0]||'OV', ov_numero: ovParts[1]||'', fecha_entrega: p.fecha_entrega||'', banda_horaria: p.banda_horaria||'', calle: p.calle||'', numero: p.numero||'', ciudad: p.ciudad||'', provincia: p.provincia||'', cp: p.cp||'', mapsLink: p.mapsLink||'', obs: p.obs||'', adjuntos: p.adjuntos||[], archivosNuevos: [], cronograma: p.cronograma||[], volumen_entrega1: p.volumen_entrega1||'' });
-    setVista('nuevo');
-  }
-
   async function handleSubmit(e) {
     e.preventDefault();
     const requiereDireccion = form.tipo !== 'Entrega en planta';

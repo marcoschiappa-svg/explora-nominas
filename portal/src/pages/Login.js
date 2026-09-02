@@ -46,7 +46,7 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import { cargarSesion } from '../sesion';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { marca, colorEstado, radio, tipografia, paletaTexto } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 
 const CHOFER_DOMAIN = '@explora-portal.com';
