@@ -1,16 +1,66 @@
-import React, { useState } from 'react';
-import { auth, db } from '../firebase';
+/**
+ * =============================================================================
+ * Login.js — Pantalla de inicio de sesión (Portal Explora)
+ * =============================================================================
+ *
+ * PROPÓSITO
+ * Login con tres caminos: Google (cuentas internas @explora.com.ar),
+ * email + contraseña, y DNI + contraseña (choferes, con un dominio interno
+ * sintético `{dni}@explora-portal.com`).
+ *
+ * -----------------------------------------------------------------------------
+ * REDISENO -- EL SCROLL Y B1
+ * -----------------------------------------------------------------------------
+ *   EL SCROLL: `wrap` y `panel` pedian cada uno `minHeight: '100vh'`. Un
+ *   primer intento lo cambio por `flex: 1, minHeight: 0`, calcando el
+ *   arreglo de Seguimiento.js -- pero ESE arreglo depende de que TODA la
+ *   cadena de contenedores de App.js (Pagina -> Contenido -> este div)
+ *   tenga flexbox bien armado de punta a punta, y en la practica el scroll
+ *   siguio apareciendo: sin una altura definida en algun eslabon de esa
+ *   cadena, la imagen de fondo con `height: '100%'` cae a su tamaño
+ *   intrinseco (la foto entera), empuja todo hacia abajo, y aparece el
+ *   scroll que no debia estar.
+ *
+ *   Ahora `wrap` usa `position: 'fixed', inset: 0` -- Login se planta
+ *   exactamente sobre el viewport siempre, sin depender de como este
+ *   armado nada por fuera de este archivo. Mas simple y a prueba de fallos
+ *   que encadenar flex entre varios componentes. De paso tapa la barra
+ *   superior sticky (zIndex por encima de sus 9999 a proposito), asi que
+ *   ya no se ve el logo duplicado que se comento la vuelta anterior.
+ *
+ *   B1: `crearEstilos(colores, oscuro)` + `useEstilos()`, paleta rojo/azul
+ *   en vez de grises, mismo patron que el resto de las pantallas migradas.
+ *   La foto de fondo y su overlay quedan igual en los dos temas a
+ *   proposito: es una imagen de marca, no una superficie de UI.
+ *
+ *   Ninguna funcion de autenticacion cambio (loginGoogle, loginEmail,
+ *   loginChofer, resetPassword) -- solo la presentacion.
+ * ========================================================================== */
+
+import React, { useState, useMemo } from 'react';
+import { auth } from '../firebase';
 import {
   signInWithPopup,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { cargarSesion } from '../sesion';
+import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { useTema } from '../ui/TemaContext';
 
 const CHOFER_DOMAIN = '@explora-portal.com';
 
+// Un solo mensaje para "no existe" y para "existe pero está inactivo": la
+// distinción no le sirve a quien mira la pantalla, y mantenerla acá habría
+// significado que `cargarSesion` devolviera algo más que null/sesión —
+// justo lo que se quiere evitar después de tener la lógica duplicada en dos
+// lugares.
+const MENSAJE_SIN_ACCESO = 'Tu cuenta no está habilitada o está inactiva. Contactá al administrador.';
+const MENSAJE_SIN_ACCESO_CHOFER = 'Tu DNI no está habilitado o está inactivo. Contactá al transportista.';
+
 function Login({ onLogin }) {
+  const styles = useEstilos();
   const [modo, setModo] = useState('selector');
   const [email, setEmail] = useState('');
   const [dni, setDni] = useState('');
@@ -20,26 +70,14 @@ function Login({ onLogin }) {
   const [cargando, setCargando] = useState(false);
   const [resetEnviado, setResetEnviado] = useState(false);
 
-  async function obtenerPerfil(uid, emailBusqueda) {
-    const snap = await getDoc(doc(db, 'usuarios_portal', uid));
-    if (snap.exists()) return snap.data();
-    if (emailBusqueda) {
-      const q = query(collection(db, 'usuarios_portal'), where('email', '==', emailBusqueda));
-      const resultado = await getDocs(q);
-      if (!resultado.empty) return resultado.docs[0].data();
-    }
-    return null;
-  }
-
   async function loginGoogle() {
     setCargando(true); setError('');
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const perfil = await obtenerPerfil(result.user.uid, result.user.email);
-      if (!perfil) { setError('Tu cuenta no está habilitada. Contactá al administrador.'); await auth.signOut(); return; }
-      if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva. Contactá al administrador.'); await auth.signOut(); return; }
-      onLogin({ uid: result.user.uid, email: result.user.email, ...perfil });
+      const sesion = await cargarSesion(result.user);
+      if (!sesion) { setError(MENSAJE_SIN_ACCESO); await auth.signOut(); return; }
+      onLogin(sesion);
     } catch (err) {
       // El código de error se registra además de mostrarse. Descartarlo hacía
       // imposible distinguir "Google rechazó el login" de "Firestore rechazó la
@@ -55,10 +93,9 @@ function Login({ onLogin }) {
     setCargando(true); setError('');
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      const perfil = await obtenerPerfil(result.user.uid, result.user.email);
-      if (!perfil) { setError('Tu cuenta no está habilitada. Contactá al administrador.'); await auth.signOut(); return; }
-      if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva. Contactá al administrador.'); await auth.signOut(); return; }
-      onLogin({ uid: result.user.uid, email: result.user.email, ...perfil });
+      const sesion = await cargarSesion(result.user);
+      if (!sesion) { setError(MENSAJE_SIN_ACCESO); await auth.signOut(); return; }
+      onLogin(sesion);
     } catch (err) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') setError('Email o contraseña incorrectos.');
       else if (err.code === 'auth/user-not-found') setError('No existe una cuenta con ese email.');
@@ -76,10 +113,9 @@ function Login({ onLogin }) {
     try {
       const emailInterno = dniLimpio + CHOFER_DOMAIN;
       const result = await signInWithEmailAndPassword(auth, emailInterno, password);
-      const perfil = await obtenerPerfil(result.user.uid, emailInterno);
-      if (!perfil) { setError('Tu DNI no está habilitado. Contactá al transportista.'); await auth.signOut(); return; }
-      if (perfil.estado !== 'activo') { setError('Tu cuenta está inactiva. Contactá al transportista.'); await auth.signOut(); return; }
-      onLogin({ uid: result.user.uid, email: emailInterno, ...perfil });
+      const sesion = await cargarSesion(result.user);
+      if (!sesion) { setError(MENSAJE_SIN_ACCESO_CHOFER); await auth.signOut(); return; }
+      onLogin(sesion);
     } catch (err) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') setError('DNI o contraseña incorrectos.');
       else if (err.code === 'auth/user-not-found') setError('No existe una cuenta con ese DNI.');
@@ -107,40 +143,40 @@ function Login({ onLogin }) {
   }
 
   return (
-    <div style={s.wrap}>
-      <div style={s.fotoWrap}>
-        <img src="/planta_bg.jpg" alt="" style={s.foto} />
-        <div style={s.fotoOverlay} />
-        <div style={s.fotoBadge}>
-          <div style={s.fotoBadgeTitulo}>Complejo Industrial PGSM</div>
-          <div style={s.fotoBadgeSub}>Puerto General San Martín · Santa Fe</div>
+    <div style={styles.wrap}>
+      <div style={styles.fotoWrap}>
+        <img src="/planta_bg.jpg" alt="" style={styles.foto} />
+        <div style={styles.fotoOverlay} />
+        <div style={styles.fotoBadge}>
+          <div style={styles.fotoBadgeTitulo}>Complejo Industrial PGSM</div>
+          <div style={styles.fotoBadgeSub}>Puerto General San Martín · Santa Fe</div>
         </div>
       </div>
 
-      <div style={s.panel}>
-        <div style={s.panelInner}>
-          <div style={s.logoArea}>
-            <img src="/logo.png" alt="Explora" style={s.logo} />
+      <div style={styles.panel}>
+        <div style={styles.panelInner}>
+          <div style={styles.logoArea}>
+            <img src="/logo.png" alt="Explora" style={styles.logo} />
           </div>
 
-          <div style={s.heading}>Portal Operativo</div>
-          <div style={s.subheading}>Iniciá sesión para continuar</div>
+          <div style={styles.heading}>Portal Operativo</div>
+          <div style={styles.subheading}>Iniciá sesión para continuar</div>
 
           {/* Selector */}
           {modo === 'selector' && (
-            <div style={s.formWrap}>
-              <button style={s.btnGoogle} onClick={() => setModo('google')}>
+            <div style={styles.formWrap}>
+              <button style={styles.btnGoogle} onClick={() => setModo('google')}>
                 <GoogleIcon /> Ingresar con Google
               </button>
-              <div style={s.divider}>
-                <span style={s.dividerLine} />
-                <span style={s.dividerText}>o</span>
-                <span style={s.dividerLine} />
+              <div style={styles.divider}>
+                <span style={styles.dividerLine} />
+                <span style={styles.dividerText}>o</span>
+                <span style={styles.dividerLine} />
               </div>
-              <button style={s.btnEmail} onClick={() => setModo('email')}>
+              <button style={styles.btnEmail} onClick={() => setModo('email')}>
                 ✉ Ingresar con email y contraseña
               </button>
-              <button style={s.btnChofer} onClick={() => setModo('chofer')}>
+              <button style={styles.btnChofer} onClick={() => setModo('chofer')}>
                 🚛 Ingresar como chofer (DNI)
               </button>
             </div>
@@ -148,84 +184,84 @@ function Login({ onLogin }) {
 
           {/* Google */}
           {modo === 'google' && (
-            <div style={s.formWrap}>
-              <p style={s.modoDesc}>Cuentas corporativas @explora.com.ar</p>
-              {error && <div style={s.error}>{error}</div>}
-              <button style={s.btnGoogle} onClick={loginGoogle} disabled={cargando}>
+            <div style={styles.formWrap}>
+              <p style={styles.modoDesc}>Cuentas corporativas @explora.com.ar</p>
+              {error && <div style={styles.error}>{error}</div>}
+              <button style={styles.btnGoogle} onClick={loginGoogle} disabled={cargando}>
                 <GoogleIcon /> {cargando ? 'Ingresando...' : 'Continuar con Google'}
               </button>
-              <button style={s.btnVolver} onClick={volver}>← Volver</button>
+              <button style={styles.btnVolver} onClick={volver}>← Volver</button>
             </div>
           )}
 
           {/* Email */}
           {modo === 'email' && (
-            <div style={s.formWrap}>
-              {error && <div style={s.error}>{error}</div>}
-              {resetEnviado && <div style={s.success}>✓ Email enviado. Revisá tu bandeja.</div>}
-              <form onSubmit={loginEmail} style={s.form}>
-                <div style={s.field}>
-                  <label style={s.label}>Email</label>
-                  <input style={s.input} type="email" placeholder="tu@email.com"
+            <div style={styles.formWrap}>
+              {error && <div style={styles.error}>{error}</div>}
+              {resetEnviado && <div style={styles.success}>✓ Email enviado. Revisá tu bandeja.</div>}
+              <form onSubmit={loginEmail} style={styles.form}>
+                <div style={styles.field}>
+                  <label style={styles.label}>Email</label>
+                  <input style={styles.input} type="email" placeholder="tu@email.com"
                     value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" />
                 </div>
-                <div style={s.field}>
-                  <label style={s.label}>Contraseña</label>
-                  <div style={s.passRow}>
-                    <input style={{ ...s.input, flex: 1 }}
+                <div style={styles.field}>
+                  <label style={styles.label}>Contraseña</label>
+                  <div style={styles.passRow}>
+                    <input style={{ ...styles.input, flex: 1 }}
                       type={verPassword ? 'text' : 'password'} placeholder="••••••••"
                       value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-                    <button type="button" style={s.btnVer} onClick={() => setVerPassword(!verPassword)}>
+                    <button type="button" style={styles.btnVer} onClick={() => setVerPassword(!verPassword)}>
                       {verPassword ? '🙈' : '👁'}
                     </button>
                   </div>
                 </div>
-                <button type="submit" style={{ ...s.btnPrimary, opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
+                <button type="submit" style={{ ...styles.btnPrimary, opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
                   {cargando ? 'Ingresando...' : 'Ingresar'}
                 </button>
               </form>
-              <button style={s.btnReset} onClick={resetPassword} disabled={cargando}>Olvidé mi contraseña</button>
-              <button style={s.btnVolver} onClick={volver}>← Volver</button>
+              <button style={styles.btnReset} onClick={resetPassword} disabled={cargando}>Olvidé mi contraseña</button>
+              <button style={styles.btnVolver} onClick={volver}>← Volver</button>
             </div>
           )}
 
           {/* Chofer — DNI */}
           {modo === 'chofer' && (
-            <div style={s.formWrap}>
-              <div style={s.choferBanner}>
+            <div style={styles.formWrap}>
+              <div style={styles.choferBanner}>
                 🚛 Acceso para choferes
               </div>
-              {error && <div style={s.error}>{error}</div>}
-              <form onSubmit={loginChofer} style={s.form}>
-                <div style={s.field}>
-                  <label style={s.label}>Número de DNI</label>
-                  <input style={s.input} type="text" placeholder="26401217"
+              {error && <div style={styles.error}>{error}</div>}
+              <form onSubmit={loginChofer} style={styles.form}>
+                <div style={styles.field}>
+                  <label style={styles.label}>Número de DNI</label>
+                  <input style={styles.input} type="text" placeholder="26401217"
                     value={dni}
                     onChange={e => setDni(e.target.value.replace(/\D/g, ''))}
                     maxLength={8}
                     inputMode="numeric"
                     autoComplete="username" />
                 </div>
-                <div style={s.field}>
-                  <label style={s.label}>Contraseña</label>
-                  <div style={s.passRow}>
-                    <input style={{ ...s.input, flex: 1 }}
+                <div style={styles.field}>
+                  <label style={styles.label}>Contraseña</label>
+                  <div style={styles.passRow}>
+                    <input style={{ ...styles.input, flex: 1 }}
                       type={verPassword ? 'text' : 'password'} placeholder="••••••••"
                       value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-                    <button type="button" style={s.btnVer} onClick={() => setVerPassword(!verPassword)}>
+                    <button type="button" style={styles.btnVer} onClick={() => setVerPassword(!verPassword)}>
                       {verPassword ? '🙈' : '👁'}
                     </button>
                   </div>
                 </div>
-                <button type="submit" style={{ ...s.btnPrimary, background: '#0F6E56', opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
+                <button type="submit" style={{ ...styles.btnPrimary, background: colorEstado.acentoVerde, opacity: cargando ? 0.7 : 1 }} disabled={cargando}>
                   {cargando ? 'Ingresando...' : 'Ingresar'}
                 </button>
               </form>
-              <button style={s.btnVolver} onClick={volver}>← Volver</button>
+              <button style={styles.btnVolver} onClick={volver}>← Volver</button>
             </div>
           )}
 
-          <div style={s.footer}>Explora S.A. · Uso interno · PGSM</div>
+          <div style={styles.footer}>Explora S.A. · Uso interno · PGSM</div>
         </div>
       </div>
     </div>
@@ -243,47 +279,83 @@ function GoogleIcon() {
   );
 }
 
-const s = {
-  wrap: { minHeight: '100vh', display: 'flex', fontFamily: "'DM Sans', system-ui, sans-serif" },
-  fotoWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
-  foto: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%', display: 'block' },
-  fotoOverlay: { position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 60%)' },
-  fotoBadge: { position: 'absolute', bottom: 32, left: 32 },
-  fotoBadgeTitulo: { fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4, letterSpacing: '-0.3px' },
-  fotoBadgeSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
-  panel: { width: '100%', maxWidth: 440, minHeight: '100vh', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2.5rem 2rem', boxShadow: '-8px 0 32px rgba(0,0,0,0.08)', boxSizing: 'border-box' },
-  panelInner: { width: '100%', display: 'flex', flexDirection: 'column', gap: 0 },
-  logoArea: { marginBottom: 32 },
-  logo: { height: 40, objectFit: 'contain' },
-  heading: { fontSize: 24, fontWeight: 700, color: '#111827', letterSpacing: '-0.5px', marginBottom: 6 },
-  subheading: { fontSize: 14, color: '#9CA3AF', marginBottom: 32 },
-  formWrap: { display: 'flex', flexDirection: 'column', gap: 12 },
-  modoDesc: { fontSize: 12, color: '#9CA3AF', margin: '0 0 4px', textAlign: 'center' },
-  form: { display: 'flex', flexDirection: 'column', gap: 14 },
-  field: { display: 'flex', flexDirection: 'column', gap: 6 },
-  label: { fontSize: 12, color: '#374151', fontWeight: 600, letterSpacing: '0.02em' },
-  input: { fontSize: 14, padding: '11px 13px', borderRadius: 8, border: '1.5px solid #E5E7EB', color: '#111827', width: '100%', boxSizing: 'border-box', outline: 'none', background: '#FAFAFA' },
-  passRow: { display: 'flex', gap: 8, alignItems: 'center' },
-  btnVer: { padding: '11px 12px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#FAFAFA', cursor: 'pointer', fontSize: 14, color: '#6B7280', flexShrink: 0 },
-  btnPrimary: { padding: '12px', borderRadius: 8, border: 'none', background: '#C8102E', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.02em' },
-  btnGoogle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#111827', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
-  btnEmail: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' },
-  btnChofer: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, border: '1.5px solid #0F6E56', background: '#F0FDF4', color: '#0F6E56', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
-  choferBanner: { padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 13, color: '#0F6E56', fontWeight: 500, textAlign: 'center' },
-  divider: { display: 'flex', alignItems: 'center', gap: 10 },
-  dividerLine: { flex: 1, height: 1, background: '#E5E7EB' },
-  dividerText: { fontSize: 12, color: '#9CA3AF' },
-  btnReset: { background: 'none', border: 'none', color: '#9CA3AF', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' },
-  btnVolver: { background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer', padding: 0, textAlign: 'center', marginTop: 4 },
-  error: { padding: '10px 14px', borderRadius: 8, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12, color: '#B91C1C' },
-  success: { padding: '10px 14px', borderRadius: 8, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 12, color: '#166534' },
-  footer: { marginTop: 48, fontSize: 11, color: '#D1D5DB', textAlign: 'center' },
-};
+/* -----------------------------------------------------------------------------
+ * Estilos -- crearEstilos(colores, oscuro) + useEstilos(), mismo patron que
+ * el resto de las pantallas migradas.
+ * -------------------------------------------------------------------------- */
 
-if (typeof document !== 'undefined') {
-  const style = document.createElement('style');
-  style.textContent = '@media (min-width: 768px) { .login-foto { display: block !important; } }';
-  document.head.appendChild(style);
+function crearEstilos(colores, oscuro) {
+  const pal = paletaTexto(oscuro);
+
+  return {
+    // "flex: 1, minHeight: 0" en vez de "minHeight: 100vh" -- ver el
+    // comentario de cabecera: con el 100vh a mano, Login sumaba una
+    // pantalla entera DE MAS sobre la barra sticky de arriba, y aparecia
+    // scroll donde no debia haber.
+    // `position: fixed` + `inset: 0` en vez de `flex: 1, minHeight: 0` --
+    // ese primer intento dependia de que TODA la cadena de contenedores en
+    // App.js (Pagina -> Contenido -> este div) tuviera flexbox bien armado
+    // de punta a punta, y evidentemente algo en el medio no estaba
+    // resolviendo una altura real: sin una altura definida, la imagen de
+    // fondo con `height: '100%'` cae a su tamaño intrinseco (el de la
+    // foto completa), empuja todo hacia abajo, y aparece el scroll.
+    //
+    // Con `fixed` + `inset: 0`, Login se planta exactamente sobre el
+    // viewport siempre -- 100% del alto y ancho de la ventana, sin
+    // depender de como este armado nada por fuera de este archivo. De
+    // paso tapa la barra superior sticky que quedaba rara arriba de una
+    // pantalla de login (logo repetido, ver el comentario que te habia
+    // dejado la vuelta pasada) -- el zIndex esta por encima de esa barra
+    // (9999) a proposito.
+    wrap: { position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', fontFamily: tipografia.familia },
+    fotoWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
+    foto: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%', display: 'block' },
+    fotoOverlay: { position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 60%)' },
+    fotoBadge: { position: 'absolute', bottom: 32, left: 32 },
+    fotoBadgeTitulo: { fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 4, letterSpacing: '-0.3px' },
+    fotoBadgeSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
+
+    // El panel ya no pide su propio "minHeight: 100vh" -- alcanza con
+    // estirarse al alto de "wrap" (comportamiento por defecto de flexbox
+    // en una fila), y "overflowY: auto" queda de red de seguridad si algun
+    // dia el contenido no entra en una pantalla muy baja.
+    panel: {
+      width: '100%', maxWidth: 440, background: colores.superficieModal, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', padding: '2.5rem 2rem', boxShadow: '-8px 0 32px rgba(0,0,0,0.08)', boxSizing: 'border-box',
+      overflowY: 'auto',
+    },
+    panelInner: { width: '100%', display: 'flex', flexDirection: 'column', gap: 0 },
+    logoArea: { marginBottom: 32 },
+    logo: { height: 40, objectFit: 'contain' },
+    heading: { fontSize: 24, fontWeight: 700, color: colores.texto, letterSpacing: '-0.5px', marginBottom: 6 },
+    subheading: { fontSize: 14, color: pal.azul, marginBottom: 32 },
+    formWrap: { display: 'flex', flexDirection: 'column', gap: 12 },
+    modoDesc: { fontSize: 12, color: pal.azul, margin: '0 0 4px', textAlign: 'center' },
+    form: { display: 'flex', flexDirection: 'column', gap: 14 },
+    field: { display: 'flex', flexDirection: 'column', gap: 6 },
+    label: { fontSize: 12, color: colores.textoSecundario, fontWeight: tipografia.peso.negrita, letterSpacing: '0.02em' },
+    input: { fontSize: 14, padding: '11px 13px', borderRadius: radio.md, border: `1.5px solid ${colores.borde}`, color: colores.texto, width: '100%', boxSizing: 'border-box', outline: 'none', background: colores.fondoAlterno, fontFamily: tipografia.familia },
+    passRow: { display: 'flex', gap: 8, alignItems: 'center' },
+    btnVer: { padding: '11px 12px', borderRadius: radio.md, border: `1.5px solid ${colores.borde}`, background: colores.fondoAlterno, cursor: 'pointer', fontSize: 14, color: pal.azul, flexShrink: 0 },
+    btnPrimary: { padding: 12, borderRadius: radio.md, border: 'none', background: marca, color: '#fff', fontSize: 14, fontWeight: tipografia.peso.negrita, cursor: 'pointer', letterSpacing: '0.02em' },
+    btnGoogle: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 16px', borderRadius: radio.md, border: `1.5px solid ${colores.borde}`, background: colores.superficie, color: colores.texto, fontSize: 14, fontWeight: tipografia.peso.medio, cursor: 'pointer' },
+    btnEmail: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: radio.md, border: `1.5px solid ${colores.borde}`, background: colores.superficie, color: colores.textoSecundario, fontSize: 14, cursor: 'pointer' },
+    btnChofer: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', borderRadius: radio.md, border: `1.5px solid ${colorEstado.acentoVerde}`, background: colorEstado.exitoFondo, color: colorEstado.acentoVerde, fontSize: 14, fontWeight: tipografia.peso.medio, cursor: 'pointer' },
+    choferBanner: { padding: '10px 14px', borderRadius: radio.md, background: colorEstado.exitoFondo, border: `1px solid ${colorEstado.exitoBorde}`, fontSize: 13, color: colorEstado.acentoVerde, fontWeight: tipografia.peso.medio, textAlign: 'center' },
+    divider: { display: 'flex', alignItems: 'center', gap: 10 },
+    dividerLine: { flex: 1, height: 1, background: colores.borde },
+    dividerText: { fontSize: 12, color: pal.azul },
+    btnReset: { background: 'none', border: 'none', color: pal.azul, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' },
+    btnVolver: { background: 'none', border: 'none', color: pal.azul, fontSize: 13, cursor: 'pointer', padding: 0, textAlign: 'center', marginTop: 4 },
+    error: { padding: '10px 14px', borderRadius: radio.md, background: colorEstado.peligroFondo, border: `1px solid ${colorEstado.peligroBordeAlterno}`, fontSize: 12, color: colorEstado.peligroTexto },
+    success: { padding: '10px 14px', borderRadius: radio.md, background: colorEstado.exitoFondo, border: `1px solid ${colorEstado.exitoBorde}`, fontSize: 12, color: colorEstado.exitoTexto },
+    footer: { marginTop: 48, fontSize: 11, color: pal.azul, textAlign: 'center' },
+  };
+}
+
+function useEstilos() {
+  const { colores, oscuro } = useTema();
+  return useMemo(() => crearEstilos(colores, oscuro), [colores, oscuro]);
 }
 
 export default Login;

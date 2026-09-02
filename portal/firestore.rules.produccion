@@ -1,95 +1,777 @@
 rules_version = '2';
 
 // =============================================================================
-// REGLAS DE FIRESTORE — PRODUCCION (proyecto: explora-portal)
+// REGLAS DE FIRESTORE — FUENTE DE VERDAD
 //
-// Este archivo es la FUENTE DE VERDAD de las reglas de la base real.
-// Se versiona en el repo y se publica desde acá. No se edita en la consola
-// web: si alguien la edita ahí, el repo queda desactualizado en silencio.
+// Este archivo es la fuente de las reglas de los DOS proyectos:
+//   explora-portal          produccion  (la base real)
+//   entorno-prueba-explora  staging     (el entorno de prueba)
 //
+// Son las mismas en los dos: lo que se prueba en staging es exactamente lo que
+// despues corre en produccion. No se editan desde la consola web — si alguien
+// lo hace, el repo queda desactualizado en silencio.
+//
+// -----------------------------------------------------------------------------
 // COMO PUBLICAR
+// -----------------------------------------------------------------------------
+//
 //   cd portal
-//   firebase use              -> tiene que decir: explora-portal
-//   firebase deploy --only firestore:rules
 //
-// ANTES DE PUBLICAR, COMPROBAR QUE:
-//   1. `firebase use` devuelve explora-portal (no otro proyecto).
-//   2. Ninguna regla permite acceso sin condicion. Verificar con:
+//   1. Elegir el proyecto y CONFIRMARLO:
+//        firebase use entorno-prueba-explora     (o explora-portal)
+//        firebase use            -> tiene que imprimir el que elegiste
+//
+//   2. Comprobar que ninguna regla abre la base entera:
 //        findstr /C:"if true" firestore.rules.produccion | findstr /V /C:"//"
-//      Tiene que devolver VACIO. Si devuelve algo, PARAR: hay una regla
-//      que abre la base entera.
+//      Tiene que devolver VACIO. Si devuelve algo, PARAR.
 //
-// El archivo firestore.rules.emulador queda en el repo solo como referencia
-// historica de las reglas permisivas. El emulador usa ESTE archivo, igual que
-// produccion, para que lo que se prueba local sea lo que corre en la realidad.
+//   3. Publicar:
+//        firebase deploy --only firestore:rules
 //
-// Ultima modificacion: agosto 2026 — se versiona en el repo y se pasa a
-// publicar por firebase deploy (antes se editaba en la consola web).
+//   4. VOLVER SIEMPRE A PRODUCCION, aunque hayas publicado en staging. Si la
+//      CLI queda apuntando a otro lado, el proximo deploy de cualquier cosa se
+//      va ahi sin avisar:
+//        firebase use explora-portal
+//
+// -----------------------------------------------------------------------------
+// COMO ESTA ORGANIZADO
+// -----------------------------------------------------------------------------
+//
+//   Parte 1  Ayudantes
+//   Parte 2  Entidades base      organizaciones, domicilios, usuarios,
+//                                productos, camiones, contadores
+//   Parte 3  Operacion           pedidos, entregas, despachos, viajes, gps
+//   Parte 4  Transversales       adjuntos, historial, app_logs
+//   Parte 5  Modelo viejo        sin cambios mientras conviven los dos
+//
+// Modelo: MODELO_DATOS_TOBE.md · Comportamiento: COMPORTAMIENTO.md
 // =============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Perfiles de usuario. Lectura para cualquier autenticado (la app necesita
-    // resolver el perfil del chofer al iniciar sesion); escritura solo admin.
+    // =========================================================================
+    // PARTE 1 — AYUDANTES
+    //
+    // El ID del documento de `usuarios` ES el UID de Firebase Auth. Eso es lo
+    // que hace que todo esto funcione: una regla no puede consultar una
+    // coleccion, solo hacer get() por ruta. Como el ID coincide con el UID, un
+    // solo get() resuelve quien es, de que organizacion y que roles tiene.
+    //
+    // Sobre el costo: cada get() cuenta contra el limite de accesos por
+    // solicitud (10 para un documento, 20 para una consulta). Firestore
+    // deduplica los accesos identicos dentro de una misma evaluacion, asi que
+    // llamar a `yo()` diez veces cuesta un solo get().
+    // =========================================================================
+
+    function logueado() {
+      return request.auth != null;
+    }
+
+    function existoYo() {
+      return logueado() &&
+             exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+
+    function yo() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    // Un usuario desactivado no puede hacer NADA, aunque su cuenta de Auth siga
+    // existiendo. Es lo que permite dar de baja a alguien sin borrarle la
+    // cuenta: se lo marca inactivo y pierde el acceso, pero los despachos y
+    // viajes historicos lo siguen referenciando.
+    function activo() {
+      return existoYo() && yo().estado == 'activo';
+    }
+
+    function tieneRol(rol) {
+      return activo() && yo().roles.hasAny([rol]);
+    }
+
+    function tieneAlgunRol(roles) {
+      return activo() && yo().roles.hasAny(roles);
+    }
+
+    // Admin, coordinador y comercial: el personal de Explora.
+    function esInterno() {
+      return tieneAlgunRol(['admin', 'coordinador', 'comercial']);
+    }
+
+    // Quienes dan de alta clientes, domicilios y organizaciones.
+    function esComercial() {
+      return tieneAlgunRol(['admin', 'comercial']);
+    }
+
+    function esAdmin() {
+      return tieneRol('admin');
+    }
+
+    function miOrganizacion() {
+      return yo().organizacion_id;
+    }
+
+    function miDni() {
+      return yo().datos_chofer.dni;
+    }
+
+    // Los campos que cambia una escritura. Sirve para acotar que puede tocar
+    // cada rol sin enumerar el documento entero.
+    function cambia() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Un campo que no se puede modificar despues de creado.
+    function noCambia(campo) {
+      return !cambia().hasAny([campo]);
+    }
+
+    // =========================================================================
+    // PARTE 2 — ENTIDADES BASE
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // ORGANIZACIONES — clientes, transportes y Explora
+    //
+    // Lectura para cualquier usuario activo: el despacho y el viaje muestran la
+    // razon social del cliente y del transporte, y eso lo ven todos los roles.
+    // No hay dato sensible en el nombre y el CUIT de una empresa que ya figura
+    // en cada despacho.
+    //
+    // Escritura para admin y comercial. `es_propia` no se toca nunca despues de
+    // creada: Explora es Explora.
+    // -------------------------------------------------------------------------
+
+    match /organizaciones/{orgId} {
+      allow read: if activo();
+      allow create: if esComercial();
+      allow update: if esComercial() && noCambia('es_propia');
+      allow delete: if false;   // se desactiva con estado, no se borra
+    }
+
+    // -------------------------------------------------------------------------
+    // DOMICILIOS Y SUS VINCULOS
+    //
+    // Lectura para todos: el chofer necesita ver a donde entrega.
+    //
+    // El alta la hace admin o comercial desde el ABM. NO se crean al vuelo al
+    // cargar un pedido: es lo unico que evita que se repita lo de hoy, 50
+    // direcciones distintas para 34 lugares reales, con la planta de Explora
+    // escrita de siete formas.
+    // -------------------------------------------------------------------------
+
+    match /domicilios/{domicilioId} {
+      allow read: if activo();
+      allow create, update: if esComercial();
+      allow delete: if false;
+    }
+
+    match /organizacion_domicilios/{vinculoId} {
+      allow read: if activo();
+      allow create, update: if esComercial();
+      // El vinculo SI se borra: no es una entidad, es una relacion. Desvincular
+      // un domicilio de una organizacion no deja nada colgando, porque el
+      // pedido apunta al domicilio directamente.
+      allow delete: if esComercial();
+    }
+
+    // -------------------------------------------------------------------------
+    // USUARIOS
+    //
+    // Cada uno lee el suyo. Los internos leen todos: el coordinador necesita
+    // ver los choferes nominados, el admin gestiona el padron.
+    //
+    // El transportista lee los de su propia organizacion — su gente — y puede
+    // crear choferes. Su consulta tiene que venir filtrada por
+    // organizacion_id: si pide la coleccion entera, Firestore la rechaza.
+    //
+    // EL DNI ES INMUTABLE. Es la identidad de la persona: la app y la pantalla
+    // del chofer filtran los viajes por DNI. Si esta mal cargado se desactiva
+    // el usuario y se crea de nuevo.
+    //
+    // EL PERFIL SE CREA JUNTO CON LA CUENTA DE AUTH, y el ID del documento
+    // tiene que ser el UID de esa cuenta. La regla no puede verificar que la
+    // cuenta exista — Auth y Firestore son sistemas distintos — asi que eso lo
+    // garantiza el codigo: si falla la escritura del perfil, borra la cuenta.
+    // Ese descalce es el origen de los huecos entre las cuentas de Auth y los
+    // documentos de perfil que hay hoy.
+    // -------------------------------------------------------------------------
+
+    // Lo que el transportista puede escribir al crear un chofer.
+    function choferValidoDelTransportista() {
+      return request.resource.data.roles == ['chofer']
+             && request.resource.data.organizacion_id == miOrganizacion()
+             && request.resource.data.estado == 'activo';
+    }
+
+    // Lo que el transportista puede modificar de un chofer suyo. El DNI no
+    // esta: es inmutable. Los roles y la organizacion tampoco — mover un chofer
+    // de empresa es cosa de admin.
+    function camposDelTransportistaSobreChofer() {
+      return ['nombre', 'telefonos', 'emails_extra', 'estado',
+              'datos_chofer', 'actualizado_en'];
+    }
+
+    // Lo que un invitado por Google puede escribir al aceptar su invitación:
+    // exactamente los roles y la organización que la invitación ya decía, ni
+    // uno más. Sin esto, cualquiera podría crearse un `usuarios/{propioUid}`
+    // con `roles: ['admin']` a mano, sin que exista ninguna invitación real.
+    function invitacionParaMi() {
+      return get(/databases/$(database)/documents/invitaciones/$(request.auth.token.email.lower())).data;
+    }
+
+    function aceptaInvitacionValida() {
+      return logueado()
+             && exists(/databases/$(database)/documents/invitaciones/$(request.auth.token.email.lower()))
+             && request.resource.data.roles == invitacionParaMi().roles
+             && request.resource.data.organizacion_id == invitacionParaMi().organizacion_id
+             && request.resource.data.estado == 'activo';
+    }
+
+    match /usuarios/{userId} {
+      // La rama de auto-lectura NO puede exigir `activo()`: eso requiere que
+      // el documento ya exista y esté activo, y hay dos casos legítimos donde
+      // todavía no existe -- alguien recién invitado por Google leyendo su
+      // propio documento por primera vez, y el `tx.get()` de idempotencia
+      // dentro de `crear()` (en `datos.js`) al crearlo. Leer el propio
+      // documento tiene que alcanzar con estar logueado como ese UID; si
+      // existe pero está inactivo, que se vea -- es lo que permite mostrar
+      // "tu cuenta está inactiva" en vez de un permission-denied mudo.
+      //
+      // La rama del transportista sí necesitaba `resource.data.organizacion_id`,
+      // y eso revienta cuando el documento NO EXISTE TODAVIA -- exactamente lo
+      // que pasa cuando `crear()` hace ese mismo `tx.get()` al dar de alta un
+      // chofer nuevo. Un admin nunca lo sufre: `esInterno()` lo resuelve antes
+      // de necesitar `resource.data`.
+      //
+      // La salida en los dos casos: si el documento no existe, no hay nada que
+      // proteger -- ningún dato que filtrar--, así que se permite el read
+      // igual. Si existe, se vuelve a exigir lo de siempre.
+      allow read: if esInterno()
+                  || (logueado() && userId == request.auth.uid)
+                  || (tieneRol('transportista')
+                      && (
+                        !exists(/databases/$(database)/documents/usuarios/$(userId))
+                        || resource.data.organizacion_id == miOrganizacion()
+                      ));
+
+      allow create: if esAdmin()
+                    || (tieneRol('transportista') && choferValidoDelTransportista())
+                    || (userId == request.auth.uid && aceptaInvitacionValida());
+
+      allow update: if (esAdmin() && noCambia('datos_chofer.dni'))
+                    || (
+                      tieneRol('transportista')
+                      // Era de su organizacion antes y sigue siendolo despues.
+                      && resource.data.organizacion_id == miOrganizacion()
+                      && request.resource.data.organizacion_id == miOrganizacion()
+                      && resource.data.roles == ['chofer']
+                      && cambia().hasOnly(camposDelTransportistaSobreChofer())
+                      && noCambia('datos_chofer.dni')
+                    );
+
+      allow delete: if false;   // se desactiva con estado
+    }
+
+    // -------------------------------------------------------------------------
+    // INVITACIONES
+    //
+    // Resuelve el huevo-y-la-gallina de dar de alta a alguien con cuenta de
+    // Google: no hay forma de crear esa cuenta de Auth desde el cliente, ni de
+    // saber su UID, antes de que esa persona entre por primera vez -- la
+    // crea Firebase Auth en el momento del `signInWithPopup`, no antes.
+    //
+    // La invitacion guarda que rol le corresponde a un email. Cuando esa
+    // persona entra por primera vez, el login (`cargarSesion`, en `sesion.js`)
+    // la encuentra, crea su `usuarios/{uid}` con esos datos, y la borra.
+    //
+    // El ID del documento ES el email en minuscula. Es lo que permite que la
+    // propia persona invitada lea y borre SU invitacion sin necesitar ningun
+    // otro dato: se compara contra `request.auth.token.email`, no contra un
+    // campo que haya que consultar aparte.
+    // -------------------------------------------------------------------------
+
+    match /invitaciones/{emailId} {
+      // Un interno la crea y la puede ver todas (para la lista de
+      // pendientes). El propio invitado lee y borra SOLO la suya -- nunca la
+      // de otro, porque eso permitiria ver que rol le espera a cualquier
+      // email con solo adivinarlo.
+      allow read: if esInterno()
+                  || (logueado() && request.auth.token.email.lower() == emailId);
+
+      allow create: if esInterno()
+                    && request.resource.data.email.lower() == emailId
+                    && request.resource.data.roles.size() > 0;
+
+      allow update: if false;   // no se edita: se borra y se crea de nuevo
+
+      allow delete: if esInterno()
+                    || (logueado() && request.auth.token.email.lower() == emailId);
+    }
+
+    // -------------------------------------------------------------------------
+    // PRODUCTOS
+    //
+    // Lectura para todos: el despacho y el viaje muestran el producto.
+    // Alta y edicion solo admin.
+    //
+    // El nombre no se edita si hay pedidos vivos con ese producto — eso no lo
+    // puede verificar una regla, lo valida el codigo. El despacho lleva
+    // `producto_nombre` denormalizado y el Apps Script rutea por nombre.
+    // -------------------------------------------------------------------------
+
+    match /productos/{productoId} {
+      allow read: if activo();
+      allow create, update: if esAdmin();
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // CAMIONES
+    //
+    // Son del transportista, no del chofer: al nominar se eligen los dos por
+    // separado, porque un chofer puede manejar cualquier camion de la empresa.
+    //
+    // El transportista tiene ABM completo sobre los suyos. `organizacion_id` no
+    // se elige: es siempre la del que lo crea, y no puede cambiar despues.
+    // -------------------------------------------------------------------------
+
+    match /camiones/{camionId} {
+      allow read: if activo();
+
+      allow create: if esInterno()
+                    || (tieneRol('transportista')
+                        && request.resource.data.organizacion_id == miOrganizacion());
+
+      allow update: if esInterno()
+                    || (
+                      tieneRol('transportista')
+                      && resource.data.organizacion_id == miOrganizacion()
+                      && noCambia('organizacion_id')
+                    );
+
+      allow delete: if false;   // se desactiva con estado
+    }
+
+    // -------------------------------------------------------------------------
+    // CONTADORES — numeracion correlativa
+    //
+    // Solo interno. Se incrementa dentro de la transaccion que crea el pedido:
+    // Firestore garantiza que dos comerciales simultaneos no obtienen el mismo
+    // numero.
+    //
+    // Reemplaza al `Math.random()*900+100` de hoy, que con 40 pedidos en un dia
+    // tiene mas del 50% de probabilidad de repetir un numero — y el Apps Script
+    // identifica el pedido por ese numero en el Plan de Produccion.
+    // -------------------------------------------------------------------------
+
+    match /contadores/{nombre} {
+      allow read, write: if esInterno();
+    }
+
+    // =========================================================================
+    // PARTE 3 — OPERACION
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // PEDIDOS Y ENTREGAS — solo roles internos
+    //
+    // Es el cambio mas fuerte respecto de hoy, donde cualquier autenticado lee
+    // y escribe CUALQUIER pedido — incluido un chofer, que asi ve los datos
+    // comerciales de todos los clientes.
+    //
+    // El transportista y el chofer NO necesitan leer pedidos: trabajan sobre
+    // `despachos` y `viajes`, que ya tienen denormalizado lo que sus pantallas
+    // muestran (cliente, producto, destino, volumen).
+    //
+    // Y no habria forma de expresarlo aunque quisieramos: "los pedidos donde
+    // tengo un despacho" exige un join, y las reglas no pueden consultar otra
+    // coleccion filtrando.
+    // -------------------------------------------------------------------------
+
+    // El pedido NO guarda un campo `estado`: se deriva de tres CONTADORES
+    // (`entregas_total`, `entregas_cubiertas`, `entregas_cumplidas`) — ver
+    // `estados.js` para la explicacion completa.
+    //
+    // La razon es de PERMISOS, no de estilo: el transportista y el chofer no
+    // pueden leer `entregas` (mas abajo esa coleccion sigue siendo solo
+    // interna), asi que no hay forma de que ellos deriven el estado leyendo.
+    // Pero SI necesitan poder mover los contadores cuando aceptan, rechazan,
+    // nominan o entregan — sin leer nada, con `increment()`.
+    //
+    // Por eso esta regla tiene tres ramas: interno (todo), y transportista o
+    // chofer (SOLO los dos contadores, nunca el resto del pedido).
+    function soloContadores() {
+      return cambia().hasOnly(['entregas_cubiertas', 'entregas_cumplidas', 'actualizado_en']);
+    }
+
+    match /pedidos/{pedidoId} {
+      allow read, create: if esInterno();
+
+      allow update: if esInterno()
+                    || ((tieneRol('transportista') || tieneRol('chofer')) && soloContadores());
+
+      allow delete: if false;   // se suspende, no se borra
+    }
+
+    match /entregas/{entregaId} {
+      allow read, create, update: if esInterno();
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // DESPACHOS
+    //
+    // Los internos ven todos.
+    //
+    // El transportista ve solo los de su organizacion. Su consulta tiene que
+    // venir con .where('transportista_org_id','==',<su org>): si pide la
+    // coleccion entera, Firestore rechaza la consulta completa.
+    //
+    // EL CHOFER NO LEE DESPACHOS. Todo lo que su pantalla necesita esta
+    // denormalizado en el viaje, que es una sola coleccion.
+    //
+    // ESCRITURA DEL TRANSPORTISTA
+    //
+    // Hace tres cosas: aceptar, rechazar y nominar. La regla declara que campos
+    // puede tocar y a que estados puede pasar. Sin eso alcanzaria con que el
+    // despacho siguiera siendo suyo, y podria marcarlo ENTREGADO o cambiarle el
+    // volumen.
+    //
+    // Ojo con `hasOnly`: compara los campos que EFECTIVAMENTE cambian. Si el
+    // codigo hace un set() del documento entero en vez de un update() con las
+    // diferencias, Firestore ve todos los campos como afectados y rechaza la
+    // escritura. Es una restriccion sana —empuja al diseno correcto— pero si no
+    // se sabe, aparece como un permission-denied incomprensible.
+    // -------------------------------------------------------------------------
+
+    function camposDelTransportista() {
+      return ['estado', 'estado_ts',
+              'rechazo_motivo',
+              'chofer_uid', 'chofer_dni',
+              'camion_id', 'patente_tractor', 'patente_semi',
+              // `nominar()` (en logica-transportista.js) escribe `viaje_id`
+              // en el despacho junto con el resto -- faltaba acá, y por eso
+              // `cambia().hasOnly(...)` rechazaba la nominación entera: no
+              // es que sobrara permiso, es que faltaba uno de los campos que
+              // la propia acción de nominar necesita escribir.
+              'viaje_id',
+              'baja_solicitada', 'baja_motivo', 'baja_ts',
+              'actualizado_en'];
+    }
+
+    // A donde puede llevar un despacho. ENTREGADO no esta: lo escribe el cierre
+    // del viaje. CANCELADO tampoco: lo decide Explora, no el transportista.
+    function estadosDelTransportista() {
+      return ['ACEPTADO', 'RECHAZADO', 'NOMINADO'];
+    }
+
+    // Lo que el CHOFER puede hacer sobre un despacho: UNA sola transicion,
+    // cuando finaliza su viaje. El despacho tiene que ser el suyo (comparado
+    // por DNI, que es como el chofer se identifica) y el paso es siempre
+    // NOMINADO -> ENTREGADO, sin excepciones.
+    function esMiDespachoDeChofer() {
+      return tieneRol('chofer') && resource.data.chofer_dni == miDni();
+    }
+
+    match /despachos/{despachoId} {
+      allow read: if esInterno()
+                  || (tieneRol('transportista')
+                      && resource.data.transportista_org_id == miOrganizacion());
+
+      allow create: if esInterno();
+
+      allow update: if esInterno()
+                    || (
+                      tieneRol('transportista')
+                      // Era suyo antes y sigue siendolo despues: sin la segunda
+                      // condicion podria pasarle el despacho a otra empresa.
+                      && resource.data.transportista_org_id == miOrganizacion()
+                      && request.resource.data.transportista_org_id == miOrganizacion()
+                      && cambia().hasOnly(camposDelTransportista())
+                      && request.resource.data.estado in estadosDelTransportista()
+                    )
+                    || (
+                      esMiDespachoDeChofer()
+                      && resource.data.estado == 'NOMINADO'
+                      && request.resource.data.estado == 'ENTREGADO'
+                      && cambia().hasOnly(['estado', 'estado_ts', 'actualizado_en'])
+                    );
+
+      allow delete: if false;   // se cancela, no se borra
+    }
+
+    // -------------------------------------------------------------------------
+    // AVISOS
+    //
+    // El reemplazo del email por Apps Script para "algo le pasó a tu
+    // despacho". Los escribe siempre un interno, dentro de la MISMA
+    // transaccion que la accion que los motiva (`cancelarDespacho()`, por
+    // ahora) -- nunca sueltos, para que no pueda pasar que el despacho se
+    // cancele y el aviso se pierda por una falla aparte.
+    //
+    // El transportista solo ve y marca leidos los suyos. No los puede crear:
+    // un aviso es algo que le informan, no algo que el mismo redacta.
+    // -------------------------------------------------------------------------
+
+    match /avisos/{avisoId} {
+      // Un aviso es para el transportista (por organizacion) O para un
+      // chofer puntual (por DNI, igual que el resto del modelo identifica al
+      // chofer) -- nunca los dos a la vez.
+      allow read: if esInterno()
+                  || (tieneRol('transportista')
+                      && resource.data.destinatario_org_id == miOrganizacion())
+                  || (tieneRol('chofer')
+                      && resource.data.destinatario_chofer_dni == miDni());
+
+      allow create: if esInterno();
+
+      // Lo unico que el destinatario puede tocar de su propio aviso es
+      // marcarlo leido.
+      allow update: if esInterno()
+                    || (
+                      tieneRol('transportista')
+                      && resource.data.destinatario_org_id == miOrganizacion()
+                      && cambia().hasOnly(['leido'])
+                    )
+                    || (
+                      tieneRol('chofer')
+                      && resource.data.destinatario_chofer_dni == miDni()
+                      && cambia().hasOnly(['leido'])
+                    );
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // VIAJES
+    //
+    // Lo escriben la app y la pantalla del chofer. Por eso es una coleccion
+    // aparte y no parte del despacho: escritor distinto, ritmo distinto (el GPS
+    // cada 30 segundos) y una subcoleccion propia.
+    //
+    // CREACION
+    //
+    // El viaje nace al NOMINAR, no al arrancar: el chofer tiene que verlo en la
+    // app antes de iniciarlo. Y quien nomina es el transportista, asi que es el
+    // que lo crea. El chofer NO crea viajes: cuando abre la app, ya existe.
+    //
+    // ESCRITURA DEL TRANSPORTISTA: NINGUNA
+    //
+    // La nominacion es irreversible. Cambiar el chofer hasta que se presenta en
+    // la puerta requiere hardware que hoy no existe, asi que queda fuera de
+    // alcance: si hay que cambiarlo, el coordinador cancela el despacho.
+    //
+    // ESCRITURA DEL CHOFER
+    //
+    // Solo los campos de su propio recorrido. No puede cambiar a que despacho
+    // pertenece el viaje, ni de que organizacion es, ni a que chofer esta
+    // asignado.
+    // -------------------------------------------------------------------------
+
+    function camposDelChofer() {
+      return ['estado', 'estado_ts',
+              'inicio_ts', 'fin_ts',
+              'inicio_lat', 'inicio_lng', 'inicio_precision', 'inicio_origen',
+              'fin_lat', 'fin_lng', 'fin_precision', 'fin_origen',
+              'ultima_lat', 'ultima_lng', 'ultima_ts',
+              'puntos_registrados',
+              'demorado', 'demora_motivo', 'demora_ts',
+              'cerrado_por'];
+    }
+
+    // El chofer arranca y cierra. CANCELADO lo escribe el coordinador cuando
+    // cancela el despacho.
+    function estadosDelChofer() {
+      return ['EN_VIAJE', 'FINALIZADO'];
+    }
+
+    match /viajes/{viajeId} {
+      allow read: if esInterno()
+                  || (tieneRol('chofer')
+                      && resource.data.chofer_dni == miDni())
+                  || (tieneRol('transportista')
+                      && resource.data.transportista_org_id == miOrganizacion());
+
+      allow create: if esInterno()
+                    || (tieneRol('transportista')
+                        && request.resource.data.transportista_org_id == miOrganizacion());
+
+      allow update: if esInterno()
+                    || (
+                      tieneRol('chofer')
+                      && resource.data.chofer_dni == miDni()
+                      && noCambia('chofer_dni')
+                      && noCambia('chofer_uid')
+                      && noCambia('despacho_id')
+                      && noCambia('transportista_org_id')
+                      && cambia().hasOnly(camposDelChofer())
+                      && request.resource.data.estado in estadosDelChofer()
+                    );
+
+      allow delete: if false;
+
+      // -----------------------------------------------------------------------
+      // PUNTOS GPS
+      //
+      // Las subcolecciones NO heredan las reglas del padre: necesitan la suya.
+      // Sin repetir el filtro por organizacion, un transportista podria leer el
+      // recorrido completo de los camiones de la competencia con solo conocer
+      // el ID del viaje.
+      //
+      // La clave de cada punto es su propio timestamp en milisegundos. Eso
+      // vuelve idempotente la escritura: si un lote se reenvia por un
+      // reintento, cada punto cae en la misma clave en vez de duplicarse.
+      //
+      // Sobre el costo del get() al crear: la app sube los puntos en lote
+      // (hasta 10 por escritura). Firestore deduplica los accesos identicos
+      // dentro de una misma solicitud, asi que un lote de 10 puntos cuesta un
+      // solo get() del viaje, no diez.
+      //
+      // Solo se crean. Nunca se modifican ni se borran: un punto es la lectura
+      // de un sensor en un instante, cambiarlo despues seria falsificar el
+      // recorrido.
+      // -----------------------------------------------------------------------
+
+      function viajePadre() {
+        return get(/databases/$(database)/documents/viajes/$(viajeId)).data;
+      }
+
+      match /gps_puntos/{puntoId} {
+        allow read: if esInterno()
+                    || (tieneRol('chofer')
+                        && viajePadre().chofer_dni == miDni())
+                    || (tieneRol('transportista')
+                        && viajePadre().transportista_org_id == miOrganizacion());
+
+        // Solo sobre su propio viaje, y solo mientras este en curso. Despues de
+        // cerrado, la app puede seguir mandando puntos si el telefono revive:
+        // rebotan, que es lo correcto.
+        allow create: if tieneRol('chofer')
+                      && viajePadre().chofer_dni == miDni()
+                      && viajePadre().estado == 'EN_VIAJE';
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // PARTE 4 — TRANSVERSALES
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // ADJUNTOS
+    //
+    // El archivo vive en Google Drive; esto es la referencia.
+    //
+    // El transportista lee solo los marcados visibles. Su consulta tiene que
+    // venir con .where('visible_transportista','==',true).
+    //
+    // OJO: los permisos del archivo los controla Drive, no Firestore. Si la
+    // carpeta esta compartida publicamente con el link, `visible_transportista`
+    // no protege nada: el `file_id` esta en un documento que el transportista
+    // puede leer. Falta verificar como esta configurada esa carpeta.
+    //
+    // Es lo unico que se BORRA de verdad: no hay nada que lo referencie, asi
+    // que desactivarlo dejaria basura sin proposito.
+    // -------------------------------------------------------------------------
+
+    match /adjuntos/{adjuntoId} {
+      allow read: if esInterno()
+                  || (tieneRol('transportista')
+                      && resource.data.visible_transportista == true);
+      allow create, update, delete: if esInterno();
+    }
+
+    // -------------------------------------------------------------------------
+    // HISTORIAL
+    //
+    // Bitacora de todo lo que cambia. Solo se CREA: no se modifica ni se borra
+    // nunca, ni siquiera por un admin. Un registro de auditoria que se puede
+    // editar no sirve como registro de auditoria.
+    //
+    // Escribe cualquiera que tenga permiso de modificar algo, porque el
+    // historial se escribe en la misma transaccion que el cambio. Se exige que
+    // el `usuario_uid` sea el propio: no se puede anotar un cambio a nombre de
+    // otro.
+    //
+    // Lectura solo para internos.
+    //
+    // Reemplaza a `aceptado_por`, `asignado_por`, `reprogramado_por` y
+    // `editado_por`, que hoy son casilleros unicos y se pisan cada vez que la
+    // accion se repite.
+    // -------------------------------------------------------------------------
+
+    match /historial/{eventoId} {
+      allow read: if esInterno();
+      allow create: if activo()
+                    && request.resource.data.usuario_uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // LOG REMOTO DE LA APP
+    //
+    // Eventos de diagnostico del GPS: permisos, arranque del servicio, errores
+    // de escritura con su codigo.
+    //
+    // Solo se permite CREAR. Nadie lee, modifica ni borra desde la app: los
+    // logs se consultan desde la consola de Firebase.
+    //
+    // La limpieza la hace la politica TTL nativa de Firestore sobre el campo
+    // `expira_en`. Se configura una vez en la consola y no necesita Cloud
+    // Functions.
+    // -------------------------------------------------------------------------
+
+    match /app_logs/{logId} {
+      allow create: if logueado();
+      allow read, update, delete: if false;
+    }
+
+    // =========================================================================
+    // PARTE 5 — MODELO VIEJO
+    //
+    // Estas colecciones siguen en uso mientras los pedidos vivos terminan su
+    // ciclo. Las reglas quedan EXACTAMENTE como estaban: endurecerlas ahora
+    // romperia las pantallas que todavia leen de aca.
+    //
+    // Se retiran cuando no quede ningun pedido vivo en `pedidos_portal`. Ese es
+    // el criterio para saber que termino la transicion — verificable, en vez de
+    // una fecha inventada.
+    //
+    // La app TrackEx publicada solo toca `usuarios_portal`, `pedidos_portal` y
+    // `app_logs`. Mientras estas reglas no cambien, nada de lo que hagamos en
+    // el modelo nuevo puede afectar a los choferes.
+    // =========================================================================
+
     match /usuarios_portal/{uid} {
       allow read: if request.auth != null;
       allow write: if request.auth != null &&
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
     }
 
-    // Pedidos y despachos. Es la coleccion que usan tanto el portal como la app
-    // de choferes para el ciclo de vida completo del viaje.
-    //
-    // PENDIENTE DE REVISION: hoy cualquier usuario autenticado puede leer y
-    // escribir CUALQUIER pedido. Un chofer puede ver los datos de todos los
-    // clientes y modificar despachos que no le corresponden. No es la causa de
-    // ningun defecto actual, pero conviene restringirlo por rol y por DNI antes
-    // de salir a produccion abierta.
+    // PENDIENTE DE REVISION (heredado): cualquier usuario autenticado puede
+    // leer y escribir CUALQUIER pedido. Un chofer ve los datos comerciales de
+    // todos los clientes. Se resuelve al retirar esta coleccion; el modelo
+    // nuevo ya nace con la restriccion puesta.
     match /pedidos_portal/{pedidoId} {
       allow read, write: if request.auth != null;
     }
 
-    // Empresas de transporte. Escritura solo admin.
     match /transportistas_portal/{transportistaId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null &&
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
     }
 
-    // Configuracion general del portal.
     match /portal/{docId} {
       allow read, write: if request.auth != null;
     }
 
-    // Versiones del convenio CATAC. Escritura solo admin.
-    match /catac_versiones/{docId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
-    }
-
-    // Versiones del tarifario. Escritura solo admin.
     match /tarifario_versiones/{docId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null &&
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
-    }
-
-    // -------------------------------------------------------------------------
-    // NUEVO (agosto 2026) — Log remoto de la app TrackEx
-    //
-    // La app escribe aca eventos de diagnostico: permisos concedidos o
-    // denegados, arranque del servicio de GPS, errores de escritura con su
-    // codigo. Sin esto, diagnosticar una falla en produccion exige tener el
-    // telefono del chofer en la mano.
-    //
-    // Solo se permite CREAR. Nadie puede leer, modificar ni borrar desde la app:
-    // los logs se consultan desde la consola de Firebase.
-    // -------------------------------------------------------------------------
-    match /app_logs/{logId} {
-      allow create: if request.auth != null;
-      allow read, update, delete: if false;
     }
 
   }

@@ -4,12 +4,20 @@
   padding: 0;
 }
 
+/*
+ * Este fondo/color son SOLO el flash de arranque -- lo que se ve el
+ * instante antes de que React monte. En cuanto TemaProvider corre (App.js),
+ * TemaContext.js sincroniza esto mismo contra el tema real, y `Pagina`
+ * (tambien en App.js) es la que arma el fondo de toda la pantalla con
+ * useTema(). Por eso este valor queda fijo en el claro: es el default
+ * razonable para ese primer instante, no "el" fondo del portal.
+ */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #F9FAFB;
   color: #111827;
 }
 
-.app {
-  min-height: 100vh;
-}
+/* La clase ".app" que estaba aca no la usaba nadie -- ningun elemento del
+ * portal tiene className="app". Se sacó: el layout real (alto completo,
+ * fondo del tema, pie anclado abajo) lo arma "Pagina" en App.js. */
