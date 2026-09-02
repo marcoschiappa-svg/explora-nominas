@@ -12,6 +12,82 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.1.0 — 02-09-2026
+
+**El modelo de datos nuevo entra en producción, en convivencia con el viejo.**
+Las seis colecciones de `MODELO_DATOS_TOBE.md` (`organizaciones`, `domicilios`,
+`organizacion_domicilios`, `usuarios`, `productos`, `camiones`, y el árbol
+`pedidos/entregas/despachos/viajes/gps_puntos`) se implementan y conviven con
+`pedidos_portal`/`usuarios_portal` hasta que los pedidos viejos terminan su
+ciclo. El comportamiento de cada acción sigue `COMPORTAMIENTO.md`.
+
+- **Nuevo**: `sesion.js` — `cargarSesion()` lee los dos modelos de usuario (el
+  perfil viejo de `usuarios_portal` y el nuevo de `usuarios`) y decide si
+  puede entrar. `App.js` rutea las pantallas legacy por el campo `rol` de
+  siempre y las nuevas por `tieneAlgunRol()` contra el array `perfil.roles`,
+  con la misma lista de roles que su tile en `Home.js`.
+- **Nuevo**: `estados.js`, `logica-pedidos.js`, `logica-despachos.js`,
+  `logica-transportista.js`, `logica-viajes.js` — la lógica de negocio del
+  modelo nuevo: transacciones, recálculo de estados en cascada
+  (despacho → entrega → pedido), historial.
+- **Nuevo**: pantallas — `Programacion.js` (reemplazo de `Coordinador.js`),
+  `MisDespachos.js` (reemplazo de `Transportista.js`), `MisViajes.js`
+  (reemplazo de `Chofer.js`), `Organizaciones.js`, `Usuarios.js`,
+  `Productos.js`, `Camiones.js`, `Domicilios.js` (con sus modales
+  `ModalOrganizacion.js` / `ModalDomicilio.js`), `HistorialPedido.js`,
+  `BuscadorOrganizacion.js`.
+- **Nuevo**: `PedidosLegacy.js` — los pedidos que quedaron en `pedidos_portal`,
+  en solo lectura. `Coordinador.js`, `Transportista.js`, `Chofer.js` y
+  `Admin.js` **no se tocaron**: siguen operativos, transicionalmente, hasta
+  que se decida sacarlos del menú.
+- **Nuevo**: sistema de diseño (Fase B1) — `ui/BarraSuperior.js` (header
+  sticky unificado con logo, toggle de tema, cambio de contraseña migrado
+  desde `Home.js`, logout), `ui/tokens.js`, `ui/TemaContext.js`
+  (dark/light mode), y los componentes `Boton`, `Tabla`, `Campo`,
+  `Buscador`, `Modal`, `Pastilla`, `Tarjeta`, `Pie`, `Vacio`. Color de marca
+  único: `#C60000`.
+- **Nuevo**: `camiones` separa tractor y acoplado como dos documentos con
+  `tipo` (antes era un documento con `patente_tractor` + `patente_semi`).
+  Migrado con `scripts/migrar-camiones-a-flota.js` (dry-run por defecto).
+- **Nuevo**: la API del Portal (Apps Script de Marcos) **se versiona en el
+  repo por primera vez**, en `portal/app-script/plan-produccion/`:
+  - `Codigo.gs`: `doPost`/`doGet` unificados contra una sola tabla
+    `ACCIONES` — antes tenían copias separadas que podían divergir (el bug
+    de la hoja "Pedidos Portal" que nunca se creaba).
+  - `BorrarDespacho.gs`: implementa `borrar_despacho`, la acción que
+    `REORGANIZACION_REPO.md` marcaba como faltante.
+  - `Adjuntos.gs`: subir/borrar adjuntos de Drive (`eliminar_adjunto` ya
+    existía con otro nombre del que se pensaba).
+  - `Notificaciones.gs`: todos los `enviarEmail*` en un solo archivo, sin
+    cambios en la redacción.
+  - `PlanDeProduccion.gs`, `MovVehiculos.gs`: escritura de las dos hojas de
+    cálculo, separadas.
+  - `RecordatorioFirestore.gs`: el recordatorio semanal pasa a leer
+    Firestore real en vez de una hoja que nunca se llenaba.
+- **Nuevo**: `scripts/verificar-contadores.js` — solo lectura, recuenta
+  `entregas_total/cubiertas/cumplidas` de cada pedido contra sus entregas
+  reales y lista diferencias.
+- **Nuevo**: `scripts/preparar-build.js` + Paso 9 de `Procedimiento.md` — la
+  versión del portal (pie de página) sale de `git describe --tags`, ya no
+  se escribe a mano. Requiere taggear (`git tag vX.Y.Z && git push origin
+  vX.Y.Z`) al cerrar cada versión.
+- **Modificado**: `firestore.rules.produccion` y `firestore.indexes.json`
+  para las colecciones nuevas.
+- **Nueva dependencia**: `firebase-admin` (dev), para los scripts de
+  migración y verificación.
+
+Pendiente conocido, sin resolver en esta versión:
+- `Coordinador.js`, `Transportista.js`, `Chofer.js` y `Admin.js` quedan
+  transicionalmente sin cambios; se retiran cuando termine la migración.
+- `portal/src/TemaContext.js` quedó duplicado de `ui/TemaContext.js`, sin
+  usarse en ningún lado. Limpieza pendiente.
+- Comentarios en el código referencian `PENDIENTES.md`, un documento
+  transitorio que no se sube al repo. Falta sacar esas referencias o
+  definir un sistema de gestión documental.
+- `subirAdjunto()` comparte los archivos de Drive como "cualquiera con el
+  link": `visible_transportista` es una bandera de UI, no una protección
+  real.
+
 ## v1.0.5 — Rediseño del modelo de datos (documentación)
 
 Se descarta el enfoque de dual-write y migración incremental. El modelo nuevo
