@@ -931,6 +931,23 @@ function ModalDetallePedido({
     setSuspendiendo(true);
     try {
       const { yaEstaba, avisosApps } = await suspenderPedido({ pedidoId: p.id, motivo, usuario, appsScriptUrl: APPS_SCRIPT_URL });
+      if (!yaEstaba) {
+        // El mail a coordinadores de "pedido suspendido" -- quedó afuera al
+        // partir la lógica en funciones chicas. El aviso al transportista NO
+        // se duplica acá: ya sale, uno por despacho afectado, como `aviso`
+        // in-app dentro de `cancelarDespacho()` (que `suspenderPedido()` ya
+        // llama por cada despacho vivo).
+        await llamarAppsScript(APPS_SCRIPT_URL, 'suspender_pedido', {
+          id: p.numero,
+          producto: prod ? prod.nombre : '',
+          volumen: p.volumen,
+          cliente: org ? org.razon_social : '',
+          ov: p.ov,
+          fecha_entrega: proximaFechaPendiente(entregas) || '',
+          suspendido_por: usuario.nombre || usuario.email,
+          motivo,
+        });
+      }
       if (yaEstaba) {
         window.alert('Ese pedido ya estaba suspendido.');
       } else if (avisosApps && avisosApps.length > 0) {
