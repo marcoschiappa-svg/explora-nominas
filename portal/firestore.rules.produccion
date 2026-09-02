@@ -774,5 +774,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
     }
 
+    // Versiones del convenio CATAC. Escritura solo admin.
+    // Tarifario.js sigue escribiendo aca sin cambios, igual que las otras
+    // colecciones de esta Parte 5.
+    match /catac_versiones/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
+    }
+
   }
 }
