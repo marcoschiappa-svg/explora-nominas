@@ -325,7 +325,85 @@ configuración apunta a un nombre equivocado, el sistema falla y avisa, en
 vez de publicar lo que no corresponde.
 
 
-## Resumen rápido (para tener a mano)
+## Paso 9 — Versionado del portal
+
+El pie de página del portal (abajo de cualquier pantalla) muestra qué
+versión está corriendo — por ejemplo, `Portal Explora · v1.2.0 · 2026-08-31`.
+Sirve para responder de un vistazo la pregunta "¿esto que estoy viendo es lo
+último que subimos?", sin tener que preguntarlo en el chat del equipo.
+
+### Cómo funciona, para no tener que pensarlo cada vez
+
+Ese número **no lo escribe nadie a mano en ningún archivo**. Sale solo,
+en cada build, de una etiqueta ("tag") que se le pone al código en GitHub.
+Mientras se seleccionen bien los pasos de abajo, el pie de página siempre
+va a mostrar la verdad — no hay ningún archivo que alguien se pueda olvidar
+de actualizar.
+
+Si además pasan commits nuevos después de poner una etiqueta, y todavía no
+se puso la siguiente, el pie de página lo va a decir (algo como
+`v1.2.0-3-ga3f92c1`, "tres commits después de v1.2.0") en vez de mostrar
+`v1.2.0` como si nada hubiera cambiado.
+
+### El único paso manual: poner la etiqueta
+
+Esto sí lo decide una persona, porque es un criterio, no un cálculo: cuándo
+un conjunto de cambios merece llamarse "una versión nueva".
+
+**Cuándo:** al cerrar un conjunto de cambios que tenga sentido nombrar como
+versión — no en cada commit, no en cada sesión de trabajo. Una guía simple:
+si se lo contarías a alguien como "subimos la versión X", es momento de
+etiquetar.
+
+**Cómo**, parado en `main` y con el cambio ya mergeado (Paso 4 de este
+documento):
+
+```bash
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+El segundo comando **no es opcional**: sin él, la etiqueta queda solo en tu
+computadora y ni GitHub ni Vercel (donde se publica el portal) se enteran.
+
+**Cómo numerar:** no hace falta ser estricto, pero como guía:
+- `v1.2.**1**` (el último número) para arreglos chicos.
+- `v1.**3**.0` (el del medio) para funcionalidad nueva que no rompe nada
+  existente.
+- `v**2**.0.0` (el primero) para cambios grandes que sí podrían romper algo.
+
+### Verificar que funcionó
+
+Sin esperar al próximo deploy real, se puede confirmar en la propia
+computadora:
+
+```bash
+cd portal
+npm run build
+```
+
+Tiene que aparecer una línea así en la consola:
+```
+preparar-build: sellado con v1.3.0 (2026-08-31)
+```
+
+**Antes de seguir, comprobar que:** esa línea muestra la etiqueta que
+recién se puso, no una anterior ni un hash suelto. Si muestra un hash
+(algo como `a3f92c1` sin ninguna `v` adelante), es que la etiqueta no llegó
+a subirse — revisar que el `git push origin <tag>` se haya hecho.
+
+### Una salvedad sobre Vercel
+
+Vercel a veces clona el repositorio con el historial recortado ("shallow
+clone"), y en algunos casos eso puede hacer que las etiquetas no lleguen al
+build aunque existan en GitHub — el pie de página mostraría un hash pelado
+en vez de la versión. Si eso pasa, activar la opción **"Deep Clone"** en la
+configuración del proyecto en Vercel (Settings → Git) resuelve el problema;
+es un interruptor, no requiere tocar código.
+
+---
+
+
 
 1. Traer la versión más actualizada del proyecto.
 2. Hacer el cambio en una copia de trabajo separada.
@@ -335,6 +413,8 @@ vez de publicar lo que no corresponde.
 6. Subir el archivo a Google Play, escribir las novedades, y enviar a revisión.
 7. Documentar cambios
 8. Si el cambio toca los permisos de la base de datos, seguir el Paso 8.
+9. Si el cambio es al portal y cierra un conjunto de trabajo que merece
+   llamarse "versión nueva", etiquetarlo (Paso 9) — `git tag` + `git push`.
 
 Cualquier paso marcado como "comprobar antes de seguir" que no se cumpla es motivo suficiente para frenar y pedir ayuda, en vez de continuar asumiendo que "seguramente está bien".
 
