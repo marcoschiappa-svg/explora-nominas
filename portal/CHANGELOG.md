@@ -1,3 +1,7 @@
+### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
+
+VERSION_ACTUAL: 1.1.2
+
 # Changelog — Portal Explora
 
 Versionado semántico: **MAYOR.MENOR.PARCHE**
