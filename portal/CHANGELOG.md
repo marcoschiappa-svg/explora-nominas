@@ -12,6 +12,41 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.1.1 — 04-09-2026
+
+**Parche de estabilización post-v1.1.0.** Cuatro correcciones puntuales
+detectadas al probar el rediseño en producción: dos de comportamiento en
+el modal de detalle de pedido, una del pie de página, y una de layout en
+Seguimiento.
+
+- **Corregido**: `Pedidos.js` — el aviso "Se llegó al volumen total de la
+  orden" en `ModalDetallePedido` se mostraba apenas el pedido alcanzaba su
+  volumen nominal, sin que el usuario hubiera hecho nada. Ahora solo
+  aparece al clickear "+ Agregar entrega", que es el momento en que
+  realmente es información accionable. El aviso equivalente dentro del
+  formulario de carga (que sí corresponde ahí) no cambió.
+- **Corregido**: `Pedidos.js` — el segmento ámbar de `BarraProgreso`
+  (entregas programadas, no solo cumplidas) se ajusta para distinguirse
+  mejor del fondo de la barra. El cálculo de `cubiertas`/`cumplidas` ya
+  era correcto desde v1.1.0; el ajuste es solo de contraste visual.
+- **Corregido**: `scripts/preparar-build.js` — el pie de página mostraba
+  el hash corto del commit (`6a061a1`) en vez del tag de versión
+  (`v1.1.0`) en el deploy de producción. La causa era que Vercel clona el
+  repo con historia de Git limitada durante el build, y en ese contexto
+  `git describe --tags` no siempre encuentra el tag. Se agrega un intento
+  de traer los tags explícitamente antes de leer la versión, con
+  fallback silencioso si el repo ya tiene el historial completo.
+- **Corregido**: `App.js` — el contenedor de `Pagina` que envuelve todo
+  el contenido no tenía `minHeight: 0`, lo que rompía la cadena de
+  `flex: 1, minHeight: 0` que usan las pantallas con layout de alto
+  completo (como el mapa de `Seguimiento.js`). El mapa quedaba con una
+  altura recortada, dependiente de la cantidad de viajes activos en el
+  panel lateral, en vez de ocupar el espacio disponible de la ventana.
+
+Sin cambios en el modelo de datos ni en las reglas de Firestore. No
+requiere migración ni redeploy de reglas — solo build y deploy del
+portal.
+
 ## v1.1.0 — 02-09-2026
 
 **El modelo de datos nuevo entra en producción, en convivencia con el viejo.**

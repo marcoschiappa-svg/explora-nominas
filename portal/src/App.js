@@ -227,7 +227,7 @@ function Pagina() {
         color: colores.texto,
       }}
     >
-      <div style={{ flex: '1 0 auto' }}>
+      <div style={{ flex: '1 0 auto', minHeight: 0 }}>
         <Contenido />
       </div>
       <Pie />
