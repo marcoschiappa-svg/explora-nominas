@@ -8,30 +8,25 @@
  *   fecha. React lee esas variables al compilar y las deja fijas en el
  *   bundle — es lo que `Pie.js` termina mostrando.
  *
- * DE DÓNDE SALE LA VERSIÓN — `git describe --tags`
+ * DE DÓNDE SALE LA VERSIÓN — línea `VERSION_ACTUAL:` en `CHANGELOG.md`
  * -----------------------------------------------------------------------------
- *   Busca el tag de versión más cercano (`git tag v1.2.0`, por ejemplo) y
- *   devuelve:
+ *   Se lee de la línea `VERSION_ACTUAL: X.Y.Z` al principio de
+ *   `portal/CHANGELOG.md`. Hay que actualizar esa línea a mano en cada
+ *   release, en el mismo momento en que se agrega la entrada nueva al
+ *   changelog (Paso 7 del Procedimiento.md) — no es un paso aparte, es
+ *   parte del mismo hábito de documentar qué cambió.
  *
- *     - "v1.2.0"              si el commit actual ES exactamente ese tag
- *     - "v1.2.0-5-ga3f92c1"   si hay 5 commits DESPUÉS de v1.2.0 sin taggear
- *                             todavía — el "5-ga3f92c1" es información real:
- *                             dice que esto no es exactamente v1.2.0, es
- *                             cinco commits más adelante
- *     - el hash pelado        si el repo no tiene ningún tag todavía
+ *   Antes se leía del campo "version" de `package.json`, pero eso era un
+ *   archivo aparte del changelog y se podía desincronizar (actualizar uno
+ *   y olvidarse del otro). Al leer del propio CHANGELOG.md, actualizar la
+ *   versión es el mismo paso que ya existía de documentarla.
  *
- *   No hace falta que alguien edite un número en un archivo: mientras se
- *   sigan poniendo tags al cortar una versión (`git tag v1.3.0` +
- *   `git push origin v1.3.0`), el build siempre va a mostrar la que
- *   corresponda, sin mantenimiento.
- *
- *   ESTO SÍ REQUIERE UN PASO MANUAL, Y NO HAY VUELTA: decidir CUÁNDO cortar
- *   una versión y con qué número es un criterio humano (¿esto es un patch,
- *   un minor, algo que rompe compatibilidad?) — no hay forma de que el
- *   código lo adivine solo sin adoptar convenciones de mensajes de commit y
- *   una herramienta que los interprete, que es más infraestructura de la
- *   que hace falta para esto. El único paso es taggear; todo lo demás
- *   (que se vea, que no se desactualice) es automático.
+ *   Antes de eso se probó con `git describe --tags` (y variantes: `git
+ *   fetch --tags --unshallow`, `git ls-remote`, la API de GitHub) pero
+ *   ninguna funcionó de forma confiable en el entorno de build de Vercel:
+ *   el checkout que usa Vercel para build no expone un historial de git
+ *   utilizable para esto, ni siquiera con "Deep Clone" activado en la
+ *   configuración de Vercel.
  *
  * POR QUÉ `.env.production.local` Y NO PISAR `.env` A SECAS
  *   El sufijo `.production.local` es justamente para esto: React solo lo lee
@@ -43,19 +38,19 @@
  * ========================================================================== */
 
 const fs = require('fs');
-const { execSync } = require('child_process');
+const path = require('path');
 
 function obtenerVersion() {
   try {
-    try {
-      execSync('git fetch --tags --unshallow', { stdio: 'ignore' });
-    } catch (err) {
-      // Ya es un checkout completo (no shallow) u otro motivo por el que
-      // no hace falta/no se puede: no es fatal, seguimos con describe.
-    }
-    return execSync('git describe --tags --always').toString().trim();
+    const contenido = fs.readFileSync(
+      path.join(__dirname, '..', 'CHANGELOG.md'),
+      'utf8'
+    );
+    const match = contenido.match(/^VERSION_ACTUAL:\s*(.+)$/m);
+    if (!match) return 'sin-version';
+    return `v${match[1].trim()}`;
   } catch (err) {
-    return 'sin-git';
+    return 'sin-version';
   }
 }
 
