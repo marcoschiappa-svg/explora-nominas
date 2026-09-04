@@ -328,61 +328,41 @@ vez de publicar lo que no corresponde.
 ## Paso 9 — Versionado del portal
 
 El pie de página del portal (abajo de cualquier pantalla) muestra qué
-versión está corriendo — por ejemplo, `Portal Explora · v1.2.0 · 2026-08-31`.
+versión está corriendo — por ejemplo, `Portal Explora · v1.3.1 · 2026-09-04`.
 Sirve para responder de un vistazo la pregunta "¿esto que estoy viendo es lo
 último que subimos?", sin tener que preguntarlo en el chat del equipo.
 
-### Cómo funciona, para no tener que pensarlo cada vez
+### Cómo funciona
 
-Ese número **no lo escribe nadie a mano en ningún archivo**. Sale solo,
-en cada build, de una etiqueta ("tag") que se le pone al código en GitHub.
-Mientras se seleccionen bien los pasos de abajo, el pie de página siempre
-va a mostrar la verdad — no hay ningún archivo que alguien se pueda olvidar
-de actualizar.
+El número sale de una línea fija al principio de `portal/CHANGELOG.md`:
 
-Si además pasan commits nuevos después de poner una etiqueta, y todavía no
-se puso la siguiente, el pie de página lo va a decir (algo como
-`v1.2.0-3-ga3f92c1`, "tres commits después de v1.2.0") en vez de mostrar
-`v1.2.0` como si nada hubiera cambiado.
 
-### El único paso manual: poner la etiqueta
+Antes de cada build de producción, `scripts/preparar-build.js` lee esa
+línea y deja el número fijo en el pie de página.
 
-Esto sí lo decide una persona, porque es un criterio, no un cálculo: cuándo
-un conjunto de cambios merece llamarse "una versión nueva".
+**El único paso manual es actualizar esa línea al agregar la entrada del
+changelog** (Paso 7 de este documento) — es el mismo momento en que ya se
+documenta qué cambió, no un paso aparte que alguien se pueda olvidar.
 
-**Cuándo:** al cerrar un conjunto de cambios que tenga sentido nombrar como
-versión — no en cada commit, no en cada sesión de trabajo. Una guía simple:
-si se lo contarías a alguien como "subimos la versión X", es momento de
-etiquetar.
+### Cómo se hace, dentro del flujo normal
 
-**Cómo**, parado en `main` y con el cambio ya mergeado (Paso 4 de este
-documento):
+1. En la misma rama de trabajo (Paso 2), antes de abrir el Pull Request,
+   editar `portal/CHANGELOG.md`:
+   - Actualizar la línea `VERSION_ACTUAL: X.Y.Z` al número nuevo.
+   - Agregar la entrada correspondiente más abajo, siguiendo el Paso 7.
 
-```bash
-git tag v1.3.0
-git push origin v1.3.0
-```
+2. Incluir ese cambio en el mismo commit/PR que el resto de los arreglos
+   de esa versión (Paso 4).
 
-El segundo comando **no es opcional**: sin él, la etiqueta queda solo en tu
-computadora y ni GitHub ni Vercel (donde se publica el portal) se enteran.
-
-**Cómo numerar:** no hace falta ser estricto, pero como guía:
-- `v1.2.**1**` (el último número) para arreglos chicos.
-- `v1.**3**.0` (el del medio) para funcionalidad nueva que no rompe nada
-  existente.
-- `v**2**.0.0` (el primero) para cambios grandes que sí podrían romper algo.
-
-### Verificar que funcionó
-
-Sin esperar al próximo deploy real, se puede confirmar en la propia
-computadora:
+3. Una vez mergeado a `main`, correr el build de verificación:
 
 ```bash
 cd portal
-npm run build
+npm install
+CI=true npm run build
 ```
 
-Tiene que aparecer una línea así en la consola:
+Tiene que aparecer:
 ```
 preparar-build: sellado con v1.3.0 (2026-08-31)
 ```
@@ -413,8 +393,9 @@ es un interruptor, no requiere tocar código.
 6. Subir el archivo a Google Play, escribir las novedades, y enviar a revisión.
 7. Documentar cambios
 8. Si el cambio toca los permisos de la base de datos, seguir el Paso 8.
-9. Si el cambio es al portal y cierra un conjunto de trabajo que merece
-   llamarse "versión nueva", etiquetarlo (Paso 9) — `git tag` + `git push`.
+9. Si el cambio es al portal, actualizar `"version"` en `portal/package.json`
+   antes de mergear (Paso 9) — no hace falta ningún `git tag` para esto.
+
 
 Cualquier paso marcado como "comprobar antes de seguir" que no se cumpla es motivo suficiente para frenar y pedir ayuda, en vez de continuar asumiendo que "seguramente está bien".
 
