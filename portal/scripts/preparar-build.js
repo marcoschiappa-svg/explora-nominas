@@ -47,6 +47,12 @@ const { execSync } = require('child_process');
 
 function obtenerVersion() {
   try {
+    try {
+      execSync('git fetch --tags --unshallow', { stdio: 'ignore' });
+    } catch (err) {
+      // Ya es un checkout completo (no shallow) u otro motivo por el que
+      // no hace falta/no se puede: no es fatal, seguimos con describe.
+    }
     return execSync('git describe --tags --always').toString().trim();
   } catch (err) {
     return 'sin-git';

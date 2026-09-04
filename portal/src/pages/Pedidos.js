@@ -773,6 +773,14 @@ export default function Pedidos({ usuario, onVolver }) {
   );
 }
 
+// Version mas oscura que colorEstado.advertenciaBorde (#F59E0B) para el
+// segmento "programado" de la barra: sobre colores.fondoAlterno (#F3F4F6)
+// el ambar base da un contraste demasiado bajo (~1.9:1) y el segmento se
+// pierde contra el fondo de la barra. Este tono (ambar-600) sube el
+// contraste a ~3:1 sin tocar el token global (que sigue usandose para
+// bordes/texto de advertencia en otros lados).
+const COLOR_PROGRAMADA_BARRA = '#D97706';
+
 function BarraProgreso({ total, cubiertas, cumplidas }) {
   const styles = useEstilos();
   if (!total) return null;
@@ -783,7 +791,7 @@ function BarraProgreso({ total, cubiertas, cumplidas }) {
     <div style={styles.progresoWrap}>
       <div style={styles.progresoBarra}>
         {pctCumplidas > 0 && <div style={{ width: `${pctCumplidas}%`, background: colorEstado.exitoBorde }} />}
-        {pctProgramadas > 0 && <div style={{ width: `${pctProgramadas}%`, background: colorEstado.advertenciaBorde }} />}
+        {pctProgramadas > 0 && <div style={{ width: `${pctProgramadas}%`, background: COLOR_PROGRAMADA_BARRA }} />}
       </div>
       <span style={styles.progresoTexto}>{cumplidas}/{total}</span>
     </div>
@@ -1300,13 +1308,6 @@ function ModalDetallePedido({
               </div>
             );
           })}
-
-          {esInternoUsuario && pedidoActivo && limiteDeVolumenAlcanzado && !agregandoEntregas && (
-            <div style={styles.avisoLimiteVolumen}>
-              Se llego al volumen total de la orden ({p.volumen} tn). Para sumar otra
-              entrega hay que agrandar la orden y avisar a los coordinadores.
-            </div>
-          )}
 
           {esInternoUsuario && pedidoActivo && (
             agregandoEntregas ? (
