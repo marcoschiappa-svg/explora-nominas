@@ -92,6 +92,23 @@ export const VIAJE = {
   CANCELADO: 'CANCELADO',
 };
 
+/**
+ * Los dos estados en los que un viaje sigue abierto: nominado pero nunca
+ * reportado como iniciado (`RECIBIDO`), o efectivamente en la ruta
+ * (`EN_VIAJE`). `FINALIZADO` y `CANCELADO` son terminales.
+ *
+ * Existe para que "¿este viaje todavía se puede cerrar?" se responda en un
+ * solo lugar -- lo usan tanto el botón de cierre manual (`Programacion.js`)
+ * como la validación de `finalizarViaje()` (`logica-viajes.js`). Que esos
+ * dos hayan tenido cada uno su propia comparación (una exigiendo
+ * `EN_VIAJE`, sin más) es justamente lo que hacía que el botón nunca
+ * apareciera para un viaje `RECIBIDO` -- ver el encabezado de
+ * `finalizarViaje()`.
+ */
+export function viajeAbierto(viaje) {
+  return !!viaje && (viaje.estado === VIAJE.RECIBIDO || viaje.estado === VIAJE.EN_VIAJE);
+}
+
 // La demora NO es un estado: es un atributo del viaje. El camión sigue andando,
 // va tarde. Hoy está metida como estado y por eso `Transportista.js` filtra con
 // `['iniciado','demorado'].includes(...)`.

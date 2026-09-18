@@ -446,19 +446,25 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
 
     function camposDelTransportista() {
-      return ['estado', 'estado_ts',
-              'rechazo_motivo',
-              'chofer_uid', 'chofer_dni',
-              'camion_id', 'patente_tractor', 'patente_semi',
-              // `nominar()` (en logica-transportista.js) escribe `viaje_id`
-              // en el despacho junto con el resto -- faltaba acá, y por eso
-              // `cambia().hasOnly(...)` rechazaba la nominación entera: no
-              // es que sobrara permiso, es que faltaba uno de los campos que
-              // la propia acción de nominar necesita escribir.
-              'viaje_id',
-              'baja_solicitada', 'baja_motivo', 'baja_ts',
-              'actualizado_en'];
-    }
+  return ['estado', 'estado_ts',
+          'rechazo_motivo',
+          'chofer_uid', 'chofer_dni',
+          // `camion_id` era un solo campo para tractor+semi. Se separó en
+          // dos entidades (ver logica-despachos.js) pero esta lista de
+          // reglas nunca se actualizó: `nominar()` escribe `tractor_id` y
+          // `acoplado_id`, no `camion_id`, y su ausencia acá rechazaba la
+          // nominación entera con permission-denied (mismo patrón que el
+          // caso de `viaje_id` documentado abajo).
+          'tractor_id', 'acoplado_id', 'patente_tractor', 'patente_semi',
+          // `nominar()` (en logica-transportista.js) escribe `viaje_id`
+          // en el despacho junto con el resto -- faltaba acá, y por eso
+          // `cambia().hasOnly(...)` rechazaba la nominación entera: no
+          // es que sobrara permiso, es que faltaba uno de los campos que
+          // la propia acción de nominar necesita escribir.
+          'viaje_id',
+          'baja_solicitada', 'baja_motivo', 'baja_ts',
+          'actualizado_en'];
+}
 
     // A donde puede llevar un despacho. ENTREGADO no esta: lo escribe el cierre
     // del viaje. CANCELADO tampoco: lo decide Explora, no el transportista.

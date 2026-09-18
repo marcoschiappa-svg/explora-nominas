@@ -89,7 +89,7 @@ import {
 import {
   aceptarDespacho, rechazarDespacho, nominar,
 } from '../logica-transportista';
-import { llamarAppsScript } from '../logica-despachos';
+import { llamarAppsScript, armarDestinatarios } from '../logica-despachos';
 import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
@@ -256,6 +256,15 @@ export default function MisDespachos({ usuario, onVolver }) {
         fecha_carga: d.fecha_carga,
         transporte: d.transporte_nombre,
         aceptado_por: usuario.nombre || usuario.email,
+        confirmado_en: new Date().toLocaleString('es-AR'),
+        // `entrega_numero`/`entregas_total` y `coordinadores_email` vienen
+        // congelados en el despacho desde que el coordinador aceptó la
+        // entrega (`denormalizadosDe()` en `Programacion.js`): esta pantalla
+        // es del transportista, que no lee `entregas` ni `pedidos`, y las
+        // reglas de Firestore tampoco lo dejan consultar coordinadores.
+        entrega_numero: d.entrega_numero || null,
+        entregas_total: d.entregas_total || 0,
+        destinatarios: armarDestinatarios({ coordinadores: d.coordinadores_email || [] }),
       });
       if (!rConf.ok) {
         setError('El despacho se aceptó bien, pero no se pudo avisar al coordinador por mail.');
@@ -294,6 +303,10 @@ export default function MisDespachos({ usuario, onVolver }) {
         transporte: d.transporte_nombre,
         motivo: motivo.trim(),
         rechazado_por: usuario.nombre || usuario.email,
+        rechazado_en: new Date().toLocaleString('es-AR'),
+        entrega_numero: d.entrega_numero || null,
+        entregas_total: d.entregas_total || 0,
+        destinatarios: armarDestinatarios({ coordinadores: d.coordinadores_email || [] }),
       });
       if (!rRech.ok) {
         setError('El despacho se rechazó bien, pero no se pudo avisar al coordinador por mail.');
@@ -353,6 +366,16 @@ export default function MisDespachos({ usuario, onVolver }) {
         patente_tractor: tractor.patente,
         patente_semi: acoplado ? acoplado.patente : '',
         nominado_por: usuario.nombre || usuario.email,
+        nominado_en: new Date().toLocaleString('es-AR'),
+        // El teléfono de la unidad es el del chofer nominado: es a quien
+        // contacta el comercial para coordinar el arribo.
+        tel_unidad: (chofer.telefonos || [])[0] || '',
+        entrega_numero: d.entrega_numero || null,
+        entregas_total: d.entregas_total || 0,
+        destinatarios: armarDestinatarios({
+          coordinadores: d.coordinadores_email || [],
+          comercial: d.comercial_email ? [d.comercial_email] : [],
+        }),
       });
       if (!rNom.ok) {
         setError('La unidad se nominó bien, pero no se pudo avisar por mail.');

@@ -37,7 +37,15 @@
       "collectionGroup": "despachos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "camion_id", "order": "ASCENDING" },
+        { "fieldPath": "tractor_id", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "despachos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "acoplado_id", "order": "ASCENDING" },
         { "fieldPath": "estado", "order": "ASCENDING" }
       ]
     },
@@ -46,6 +54,22 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "chofer_dni", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "historial",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pedido_id", "order": "ASCENDING" },
+        { "fieldPath": "ts", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "usuarios",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "roles", "arrayConfig": "CONTAINS" },
         { "fieldPath": "estado", "order": "ASCENDING" }
       ]
     }
