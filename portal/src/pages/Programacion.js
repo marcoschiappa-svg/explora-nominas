@@ -59,19 +59,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { motivoSinAcceso } from '../sesion';
+import { motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { textoDomicilio } from '../buscar-domicilios';
 import { hoyISO } from '../logica-pedidos';
 import {
-  DESPACHO, VIAJE, ETIQUETA_DESPACHO, COLOR_DESPACHO,
+  DESPACHO, ETIQUETA_DESPACHO, COLOR_DESPACHO,
   ETIQUETA_ENTREGA, ETIQUETA_PEDIDO, COLOR_PEDIDO,
-  despachoVivo, entregaSinCubrir, estadoPedido,
+  despachoVivo, entregaSinCubrir, estadoPedido, viajeAbierto,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
 } from '../estados';
 import {
   aceptarEntrega, asignarTransportista, editarDespacho, cancelarDespacho,
-  correosDeOrganizacion, llamarAppsScript,
+  correosDeOrganizacion, llamarAppsScript, coordinadoresActivos, armarDestinatarios,
 } from '../logica-despachos';
 import { finalizarViaje } from '../logica-viajes';
 import HistorialPedido from './HistorialPedido';
@@ -316,12 +316,41 @@ export default function Programacion({ usuario, onVolver }) {
    * del pedido. Cuando SÍ hay una entrega y el tipo es "Entrega al cliente",
    * su propio `destino_domicilio_id` gana — es la dirección real por la que
    * se preguntó al cargar esa entrega, no la del pedido en general.
+   *
+   * -----------------------------------------------------------------------------
+   * v2 (2026-09-18) — TAMBIÉN LO QUE NECESITAN LOS MAILS DEL DESPACHO
+   * -----------------------------------------------------------------------------
+   *   Notificaciones.gs v2 le pide a `confirmar_despacho`, `rechazar_despacho`
+   *   y `nominar_unidad` -- las tres disparadas desde `MisDespachos.js`,
+   *   pantalla del transportista -- `entrega_numero`, `entregas_total`, y a
+   *   quién avisar (`destinatarios.coordinadores`, y `.comercial` para la
+   *   nominación).
+   *
+   *   El transportista no puede resolver nada de eso en el momento: no lee
+   *   `entregas` ni `pedidos` (mismo motivo que el resto de este comentario),
+   *   y tampoco puede leer `usuarios` de otra organización -- las reglas de
+   *   Firestore evalúan el filtro contra QUIEN PREGUNTA, así que una consulta
+   *   de coordinadores hecha desde su sesión no devuelve nada (ver
+   *   `coordinadoresActivos()` en `logica-despachos.js`).
+   *
+   *   Por eso se congela ACÁ, al aceptar la entrega -- el único momento en
+   *   que hay una sesión de coordinador/comercial con acceso completo. Igual
+   *   que `cliente_razon_social` y el resto: es un dato que puede quedar
+   *   desactualizado (un coordinador que se da de baja después no se saca de
+   *   `coordinadores_email` de un despacho ya aceptado), tradeoff que este
+   *   archivo ya acepta para todo lo denormalizado.
    */
-  function denormalizadosDe(pedido, entrega = null) {
+  async function denormalizadosDe(pedido, entrega = null) {
     const org = orgsPorId.get(pedido.cliente_org_id);
     const prod = prodsPorId.get(pedido.producto_id);
     const idDestino = (entrega && entrega.destino_domicilio_id) || pedido.destino_domicilio_id;
     const destino = domsPorId.get(idDestino);
+
+    // El comercial es el usuario que creó el pedido. Se resuelve acá, no con
+    // una consulta aparte: `usuarios` ya está cargado completo (línea 216) --
+    // esta pantalla es de uso interno, así que tiene permiso a la colección
+    // entera, a diferencia de `MisDespachos.js`.
+    const comercial = usuarios.find(u => u.id === pedido.creado_por_uid);
 
     return {
       cliente_org_id: pedido.cliente_org_id,
@@ -329,6 +358,10 @@ export default function Programacion({ usuario, onVolver }) {
       producto_nombre: prod ? prod.nombre : '',
       ov: pedido.ov || '',
       destino_texto: destino ? textoDomicilio(destino) : '',
+      entrega_numero: entrega ? entrega.numero : null,
+      entregas_total: pedido.entregas_total || 0,
+      coordinadores_email: await coordinadoresActivos(),
+      comercial_email: comercial && comercial.email ? comercial.email.trim().toLowerCase() : '',
     };
   }
 
@@ -365,7 +398,7 @@ export default function Programacion({ usuario, onVolver }) {
         fechaCarga: f.fecha,
         horarioCarga: f.horario,
         transportista,
-        denormalizados: denormalizadosDe(x.pedido, entregaItem.entrega),
+        denormalizados: await denormalizadosDe(x.pedido, entregaItem.entrega),
         usuario,
       });
       creado = true;
@@ -426,6 +459,10 @@ export default function Programacion({ usuario, onVolver }) {
         despacho_id: despacho.numero,
         email_transportista: correos.join(','),
         reasignacion,
+        // `coordinadores` va siempre, aunque este mail hoy solo lea
+        // `destinatarios.transportista` -- es el contrato fijo de
+        // Notificaciones.gs v2, igual en las nueve llamadas.
+        destinatarios: armarDestinatarios({ coordinadores: await coordinadoresActivos(), transportista: correos }),
         ...payloadDe(x.pedido, entrega, {
           fecha: despacho.fecha_carga,
           horario: despacho.horario_carga,
@@ -519,17 +556,29 @@ export default function Programacion({ usuario, onVolver }) {
   }
 
   /**
-   * Cierra a mano un viaje que quedó en EN_VIAJE sin que el chofer lo haya
-   * cerrado — teléfono roto, se olvidó, lo que sea. Es más urgente de lo que
-   * parece: sin esto, el viaje queda abierto para siempre y eso bloquea la
-   * ficha del chofer en el ABM de usuarios (no se puede desactivar a alguien
-   * con un viaje en curso).
+   * Cierra a mano un viaje que quedó abierto (RECIBIDO o EN_VIAJE) sin que
+   * el chofer lo haya cerrado — teléfono roto, se olvidó, nunca llegó a
+   * arrancarlo desde la app, lo que sea. Es más urgente de lo que parece:
+   * sin esto, el viaje queda abierto para siempre y eso bloquea la ficha
+   * del chofer en el ABM de usuarios (no se puede desactivar a alguien con
+   * un viaje en curso).
    *
    * `finalizarViaje` con `cerradoPor: 'manual'` no guarda posición de fin —el
    * coordinador no sabe dónde estaba el camión, y poner la última conocida
    * como si fuera la de entrega sería inventar un dato que no se tiene.
+   *
+   * Solo admin y coordinador -- son los dos roles que ya tienen acceso a
+   * esta pantalla entera (`sinAcceso` más arriba), pero el cierre manual
+   * reescribe el estado de un viaje ajeno sin que el chofer haya hecho
+   * nada, así que lleva su propio chequeo explícito en vez de confiar en
+   * que el gate de la pantalla no cambie nunca.
    */
   async function confirmarCerrarManual(despacho, viaje) {
+    if (!tieneAlgunRol(usuario, ['admin', 'coordinador'])) {
+      setError('No tenés permiso para cerrar un viaje a mano.');
+      return;
+    }
+
     const motivo = window.prompt(
       `Vas a cerrar el viaje del despacho ${despacho.numero} a mano. `
       + 'Contá por qué (el chofer no lo cerró, se le rompió el teléfono, etc.):'
@@ -570,6 +619,11 @@ export default function Programacion({ usuario, onVolver }) {
     const prod = prodsPorId.get(pedido.producto_id);
     const idDestino = (entrega && entrega.destino_domicilio_id) || pedido.destino_domicilio_id;
     const destino = domsPorId.get(idDestino);
+    // Lugar de CARGA, no de entrega: mismo domicilio que resuelve el destino
+    // de arriba, pero sobre `origen_domicilio_id` del pedido. Agregado en v2
+    // de Notificaciones.gs -- antes el transportista solo veía a dónde tenía
+    // que llevar la carga, no de dónde salía.
+    const origen = domsPorId.get(pedido.origen_domicilio_id);
 
     return {
       cliente: org ? org.razon_social : '',
@@ -577,6 +631,8 @@ export default function Programacion({ usuario, onVolver }) {
       volumen: entrega ? entrega.volumen : '',
       ov: pedido.ov || '',
       lugar: destino ? textoDomicilio(destino) : '',
+      lugar_carga: origen ? textoDomicilio(origen) : '',
+      recipiente: pedido.recipiente || 'Granel',   // mismo default que `crearPedido()`
       tipo: pedido.tipo,
       fecha_carga: form.fecha || '',
       horario_carga: form.horario || '',
@@ -585,6 +641,8 @@ export default function Programacion({ usuario, onVolver }) {
       obs: pedido.obs || '',
       transporte: transportista ? transportista.razon_social : '',
       programado_por: usuario.nombre || usuario.email,
+      entrega_numero: entrega ? entrega.numero : null,
+      entregas_total: pedido.entregas_total || 0,
     };
   }
 
@@ -997,9 +1055,13 @@ function DespachoBloque({
   const col = COLOR_DESPACHO[d.estado] || COLOR_DESPACHO.CANCELADO;
   const org = d.transportista_org_id ? orgsPorId.get(d.transportista_org_id) : null;
   const vivo = despachoVivo(d);
-  // El viaje quedó EN_VIAJE sin que nadie lo haya cerrado. No depende de
-  // `puedeCancelar` ni de las otras acciones -- es su propio caso.
-  const puedeCerrarManual = d.estado === DESPACHO.NOMINADO && viaje && viaje.estado === VIAJE.EN_VIAJE;
+  // El viaje quedó abierto -- RECIBIDO (nunca arrancó, para el chofer) o
+  // EN_VIAJE (arrancó y nadie lo cerró) -- sin que nadie lo haya cerrado. No
+  // depende de `puedeCancelar` ni de las otras acciones -- es su propio
+  // caso. Antes exigía EN_VIAJE nada más, y por eso el botón nunca aparecía
+  // para un despacho nominado cuyo viaje se quedó en RECIBIDO -- ver el
+  // encabezado v2 de `finalizarViaje()` en `logica-viajes.js`.
+  const puedeCerrarManual = d.estado === DESPACHO.NOMINADO && viajeAbierto(viaje);
 
   const asignandoEste = asignando && asignando.despachoId === d.id;
   const editandoEste = editando && editando.despachoId === d.id;

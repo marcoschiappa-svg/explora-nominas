@@ -97,12 +97,79 @@
  *   que necesitaban un color puntual (el borde de cada entrega) ahora se
  *   pasan como `colores={{ bg, color }}`, que es lo unico que Pastilla
  *   respeta.
+ *
+ * -----------------------------------------------------------------------------
+ * REDISEÑO v4 (2026-09-18) -- AUTORÍA DEL PEDIDO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El modal de detalle no dice quién creó el pedido ni quién lo modificó
+ *     por última vez. `Coordinador.js`/`PedidosLegacy.js` sí lo muestran,
+ *     pero leyendo `creado_por`, un string del modelo viejo que no existe
+ *     en `pedidos` acá.
+ *
+ *   CAUSA RAÍZ
+ *     El dato SÍ existe en el modelo nuevo, en dos lugares distintos:
+ *     `pedido.creado_por_uid` (quién lo creó) y `historial` (cada cambio
+ *     posterior) -- pero nada en esta pantalla los leía todavía.
+ *
+ *   ALCANCE
+ *     Dos líneas en el modal de detalle, "Creado por" y "Última
+ *     modificación". La primera resuelve `creado_por_uid` contra `usuarios`
+ *     (colección que esta pantalla pasa a cargar completa, como ya hace
+ *     `Programacion.js` -- los tres roles con acceso acá son internos, así
+ *     que la regla de Firestore lo permite sin filtro). La segunda lee
+ *     `historial` -- ver `ModalDetallePedido` para el porqué de descartar
+ *     `derivado: true`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Un pedido creado antes de que `crearPedido()` empezara a guardar
+ *     `creado_por_uid` (si lo hubiera) mostraría "Sin identificar" -- no hay
+ *     forma de reconstruir ese dato para atrás.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Abrir el detalle de un pedido:
+ *     tiene que decir "Creado por: <nombre> · <fecha>". Editarlo (cambiar
+ *     domicilio, suspenderlo, etc.) y volver a abrirlo: "Última
+ *     modificación" tiene que reflejar ese cambio, con el nombre de quien lo
+ *     hizo -- no el de un transportista que aceptó un despacho suyo, eso es
+ *     `derivado` y se descarta a propósito.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.1.3 (2026-09-18) -- "MIS PEDIDOS" / "TODOS"
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Un comercial ve los pedidos de todos mezclados con los suyos, sin
+ *     forma de aislarlos.
+ *
+ *   CAUSA RAÍZ
+ *     El dato para filtrar (`creado_por_uid`) siempre estuvo en el pedido;
+ *     la pantalla nunca ofreció el filtro.
+ *
+ *   ALCANCE
+ *     Un conmutador de dos posiciones ("Mis pedidos" / "Todos"), en memoria,
+ *     sobre `pedidosConEstado` -- el mismo array que ya arma la pantalla, sin
+ *     una consulta nueva a Firestore. Arranca en "Mis pedidos" para el
+ *     comercial PURO (tiene el rol `comercial` y ningún otro de
+ *     `admin`/`coordinador`); cualquier otro perfil arranca en "Todos", el
+ *     comportamiento de siempre. Es la posición inicial nada más -- el
+ *     conmutador queda visible y usable para cualquiera.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     No hay barra de filtros ni orden por autor, y la elección no se
+ *     recuerda entre sesiones -- las dos cosas quedan para v1.2.0, junto con
+ *     la barra de filtros equivalente de `Programacion.js`. Construir eso
+ *     acá ahora y otra vez allá después es la clase de duplicación que este
+ *     repo evita a propósito.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Ver la sección de verificación
+ *     manual al final de esta tarea, con los tres perfiles.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { esInterno, motivoSinAcceso } from '../sesion';
+import { esInterno, motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { textoDomicilio } from '../buscar-domicilios';
 import {
@@ -122,9 +189,10 @@ import {
   validarPedido, crearPedido, suspenderPedido,
   editarDomicilioPedido, editarFechaEntrega, editarDestinoEntrega,
   agregarEntregas, suspenderEntregas, reactivarEntrega,
+  armarPayloadNuevoPedido,
   hoyISO,
 } from '../logica-pedidos';
-import { llamarAppsScript } from '../logica-despachos';
+import { llamarAppsScript, coordinadoresActivos, armarDestinatarios } from '../logica-despachos';
 import { marca, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
@@ -173,6 +241,16 @@ const COLOR_ENTREGA = {
 /* -----------------------------------------------------------------------------
  * Auxiliares de orden y resumen
  * -------------------------------------------------------------------------- */
+
+/** Un Timestamp de Firestore a fecha/hora legible, o '' si no hay nada -- mismo
+ * criterio que `formatoFecha()` en HistorialPedido.js. */
+function formatoFechaTs(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  return ts.toDate().toLocaleString('es-AR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
 
 function proximaFechaPendiente(entregas) {
   const fechas = (entregas || [])
@@ -233,6 +311,7 @@ export default function Pedidos({ usuario, onVolver }) {
   const [productos, setProductos] = useState([]);
   const [domicilios, setDomicilios] = useState([]);
   const [vinculos, setVinculos] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   const [vista, setVista] = useState('lista');
@@ -240,6 +319,15 @@ export default function Pedidos({ usuario, onVolver }) {
   const [grupoActivo, setGrupoActivo] = useState('todos');
   const [ordenPor, setOrdenPor] = useState('entrega');
   const [filtro, setFiltro] = useState('');
+  // 1. "Mis pedidos" / "Todos" -- arranca en "mios" solo para el comercial
+  //    PURO (comercial y ningún otro rol de admin/coordinador): a un
+  //    admin-comercial el filtro le estorbaría, porque su trabajo es ver
+  //    todo. Ver el encabezado v1.1.3 más arriba.
+  const [alcance, setAlcance] = useState(
+    tieneAlgunRol(usuario, ['comercial']) && !tieneAlgunRol(usuario, ['admin', 'coordinador'])
+      ? 'mios'
+      : 'todos'
+  );
   const [pedidoAbiertoId, setPedidoAbiertoId] = useState(null);
   const [mostrandoHistorial, setMostrandoHistorial] = useState(false);
 
@@ -289,6 +377,13 @@ export default function Pedidos({ usuario, onVolver }) {
 
       onSnapshot(collection(db, 'organizacion_domicilios'), (snap) =>
         setVinculos(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+
+      // Para "Creado por" en el detalle del pedido -- resuelve
+      // `creado_por_uid` contra el nombre. Sin filtro: los tres roles con
+      // acceso a esta pantalla (admin/comercial/coordinador) son internos, y
+      // las reglas de `usuarios` les permiten leer la colección entera.
+      onSnapshot(collection(db, 'usuarios'), (snap) =>
+        setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
     ];
 
     return () => unsubs.forEach(u => u());
@@ -297,6 +392,7 @@ export default function Pedidos({ usuario, onVolver }) {
   const orgsPorId = useMemo(() => new Map(organizaciones.map(o => [o.id, o])), [organizaciones]);
   const prodsPorId = useMemo(() => new Map(productos.map(p => [p.id, p])), [productos]);
   const domsPorId = useMemo(() => new Map(domicilios.map(d => [d.id, d])), [domicilios]);
+  const usuariosPorId = useMemo(() => new Map(usuarios.map(u => [u.id, u])), [usuarios]);
 
   const clientes = useMemo(
     () => organizaciones
@@ -346,16 +442,26 @@ export default function Pedidos({ usuario, onVolver }) {
     [pedidos]
   );
 
+  // 2. En memoria, sobre lo que la pantalla ya trajo -- NO es un `where` nuevo
+  //    a Firestore. Uno por `creado_por_uid` obligaría a un índice compuesto
+  //    (la consulta de arriba ya tiene `orderBy('creado_en')`) y a recargar
+  //    cada vez que se toca el conmutador, por un filtro que en memoria es
+  //    instantáneo.
+  const pedidosDeAlcance = useMemo(() => {
+    if (alcance !== 'mios') return pedidosConEstado;
+    return pedidosConEstado.filter(p => p.creado_por_uid === usuario.uid);
+  }, [pedidosConEstado, alcance, usuario.uid]);
+
   const filtrados = useMemo(() => {
     const texto = claveNormalizada(filtro);
-    if (!texto) return pedidosConEstado;
-    return pedidosConEstado.filter(p => {
+    if (!texto) return pedidosDeAlcance;
+    return pedidosDeAlcance.filter(p => {
       const org = orgsPorId.get(p.cliente_org_id);
       return claveNormalizada(p.numero).includes(texto)
           || claveNormalizada(p.ov).includes(texto)
           || (org && claveNormalizada(org.razon_social).includes(texto));
     });
-  }, [pedidosConEstado, filtro, orgsPorId]);
+  }, [pedidosDeAlcance, filtro, orgsPorId]);
 
   const conteosPorGrupo = useMemo(() => {
     const c = {};
@@ -476,24 +582,21 @@ export default function Pedidos({ usuario, onVolver }) {
     setErrores([]);
 
     try {
+      // Un solo `new Date()`, capturado ANTES de llamar a `crearPedido()`
+      // (que guarda `serverTimestamp()`): es lo que usa el mail para
+      // `creado_en`, así que tiene que ser el instante más cercano posible
+      // al de la escritura real, no uno tomado después de esperar la
+      // respuesta de Firestore. Ver el encabezado de `armarPayloadNuevoPedido()`.
+      const ahora = new Date();
       const { numero } = await crearPedido({ pedido, entregas: pedido.entregas, usuario, origenCarga: 'manual' });
 
       const org = orgsPorId.get(pedido.cliente_org_id);
       const prod = prodsPorId.get(pedido.producto_id);
       const destino = domsPorId.get(pedido.destino_domicilio_id);
+      const destinatarios = armarDestinatarios({ coordinadores: await coordinadoresActivos() });
 
-      const rAviso = await llamarAppsScript(APPS_SCRIPT_URL, 'nuevo_pedido', {
-        pedido_id: numero,
-        cliente: org ? org.razon_social : '',
-        producto: prod ? prod.nombre : '',
-        tipo: pedido.tipo,
-        volumen: pedido.volumen,
-        ov: pedido.ov,
-        lugar: destino ? textoDomicilio(destino) : '',
-        banda_horaria: pedido.banda_horaria,
-        obs: pedido.obs,
-        creado_por: usuario.nombre || usuario.email,
-      });
+      const rAviso = await llamarAppsScript(APPS_SCRIPT_URL, 'nuevo_pedido',
+        armarPayloadNuevoPedido(pedido, numero, org, prod, destino, pedido.entregas, usuario, ahora, destinatarios));
 
       setVista('lista');
       window.alert(
@@ -576,9 +679,17 @@ export default function Pedidos({ usuario, onVolver }) {
     const creados = [];
     const fallidos = [];
 
+    // Una sola consulta para todo el lote: los coordinadores activos no
+    // cambian entre filas de la misma carga masiva, y consultarlos una vez
+    // por fila multiplicaría las lecturas por nada.
+    const destinatarios = armarDestinatarios({ coordinadores: await coordinadoresActivos() });
+
     for (let i = 0; i < interpretados.length; i++) {
       const x = interpretados[i];
       try {
+        // Igual que en `guardar()`: el reloj se captura antes de escribir,
+        // no después.
+        const ahora = new Date();
         const { numero } = await crearPedido({
           pedido: x.pedido, entregas: x.entregas, usuario, origenCarga: 'carga_masiva',
         });
@@ -589,18 +700,8 @@ export default function Pedidos({ usuario, onVolver }) {
         const prod = prodsPorId.get(x.pedido.producto_id);
         const destino = domsPorId.get(x.pedido.destino_domicilio_id);
 
-        const rAviso = await llamarAppsScript(APPS_SCRIPT_URL, 'nuevo_pedido', {
-          pedido_id: numero,
-          cliente: org ? org.razon_social : '',
-          producto: prod ? prod.nombre : '',
-          tipo: x.pedido.tipo,
-          volumen: x.pedido.volumen,
-          ov: x.pedido.ov,
-          lugar: destino ? textoDomicilio(destino) : '',
-          banda_horaria: x.pedido.banda_horaria,
-          obs: x.pedido.obs,
-          creado_por: usuario.nombre || usuario.email,
-        });
+        const rAviso = await llamarAppsScript(APPS_SCRIPT_URL, 'nuevo_pedido',
+          armarPayloadNuevoPedido(x.pedido, numero, org, prod, destino, x.pedido.entregas, usuario, ahora, destinatarios));
         if (!rAviso.ok) console.warn(`Pedido ${numero} creado, pero no se pudo avisar al coordinador:`, rAviso.mensaje);
       } catch (err) {
         console.error('Fallo', x.clave, err);
@@ -678,6 +779,22 @@ export default function Pedidos({ usuario, onVolver }) {
       )}
 
       <div style={styles.controlesFila}>
+        {/* 3. Mismo patrón visual que el toggle Tarjetas/Tabla de más abajo --
+            dos botones, no un <select>, porque son solo dos opciones fijas. */}
+        <div style={styles.toggleVista}>
+          <button
+            style={{ ...styles.toggleBtn, ...(alcance === 'mios' ? styles.toggleBtnActivo : {}) }}
+            onClick={() => setAlcance('mios')}
+          >
+            Mis pedidos
+          </button>
+          <button
+            style={{ ...styles.toggleBtn, ...(alcance === 'todos' ? styles.toggleBtnActivo : {}) }}
+            onClick={() => setAlcance('todos')}
+          >
+            Todos
+          </button>
+        </div>
         <input
           style={styles.buscador}
           value={filtro}
@@ -759,6 +876,7 @@ export default function Pedidos({ usuario, onVolver }) {
           org={orgsPorId.get(pedidoAbierto.cliente_org_id)}
           prod={prodsPorId.get(pedidoAbierto.producto_id)}
           domsPorId={domsPorId}
+          usuariosPorId={usuariosPorId}
           domiciliosDeCliente={domiciliosDeCliente}
           usuario={usuario}
           onCerrar={() => { setPedidoAbiertoId(null); setMostrandoHistorial(false); }}
@@ -889,9 +1007,10 @@ function TablaPedidos({ pedidos, orgsPorId, prodsPorId, entregasPorPedido, onFil
 }
 
 function ModalDetallePedido({
-  pedido: p, entregas, org, prod, domsPorId, domiciliosDeCliente, usuario, onCerrar, onVerHistorial,
+  pedido: p, entregas, org, prod, domsPorId, usuariosPorId, domiciliosDeCliente, usuario, onCerrar, onVerHistorial,
 }) {
   const styles = useEstilos();
+  const [ultimaModificacion, setUltimaModificacion] = useState(null);
   const [suspendiendo, setSuspendiendo] = useState(false);
   const [editandoDomicilio, setEditandoDomicilio] = useState(false);
   const [nuevoDomicilioElegido, setNuevoDomicilioElegido] = useState(p.destino_domicilio_id || '');
@@ -919,6 +1038,33 @@ function ModalDetallePedido({
   const domiciliosCliente = domiciliosDeCliente(p.cliente_org_id);
   const colorEstadoPedido = COLOR_PEDIDO[p.estado] || COLOR_PEDIDO.pendiente;
 
+  // "Creado por": `creado_por_uid` resuelto contra `usuarios`. Mismo fallback
+  // que `armarHistorial()` en datos.js -- nombre, si no email, si no un
+  // texto fijo -- para no mostrar un UID pelado si el usuario se borró.
+  const creadoPorUsuario = usuariosPorId.get(p.creado_por_uid);
+  const creadoPorNombre = creadoPorUsuario
+    ? (creadoPorUsuario.nombre || creadoPorUsuario.email)
+    : 'Sin identificar';
+
+  // "Última modificación": el registro de `historial` más reciente que NO
+  // sea `derivado`. `historial` ya trae `usuario_nombre` denormalizado, así
+  // que no hace falta resolver ningún UID acá -- a diferencia de "Creado
+  // por", que solo tiene el UID en el propio pedido.
+  useEffect(() => {
+    const q = query(
+      collection(db, 'historial'),
+      where('pedido_id', '==', p.id),
+      orderBy('ts', 'desc')
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const noDerivado = snap.docs.find(d => !d.data().derivado);
+      setUltimaModificacion(noDerivado ? { id: noDerivado.id, ...noDerivado.data() } : null);
+    }, (err) => console.error('Historial (última modificación):', err));
+
+    return () => unsub();
+  }, [p.id]);
+
   // Volumen de las entregas activas (todo lo que no esta suspendido). Si ya
   // llega al volumen nominal del pedido, agregar una entrega mas implica
   // superar la orden -- hay que agrandarla y avisar a los coordinadores, no
@@ -938,13 +1084,25 @@ function ModalDetallePedido({
 
     setSuspendiendo(true);
     try {
-      const { yaEstaba, avisosApps } = await suspenderPedido({ pedidoId: p.id, motivo, usuario, appsScriptUrl: APPS_SCRIPT_URL });
+      const ahora = new Date();
+      const { yaEstaba, avisosApps, despachosCancelados, fechaCarga } = await suspenderPedido({
+        pedidoId: p.id, motivo, usuario, appsScriptUrl: APPS_SCRIPT_URL,
+      });
       if (!yaEstaba) {
         // El mail a coordinadores de "pedido suspendido" -- quedó afuera al
-        // partir la lógica en funciones chicas. El aviso al transportista NO
-        // se duplica acá: ya sale, uno por despacho afectado, como `aviso`
-        // in-app dentro de `cancelarDespacho()` (que `suspenderPedido()` ya
-        // llama por cada despacho vivo).
+        // partir la lógica en funciones chicas.
+        //
+        // NO se manda `destinatarios.transportista`: `suspenderPedido()`
+        // cancela un despacho por cada transportista que tuviera algo vivo,
+        // y pueden ser varios y distintos entre sí -- no hay un único
+        // "el transportista" para este mail, que es singular por diseño
+        // (una sola `fecha_carga`, un solo destinatario). El aviso a cada
+        // transportista afectado ya sale por separado, in-app, dentro de
+        // `cancelarDespacho()` (que `suspenderPedido()` llama una vez por
+        // despacho vivo) -- así que no queda sin avisar, solo no es por mail
+        // acá. Si algún día hiciera falta el mail, la solución es mandar un
+        // `suspender_pedido` por transportista afectado, no uno solo con una
+        // lista -- cambio de alcance mayor a esta tarea.
         await llamarAppsScript(APPS_SCRIPT_URL, 'suspender_pedido', {
           id: p.numero,
           producto: prod ? prod.nombre : '',
@@ -953,7 +1111,11 @@ function ModalDetallePedido({
           ov: p.ov,
           fecha_entrega: proximaFechaPendiente(entregas) || '',
           suspendido_por: usuario.nombre || usuario.email,
+          suspendido_en: ahora.toLocaleString('es-AR'),
           motivo,
+          despachos_cancelados: despachosCancelados || 0,
+          fecha_carga: fechaCarga || '',
+          destinatarios: armarDestinatarios({ coordinadores: await coordinadoresActivos() }),
         });
       }
       if (yaEstaba) {
@@ -1164,6 +1326,20 @@ function ModalDetallePedido({
 
           <div style={styles.progresoModalWrap}>
             <BarraProgreso total={p.entregas_total || 0} cubiertas={p.entregas_cubiertas || 0} cumplidas={p.entregas_cumplidas || 0} />
+          </div>
+
+          <div style={styles.autoriaBox}>
+            <div style={styles.autoriaLinea}>
+              Creado por: {creadoPorNombre} · {formatoFechaTs(p.creado_en) || '—'}
+            </div>
+            {/* Si no hay ningún registro de historial no derivado, el pedido
+                nunca se editó -- no mostrar la línea es más claro que un "—". */}
+            {ultimaModificacion && (
+              <div style={styles.autoriaLinea}>
+                Última modificación: {ultimaModificacion.usuario_nombre || 'Sin identificar'}
+                {' · '}{formatoFechaTs(ultimaModificacion.ts) || '—'}
+              </div>
+            )}
           </div>
 
           <div style={styles.accionesColumna}>
@@ -1811,6 +1987,8 @@ function crearEstilos(colores) {
     label: { fontSize: 11, color: colores.textoTenue },
     valor: { fontSize: 13, color: colores.texto },
     obsBox: { fontSize: 12, color: colores.textoSuave, padding: '8px 10px', background: colores.fondoAlterno, borderRadius: 8, marginBottom: 10 },
+    autoriaBox: { display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 4 },
+    autoriaLinea: { fontSize: 11, color: colores.textoTenue },
     accionesColumna: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 },
 
     entregasTitulo: { fontSize: 11, color: colores.textoTenue, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 },

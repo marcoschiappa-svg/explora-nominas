@@ -44,6 +44,7 @@ import { db } from './firebase';
 import { enTransaccion, calcularDiferencias } from './datos';
 import { despachoVivo, ENTREGA, VIAJE } from './estados';
 import { cancelarDespacho, leerContextoPedido } from './logica-despachos';
+import { textoDomicilio } from './buscar-domicilios';
 
 /* -----------------------------------------------------------------------------
  * Constantes del dominio
@@ -376,6 +377,80 @@ export async function crearPedido({ pedido, entregas, usuario, origenCarga = 'ma
  * -------------------------------------------------------------------------- */
 
 /**
+ * Arma el payload de `nuevo_pedido` para Notificaciones.gs (v2, 2026-09-18).
+ *
+ * SÍNTOMA (v1, resuelto)
+ *   El mail de "pedido nuevo" salía con "undefined" en cinco campos, asunto
+ *   incluido.
+ *
+ * CAUSA RAÍZ (v1, resuelto)
+ *   `Pedidos.js` armaba este objeto a mano en dos lugares (alta individual y
+ *   carga masiva), literalmente duplicado, y los nombres de las claves no
+ *   coincidían con lo que leía `enviarEmailCoordinador()` en Notificaciones.gs.
+ *   Es la misma clase de duplicación que ya documentaba el comentario de más
+ *   abajo para `nuevo_pedido` en el propio Apps Script.
+ *
+ * QUÉ CAMBIA EN v2
+ *   1. `destinatarios`: Notificaciones.gs v2 ya no tiene direcciones de
+ *      coordinador escritas a mano -- las resuelve el portal y las manda acá.
+ *      Es un parámetro, no algo que esta función resuelva: `coordinadoresActivos()`
+ *      hace una consulta a Firestore, y esta función tiene que poder armarse
+ *      con datos ya resueltos, sin depender de que quien la llama haya hecho
+ *      un `await`.
+ *   2. `creado_en` ya no es un `new Date()` propio. Antes esta función
+ *      llamaba a `new Date()` DESPUÉS de que `crearPedido()` ya había
+ *      confirmado el documento con `serverTimestamp()` -- dos relojes
+ *      (servidor y máquina local) leídos en dos momentos distintos, más el
+ *      tiempo de ida y vuelta de la escritura. Si el reloj de la máquina
+ *      estaba corrido, el mail decía una hora y Firestore otra. Ahora
+ *      `creadoEn` es un parámetro: quien llama captura `new Date()` UNA sola
+ *      vez, antes de llamar a `crearPedido()`, y la reutiliza acá -- mismo
+ *      instante para los dos, sin agregarle otra fuente de reloj.
+ *   3. `recipiente` ahora cae a `'Granel'` si el pedido no tiene uno
+ *      explícito, igual que ya hace `crearPedido()` al escribir el
+ *      documento. Antes mandaba `pedido.recipiente` pelado: un pedido sin
+ *      recipiente quedaba "Granel" en la base y vacío en el mail -- los dos
+ *      lados tienen que decir lo mismo.
+ *
+ * CÓMO SE VERIFICA
+ *   `CI=true npm run build` sin warnings. Manualmente: crear un pedido (alta
+ *   individual y carga masiva) y revisar que el mail no tenga "undefined" en
+ *   ningún campo, y que la fecha coincida con la del historial del pedido.
+ *
+ * @param {Object} pedido Como lo devuelve `armarPedido()` / `interpretarGrupo()`
+ * @param {string} numero El número de pedido (ej. `PED-2026-000123`)
+ * @param {Object} org Organización cliente, ya resuelta (o null)
+ * @param {Object} prod Producto, ya resuelto (o null)
+ * @param {Object} destino Domicilio de destino, ya resuelto (o null)
+ * @param {Array} entregas [{volumen, fecha_solicitada}], en orden de creación
+ * @param {Object} usuario La sesión
+ * @param {Date} creadoEn El mismo instante con el que se llamó a `crearPedido()`
+ * @param {Object} destinatarios Lo que devuelve `armarDestinatarios()`
+ * @returns {Object} Payload para `llamarAppsScript(url, 'nuevo_pedido', payload)`
+ */
+export function armarPayloadNuevoPedido(pedido, numero, org, prod, destino, entregas, usuario, creadoEn, destinatarios) {
+  return {
+    id: numero,                                     // antes: `pedido_id` -- el script lee `data.id`
+    creado_por: usuario.nombre || usuario.email,
+    creado_en: creadoEn.toLocaleString('es-AR'),
+    recipiente: pedido.recipiente || 'Granel',       // mismo default que `crearPedido()`
+    // Una fecha por entrega, no una sola `fecha_entrega`: el pedido ya no
+    // tiene fecha propia. El orden que trae `entregas` es el de creación
+    // (mismo orden en que `crearPedido()` les asigna `numero: i + 1`).
+    entregas: entregas.map(e => ({ fecha: e.fecha_solicitada, volumen: Number(e.volumen) })),
+    tipo: pedido.tipo,
+    producto: prod ? prod.nombre : '',
+    volumen: pedido.volumen,
+    ov: pedido.ov,
+    lugar: destino ? textoDomicilio(destino) : '',
+    banda_horaria: pedido.banda_horaria,
+    obs: pedido.obs,
+    cliente: org ? org.razon_social : '',
+    destinatarios,
+  };
+}
+
+/**
  * Avisa al coordinador que hay un pedido nuevo.
  *
  * NO escribe en el Plan de Producción: eso pasa recién cuando el coordinador
@@ -470,9 +545,11 @@ async function leerViajesDePedido(despachoIds) {
  * @param {string} params.motivo Obligatorio: es lo único que le va a quedar
  *   al transportista para entender por qué se le cayó el despacho.
  * @param {Object} params.usuario
- * @returns {Promise<{yaEstaba: boolean, avisosApps?: string[]}>} `avisosApps`
- *   son los despachos cuyo aviso al Apps Script (D3) falló -- la cancelación
- *   en Firestore de todas formas se hizo bien.
+ * @returns {Promise<{yaEstaba: boolean, avisosApps?: string[], despachosCancelados?: number, fechaCarga?: string}>}
+ *   `avisosApps` son los despachos cuyo aviso al Apps Script (D3) falló -- la
+ *   cancelación en Firestore de todas formas se hizo bien. `despachosCancelados`
+ *   y `fechaCarga` son para el payload de `suspender_pedido` de
+ *   Notificaciones.gs -- ver el llamado en `Pedidos.js`.
  */
 export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl = null }) {
   if (!motivo || !motivo.trim()) {
@@ -493,7 +570,7 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
   const refPedido = doc(db, 'pedidos', pedidoId);
   const snapPrevio = await getDoc(refPedido);
   if (!snapPrevio.exists()) throw new Error('El pedido ya no existe.');
-  if (snapPrevio.data().suspendido) return { yaEstaba: true };
+  if (snapPrevio.data().suspendido) return { yaEstaba: true, despachosCancelados: 0 };
 
   const pedidoBase = { id: pedidoId, ...snapPrevio.data() };
 
@@ -501,6 +578,12 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
   // paralelo: son transacciones independientes sobre el mismo pedido, y
   // dispararlas todas juntas multiplicaría los reintentos por choque.
   const vivos = despachos.filter(despachoVivo);
+  // La fecha de carga que va en el mail al transportista (Notificaciones.gs,
+  // enviarEmailSuspenderPedido): es singular porque el mail lo es, y un
+  // pedido puede tener despachos vivos con transportistas Y fechas
+  // distintas. Se manda la del primero, a falta de una mejor -- ver la nota
+  // en `Pedidos.js` sobre por qué esa rama del mail no se dispara hoy.
+  const fechaCarga = vivos.length ? vivos[0].fecha_carga || '' : '';
   const avisosApps = [];
   for (const d of vivos) {
     const viaje = viajes.find(v => v.despacho_id === d.id) || null;
@@ -530,7 +613,7 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
 
     if (!snapPedido.exists()) throw new Error('El pedido ya no existe.');
     const actual = { id: pedidoId, ...snapPedido.data() };
-    if (actual.suspendido) return { yaEstaba: true };
+    if (actual.suspendido) return { yaEstaba: true, despachosCancelados: 0 };
 
     const cambiosPedido = {
       suspendido: true,
@@ -575,7 +658,7 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
       });
     });
 
-    return { yaEstaba: false, avisosApps };
+    return { yaEstaba: false, avisosApps, despachosCancelados: vivos.length, fechaCarga };
   }, 3);
 }
 

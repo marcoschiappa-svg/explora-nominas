@@ -16,6 +16,84 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.1.3 — 18-09-2026
+
+**Parche de corrección.** Cinco problemas de producción, tres de ellos
+invisibles hasta que alguien los buscó: dos consultas que fallaban por
+índices no declarados, y un botón que existía en el código pero exigía un
+estado inalcanzable.
+
+- **Corregido**: `Notificaciones.gs` + `logica-pedidos.js` — los mails de
+  pedido nuevo salían con "undefined" en cinco lugares, incluido el asunto.
+  La causa era un desfase de nombres entre el payload que arma el portal y
+  los que lee el Apps Script, introducido por el modelo nuevo de v1.1.0: el
+  script leía `data.id` y el portal mandaba `pedido_id`; `creado_en`,
+  `recipiente` y `fecha_entrega` directamente no se mandaban. Que
+  `creado_por` fuera el único campo correcto en el mail real es la prueba:
+  es el único cuyo nombre no cambió. Se reescriben los nueve emisores con
+  un contrato explícito, asunto uniforme
+  (`[OV-2860] - Pedido nuevo - Glicerina - 28 tn - MAPEI`), destinatarios
+  resueltos por rol contra `usuarios` en vez de tres direcciones escritas a
+  mano en el script, y el cronograma completo de entregas en vez de una
+  sola fecha — el pedido del modelo nuevo no tiene fecha propia. Todos los
+  campos pasan por una función que cae a "—": un campo que deje de
+  mandarse ya no escribe "undefined", pero tampoco avisa.
+- **Corregido**: `estados.js`, `logica-viajes.js`, `Programacion.js` — el
+  botón "Cerrar viaje a mano" no aparecía nunca. Exigía
+  `viaje.estado === EN_VIAJE`, y ese estado solo lo escribe
+  `iniciarViaje()`, llamable únicamente desde `MisViajes.js`. Con TrackEx
+  en pausa y `Chofer.js` escribiendo en `pedidos_portal` —colección legacy,
+  desconectada de `viajes`—, un despacho puede quedar nominado con chofer
+  asignado y su viaje se queda en `RECIBIDO` para siempre. Se agrega
+  `viajeAbierto()` en `estados.js` (RECIBIDO o EN_VIAJE, en un solo lugar
+  para no repetir la comparación en dos archivos, que es lo que causó el
+  bug), `finalizarViaje()` acepta RECIBIDO solo cuando el cierre es manual,
+  y se agrega el chequeo de rol que faltaba.
+- **Corregido**: `firestore.indexes.json` — tres consultas compuestas
+  fallaban con `failed-precondition` porque sus índices no estaban
+  declarados. La pantalla de historial del pedido no mostraba nada, dar de
+  baja un camión fallaba, y la resolución de coordinadores para los mails
+  habría fallado igual. Se agregan `historial` (`pedido_id` + `ts`),
+  `despachos` (`tractor_id` + `estado` y `acoplado_id` + `estado`) y
+  `usuarios` (`roles` + `estado`). Se elimina el índice de `despachos` por
+  `camion_id`: ese campo se separó en `tractor_id` y `acoplado_id` y ya no
+  existe en ningún documento — el índice quedó vivo apuntando a la nada.
+- **Corregido**: `firestore.rules.produccion` —
+  `camposDelTransportista()` seguía listando `camion_id`, que ya no se
+  escribe, y le faltaban `tractor_id` y `acoplado_id`, que sí. Como la
+  regla usa `cambia().hasOnly(...)`, la ausencia de un campo que la acción
+  necesita escribir rechaza la nominación entera con `permission-denied`.
+  Mismo patrón que el caso de `viaje_id` ya documentado en ese archivo.
+- **Nuevo**: `Organizaciones.js` — casilla "Cliente del exterior". Un
+  cliente sin CUIT no se podía dar de alta porque la validación exige el
+  formato argentino. Con la casilla marcada, el identificador fiscal acepta
+  texto libre y la unicidad se mantiene sobre el valor normalizado.
+  Deliberadamente mínimo: no se agregan `pais` ni `tipo_identificacion` al
+  modelo, que es lo correcto a largo plazo pero implica migrar las
+  organizaciones existentes.
+- **Nuevo**: `Pedidos.js` — el detalle del pedido muestra quién lo creó y
+  quién lo modificó por última vez. El dato ya se guardaba y nunca se
+  mostraba. La última modificación sale de `historial`, descartando los
+  registros con `derivado: true`: sin ese filtro, la línea mostraría el
+  nombre del transportista que aceptó un despacho como si hubiera editado
+  el pedido.
+- **Nuevo**: `Pedidos.js` — conmutador "Mis pedidos / Todos", que arranca
+  en "Mis pedidos" para el comercial que no es además admin ni coordinador.
+  Filtro en memoria sobre `creado_por_uid`, sin tocar la consulta ni
+  persistir la preferencia.
+
+Las reglas y los índices se publicaron **antes** del merge, como exige el
+Paso 8 del procedimiento.
+
+Pendientes conocidos, sin resolver en esta versión: el recordatorio de 12hs
+sigue sin dispararse nunca —lo llama `verificarNominacionesPendientes()`,
+que lee una hoja "Pedidos Portal" que no existe—; el portal sigue llamando
+al Apps Script con `mode: 'no-cors'` en varias rutas, así que muestra que
+notificó aunque el mail falle; y un viaje cerrado desde `RECIBIDO` queda
+sin timestamp de inicio, algo que la vista de ciclo de vida de v1.2 va a
+tener que contemplar.
+
+
 ## v1.1.1 — 04-09-2026
 
 **Parche de estabilización post-v1.1.0.** Cuatro correcciones puntuales

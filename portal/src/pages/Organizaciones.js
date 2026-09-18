@@ -62,6 +62,42 @@
  *   `ui/` (Boton, Tarjeta, Pastilla, Campo, Vacio), sin Topbar propio
  *   (BarraSuperior ya cubre logo/volver), paleta rojo/azul en vez de gris --
  *   mismo patrón que el resto de las pantallas migradas.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.1.3 (2026-09-18) -- CLIENTES DEL EXTERIOR
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Un cliente sin CUIT argentino no se podía dar de alta: el campo de
+ *     identificación fiscal solo aceptaba 11 dígitos.
+ *
+ *   CAUSA RAÍZ
+ *     El formulario asumía un único tipo de identificación (CUIT argentino)
+ *     porque, hasta ahora, todos los clientes eran locales.
+ *
+ *   ALCANCE
+ *     Una casilla "Cliente del exterior" (`form.es_exterior`, guardada tal
+ *     cual en el documento). Marcada, el campo de identificación fiscal
+ *     acepta texto libre -- VAT, RUT, EIN, lo que corresponda -- sin el
+ *     chequeo de 11 dígitos. La unicidad se mantiene igual para los dos
+ *     casos: se guarda `cuit_normalizado` (con `claveNormalizada()`, no una
+ *     normalización propia) y se consulta antes de guardar, mismo patrón que
+ *     ya usa `clave_normalizada` para la razón social.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     NO se agregan `pais` ni `tipo_identificacion` -- ambos correctos a
+ *     largo plazo, pero implican migrar las organizaciones existentes.
+ *     Planificado para v1.2.0. Esto resuelve el bloqueo de hoy sin
+ *     comprometer esa decisión: `es_exterior` es un booleano opcional, así
+ *     que las organizaciones ya cargadas (que no lo tienen) se leen como
+ *     `false` sin ninguna migración.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Alta con "Cliente del exterior"
+ *     tildado: cargar texto libre en identificación fiscal (por ejemplo
+ *     "VAT-GB123456789") tiene que guardar sin pedir 11 dígitos. Cargar la
+ *     misma identificación en otra organización (con o sin la casilla
+ *     tildada) tiene que rechazarse por duplicada. Sin la casilla, el alta
+ *     sigue exigiendo el formato de CUIT de siempre.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -93,6 +129,11 @@ import Vacio from '../ui/Vacio';
  * guiones y espacios: en la base de hoy conviven `"20-25505747-3"`,
  * `"20438430122"` y uno que arranca con un espacio.
  *
+ * 1. Esa exigencia de 11 dígitos es específica del CUIT argentino. Un
+ *    cliente del exterior no tiene uno -- `form.es_exterior` la desactiva y
+ *    el campo pasa a aceptar lo que sea (VAT, RUT, EIN...). Ver el
+ *    encabezado v1.1.3 más arriba.
+ *
  * El correo tampoco es obligatorio, pero si se carga tiene que tener al menos
  * la forma de un email -- sin esto, un typo queda invisible hasta que alguien
  * intenta escribirle y rebota.
@@ -106,7 +147,7 @@ function validarFormulario(form) {
   if (!form.es_cliente && !form.es_transportista) {
     errores.push('Marcá al menos una: cliente o transporte.');
   }
-  if (form.cuit.trim() && !normalizarCuit(form.cuit)) {
+  if (!form.es_exterior && form.cuit.trim() && !normalizarCuit(form.cuit)) {
     errores.push('El CUIT tiene que tener 11 dígitos.');
   }
   if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
@@ -124,6 +165,7 @@ const FORM_VACIO = {
   razon_social: '',
   nombre_corto: '',
   cuit: '',
+  es_exterior: false,
   email: '',
   telefono: '',
   es_cliente: true,
@@ -196,6 +238,7 @@ export default function Organizaciones({ usuario, onVolver }) {
       razon_social: org.razon_social || '',
       nombre_corto: org.nombre_corto || '',
       cuit: org.cuit || '',
+      es_exterior: !!org.es_exterior,
       email: org.email || '',
       telefono: org.telefono || '',
       es_cliente: !!org.es_cliente,
@@ -207,18 +250,23 @@ export default function Organizaciones({ usuario, onVolver }) {
   }
 
   /**
-   * Busca si ya existe otra organización con la misma clave normalizada.
+   * Busca si ya existe otra organización con el mismo valor en `campo`.
    *
    * Se consulta contra Firestore y no contra el estado local: entre que se
    * cargó la lista y se aprieta guardar, otro usuario pudo haber creado la
    * misma. No es una garantía —dos altas simultáneas se cuelan igual— pero
    * atrapa el caso frecuente, que es cargar un cliente que ya estaba con otra
    * mayúscula.
+   *
+   * Generalizada de `clave_normalizada` (razón social) a cualquier campo:
+   * v1.1.3 la reutiliza también para `cuit_normalizado`, la identificación
+   * fiscal -- dos comparaciones idénticas salvo el nombre del campo no
+   * ameritan dos funciones.
    */
-  async function buscarDuplicado(clave, idPropio) {
+  async function buscarDuplicado(campo, valor, idPropio) {
     const q = query(
       collection(db, 'organizaciones'),
-      where('clave_normalizada', '==', clave),
+      where(campo, '==', valor),
       limit(2)
     );
     const snap = await getDocs(q);
@@ -236,17 +284,41 @@ export default function Organizaciones({ usuario, onVolver }) {
       const razon = form.razon_social.trim();
       const clave = claveNormalizada(razon);
 
-      const duplicado = await buscarDuplicado(clave, editando ? editando.id : null);
+      const duplicado = await buscarDuplicado('clave_normalizada', clave, editando ? editando.id : null);
       if (duplicado) {
-        setErrores([`Ya existe una organización con ese nombre: "${duplicado.razon_social}".`]);
+        setErrores([`Ya existe una organización con ese nombre: "${duplicado.data().razon_social}".`]);
         setGuardando(false);
         return;
+      }
+
+      // 1. Del exterior: texto libre, tal cual lo cargaron (recortado). Local:
+      //    el mismo `normalizarCuit()` de siempre, dígitos nada más.
+      const cuit = form.es_exterior
+        ? (form.cuit.trim() || null)
+        : (form.cuit.trim() ? normalizarCuit(form.cuit) : null);
+
+      // 2. La unicidad se compara siempre con `claveNormalizada()`, no con el
+      //    valor guardado en `cuit`: un CUIT local ya está en dígitos puros y
+      //    no cambia, pero una identificación del exterior en texto libre sí
+      //    puede diferir en mayúsculas o espacios entre dos cargas de la
+      //    misma organización.
+      const cuitNormalizado = cuit ? claveNormalizada(cuit) : null;
+
+      if (cuitNormalizado) {
+        const duplicadoCuit = await buscarDuplicado('cuit_normalizado', cuitNormalizado, editando ? editando.id : null);
+        if (duplicadoCuit) {
+          setErrores([`Ya existe una organización con esa identificación fiscal: "${duplicadoCuit.data().razon_social}".`]);
+          setGuardando(false);
+          return;
+        }
       }
 
       const datos = {
         razon_social: razon,
         nombre_corto: form.nombre_corto.trim() || razon,
-        cuit: form.cuit.trim() ? normalizarCuit(form.cuit) : null,
+        cuit,
+        cuit_normalizado: cuitNormalizado,
+        es_exterior: form.es_exterior,
         email: form.email.trim() || null,
         telefono: form.telefono.trim() || null,
         obs: form.obs.trim(),
@@ -396,11 +468,13 @@ export default function Organizaciones({ usuario, onVolver }) {
             />
 
             <Campo
-              label="CUIT"
+              label={form.es_exterior ? 'Identificación fiscal' : 'CUIT'}
               value={form.cuit}
               onChange={e => setForm({ ...form, cuit: e.target.value })}
-              placeholder="30-60561644-1"
-              ayuda="Con o sin guiones. Se guarda normalizado."
+              placeholder={form.es_exterior ? 'VAT, RUT, EIN...' : '30-60561644-1'}
+              ayuda={form.es_exterior
+                ? 'Cliente del exterior: sin formato fijo.'
+                : 'Con o sin guiones. Se guarda normalizado.'}
             />
 
             <Campo
@@ -418,6 +492,19 @@ export default function Organizaciones({ usuario, onVolver }) {
               placeholder="(0341) 456-7890"
             />
           </div>
+
+          {/* Visible para cualquiera que llegue a este formulario (mismo
+              acceso que el resto de los campos, `puedeEditar`), no solo
+              admin: el comercial es quien de hecho carga clientes -- ver
+              encabezado v1.1.3. */}
+          <label style={{ ...styles.check, marginBottom: 16 }}>
+            <input
+              type="checkbox"
+              checked={form.es_exterior}
+              onChange={e => setForm({ ...form, es_exterior: e.target.checked })}
+            />
+            <span>Cliente del exterior — sin CUIT argentino</span>
+          </label>
 
           {puedeElegirBanderas && (
             <div style={styles.seccion}>

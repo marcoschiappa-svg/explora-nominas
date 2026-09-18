@@ -665,6 +665,79 @@ export function correosDeOrganizacion(usuarios, organizacionId) {
 }
 
 /**
+ * Los coordinadores activos, consultados en vivo (v2 Notificaciones.gs,
+ * 2026-09-18).
+ *
+ * ANTES estaban escritos a mano en Notificaciones.gs -- tres direcciones
+ * fijas, y cada alta o baja de coordinador era un cambio de código en un
+ * archivo que nadie miraba salvo cuando algo se rompía.
+ *
+ * AHORA el script no sabe nada de coordinadores: el portal se los manda en
+ * cada payload, en `data.destinatarios.coordinadores` (ver
+ * `armarDestinatarios()`).
+ *
+ * Es una consulta, no un filtro sobre una lista ya cargada -- a diferencia de
+ * `correosDeOrganizacion()`, que sí opera sobre `usuarios` ya en memoria.
+ * Algunas pantallas que llaman a esta función (`Pedidos.js`) no tienen esa
+ * colección cargada, así que se consulta directo. Requiere el índice
+ * compuesto `usuarios` (roles array-contains + estado) de
+ * `firestore.indexes.json`.
+ *
+ * Solo puede ejecutarla un rol interno (admin/coordinador/comercial): las
+ * reglas de Firestore evalúan el filtro de lectura de `usuarios` contra QUIEN
+ * PREGUNTA, no contra el documento; un transportista consultando esto se
+ * queda sin resultados por `permission-denied`, documento por documento. Por
+ * eso `MisDespachos.js` (pantalla del transportista) NO llama a esta
+ * función: usa `coordinadores_email`, congelado en el despacho al aceptar la
+ * entrega -- ver `denormalizadosDe()` en `Programacion.js`.
+ *
+ * @returns {Promise<string[]>} emails, normalizados y sin repetidos
+ */
+export async function coordinadoresActivos() {
+  const snap = await getDocs(query(
+    collection(db, 'usuarios'),
+    where('roles', 'array-contains', 'coordinador'),
+    where('estado', '==', 'activo'),
+  ));
+
+  const vistos = new Set();
+  snap.docs.forEach(d => {
+    const u = d.data();
+    if (u.email) vistos.add(u.email.trim().toLowerCase());
+    (u.emails_extra || []).forEach(e => e && vistos.add(e.trim().toLowerCase()));
+  });
+
+  return [...vistos];
+}
+
+/**
+ * Arma `data.destinatarios` para un payload del Apps Script (v2
+ * Notificaciones.gs, 2026-09-18).
+ *
+ * UNA función para las nueve llamadas: antes de esto, cada sitio armaba el
+ * objeto a mano, y era fácil que alguno se olvidara de omitir una clave
+ * vacía o de sacarle espacios/mayúsculas a un email -- la clase de
+ * divergencia silenciosa que ya costó cara con `nuevo_pedido`.
+ *
+ * `coordinadores` va SIEMPRE, aunque venga vacío: es el contrato fijo que
+ * espera `destinatarios()` en Notificaciones.gs. `transportista` y
+ * `comercial` solo si hay algo que mandar -- una clave presente pero vacía
+ * haría que el script interprete "sí corresponde este bloque del mail, pero
+ * a nadie", que no es lo mismo que "este mail no lleva ese bloque".
+ *
+ * @param {Object} p
+ * @param {string[]} p.coordinadores
+ * @param {string[]} [p.transportista]
+ * @param {string[]} [p.comercial]
+ */
+export function armarDestinatarios({ coordinadores, transportista, comercial }) {
+  const destinatarios = { coordinadores: coordinadores || [] };
+  if (transportista && transportista.length) destinatarios.transportista = transportista;
+  if (comercial && comercial.length) destinatarios.comercial = comercial;
+  return destinatarios;
+}
+
+/**
  * Llama al Apps Script.
  *
  * Le llegan los NOMBRES resueltos, nunca los IDs: el script rutea al Plan de

@@ -43,7 +43,7 @@
 import { doc, collection, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { enTransaccion, calcularDiferencias } from './datos';
-import { DESPACHO, VIAJE, deltaContadores } from './estados';
+import { DESPACHO, VIAJE, deltaContadores, viajeAbierto } from './estados';
 
 /* -----------------------------------------------------------------------------
  * Iniciar
@@ -195,12 +195,47 @@ export async function reportarDemora({ viaje, motivo, usuario }) {
  *   `entregas_cumplidas`. `entregas_cubiertas` queda igual.
  *
  * -----------------------------------------------------------------------------
- * ESTE ES EL PUNTO QUE HOY NO EXISTE
+ * v2 (2026-09-18) — EL CIERRE MANUAL TAMBIÉN VALE DESDE `RECIBIDO`
  * -----------------------------------------------------------------------------
- *   El chofer finaliza, y de ahí sale la cascada: el despacho pasa a
- *   ENTREGADO, y el contador de entregas cumplidas del pedido sube uno. Hoy
- *   `estado` del despacho se congela en "Nominado" para siempre porque nada
- *   lo empuja.
+ *   SÍNTOMA
+ *     El botón "Cerrar viaje a mano" de `Programacion.js` nunca aparecía,
+ *     ni con un despacho nominado y con chofer asignado desde hacía días.
+ *
+ *   CAUSA RAÍZ
+ *     `puedeCerrarManual` (en `Programacion.js`) exigía `viaje.estado ===
+ *     EN_VIAJE`, y esta función tiraba el mismo error para cualquier cosa
+ *     que no fuera `EN_VIAJE` -- las dos condiciones coincidían entre sí,
+ *     así que no era un desacople entre pantalla y función. El problema es
+ *     que `EN_VIAJE` es un estado que, hoy, casi ningún viaje alcanza: el
+ *     único lugar que lo escribe es `iniciarViaje()`, y esa función solo se
+ *     llama desde `MisViajes.js`. Con la app TrackEx pausada y la pantalla
+ *     vieja del chofer (`Chofer.js`, `App.js` módulo `chofer`) escribiendo
+ *     únicamente en `pedidos_portal` -- una colección aparte, que esta
+ *     función ni lee -- un despacho puede quedar nominado con chofer y
+ *     patente puestos, y su viaje se queda en `RECIBIDO` para siempre: nadie
+ *     tiene cómo avisarle a Firestore que arrancó.
+ *
+ *   ALCANCE
+ *     El cierre MANUAL (`cerradoPor === 'manual'`) ahora vale desde
+ *     `RECIBIDO` además de `EN_VIAJE` -- los dos estados que
+ *     `viajeAbierto()` (`estados.js`) considera "todavía se puede cerrar".
+ *     El cierre del CHOFER sigue exigiendo `EN_VIAJE` sin cambios: un chofer
+ *     nunca debería poder "finalizar" un viaje que él mismo no inició -- ese
+ *     botón ni le aparece en `MisViajes.js`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Esto no arregla por qué los viajes no llegan a `EN_VIAJE` -- sigue
+ *     siendo cierto que, mientras los choferes no usen `MisViajes.js`, la
+ *     posición de inicio y los puntos de GPS de ese viaje van a quedar
+ *     vacíos. Es a propósito: cerrar a mano nunca inventa un dato que no se
+ *     tiene, ni de inicio ni de fin.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Manualmente: un despacho
+ *     NOMINADO cuyo viaje diga "RECIBIDO" (se ve en la propia tarjeta del
+ *     despacho, en Programación) tiene que mostrar "Cerrar viaje a mano", y
+ *     al confirmarlo con un motivo, el despacho pasa a ENTREGADO y el viaje
+ *     queda "FINALIZADO (cerrado por Explora)" sin posición de fin.
  *
  * @param {Object} params
  * @param {Object} params.viaje
@@ -232,10 +267,14 @@ export async function finalizarViaje({
     const viajeActual = { id: viaje.id, ...snapV.data() };
     const despachoActual = { id: despacho.id, ...snapD.data() };
 
-    if (viajeActual.estado !== VIAJE.EN_VIAJE) {
+    // El chofer solo puede cerrar lo que él mismo inició -- sigue exigiendo
+    // EN_VIAJE, sin cambios. El cierre manual acepta también RECIBIDO: ver
+    // el encabezado v2 de más arriba.
+    const estadoValido = cerradoPor === 'manual' ? viajeAbierto(viajeActual) : viajeActual.estado === VIAJE.EN_VIAJE;
+    if (!estadoValido) {
       throw new Error(
         viajeActual.estado === VIAJE.RECIBIDO
-          ? 'El viaje todavía no arrancó. Si el camión no fue, el coordinador tiene que cancelar el despacho.'
+          ? 'El viaje todavía no arrancó.'
           : `El viaje está ${viajeActual.estado} y no se puede cerrar.`
       );
     }
