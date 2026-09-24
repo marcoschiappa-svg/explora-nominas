@@ -739,3 +739,140 @@ function enviarEmailSinUbicar(data) {
 
   enviarMail(destinatarios(data, 'coordinadores'), asunto, cuerpo);
 }
+
+
+/* ============================================================
+ * 7. DESPACHO REPROGRAMADO Y EDITADO (10 y 11)
+ * ============================================================
+ *
+ * POR QUÉ ESTABAN FALTANDO
+ *   La v2 de este archivo se escribió contando nueve mails, pero la tabla
+ *   `ACCIONES` de Codigo.gs rutea ONCE. Faltaban estos dos, más el nombre
+ *   `enviarEmailConfirmacionCoordinador`, que la v2 renombró a
+ *   `enviarEmailConfirmacion` sin actualizar la tabla.
+ *
+ *   `var ACCIONES = {...}` se evalúa AL CARGAR el proyecto, no al ejecutar
+ *   una acción. Tres identificadores inexistentes ahí tiran ReferenceError
+ *   antes de que corra una sola línea de `doGet`, así que rompían TODAS las
+ *   acciones, no solo estas dos: ni los mails ni la escritura en el Plan de
+ *   Producción llegaban a ejecutarse.
+ *
+ *   La lección: al sacar o renombrar una función en un proyecto de Apps
+ *   Script hay que revisar `ACCIONES` en Codigo.gs, porque el scope global
+ *   compartido hace que una función de un archivo sea dependencia de otro
+ *   sin que nada lo declare.
+ *
+ * ESTOS TEXTOS NO ESTÁN REVISADOS
+ *   Los otros nueve se editaron y aprobaron uno por uno. Estos dos no
+ *   pasaron por esa revisión: siguen el mismo formato, pero el contenido
+ *   está pendiente de aprobación.
+ * ========================================================= */
+
+/**
+ * Alias de compatibilidad con la tabla `ACCIONES` de Codigo.gs, que llama a
+ * `enviarEmailConfirmacionCoordinador`. La función real es
+ * `enviarEmailConfirmacion` (mail 5).
+ */
+function enviarEmailConfirmacionCoordinador(data) {
+  enviarEmailConfirmacion(data);
+}
+
+/**
+ * 10. DESPACHO REPROGRAMADO — cambió la fecha de carga de un despacho que ya
+ * estaba programado. Va al transportista y a coordinadores.
+ */
+function enviarEmailReprogramacion(data) {
+  var asunto = asuntoMail(data, 'Despacho reprogramado');
+
+  var comercial =
+    'DATOS COMERCIALES\n' +
+    'Cliente:           ' + v(data.cliente) + '\n' +
+    'OV / OC:           ' + v(data.ov) + '\n' +
+    'N° Pedido:         ' + v(data.pedido_id) + '\n' +
+    'Entrega:           ' + posicionEntrega(data);
+
+  var carga =
+    'CARGA\n' +
+    'Nueva fecha carga: ' + v(data.fecha_carga) + '\n' +
+    'Horario sugerido:  ' + v(data.horario_carga);
+
+  var operacion =
+    'OPERACIÓN\n' +
+    'Producto:          ' + v(data.producto) + '\n' +
+    'Volumen:           ' + v(data.volumen) + ' tn';
+
+  var hayTransportista = !!(data.destinatarios && data.destinatarios.transportista &&
+                            data.destinatarios.transportista.length);
+
+  if (hayTransportista) {
+    enviarMail(destinatarios(data, 'transportista'), asunto, armarCuerpo([
+      'Se reprogramó la fecha de carga de tu despacho.',
+      comercial,
+      carga,
+      operacion,
+      'Lugar de entrega:  ' + v(data.lugar),
+      bloqueObservaciones(data.obs),
+      URL_PORTAL
+    ]));
+  }
+
+  enviarMail(destinatarios(data, 'coordinadores'), asunto, armarCuerpo([
+    'Se reprogramó la fecha de carga de un despacho.',
+    comercial + '\n' +
+    'Transportista:     ' + v(data.transporte),
+    carga,
+    operacion,
+    URL_PORTAL
+  ]));
+}
+
+/**
+ * 11. DESPACHO EDITADO — cambió algún dato de un despacho ya programado.
+ * Va a coordinadores y al transportista.
+ */
+function enviarEmailEditarDespacho(data) {
+  var asunto = asuntoMail(data, 'Despacho editado');
+
+  var comercial =
+    'DATOS COMERCIALES\n' +
+    'Cliente:           ' + v(data.cliente) + '\n' +
+    'OV / OC:           ' + v(data.ov) + '\n' +
+    'N° Pedido:         ' + v(data.pedido_id) + '\n' +
+    'Entrega:           ' + posicionEntrega(data);
+
+  var carga =
+    'CARGA\n' +
+    'Fecha de carga:    ' + v(data.fecha_carga) + '\n' +
+    'Horario sugerido:  ' + v(data.horario_carga);
+
+  var operacion =
+    'OPERACIÓN\n' +
+    'Producto:          ' + v(data.producto) + '\n' +
+    'Volumen:           ' + v(data.volumen) + ' tn';
+
+  enviarMail(destinatarios(data, 'coordinadores'), asunto, armarCuerpo([
+    'Se editó un despacho ya programado.',
+    comercial + '\n' +
+    'Editado por:       ' + v(data.editado_por) + '\n' +
+    'Transportista:     ' + v(data.transporte),
+    carga,
+    operacion,
+    bloqueObservaciones(data.obs),
+    URL_PORTAL
+  ]));
+
+  var hayTransportista = !!(data.destinatarios && data.destinatarios.transportista &&
+                            data.destinatarios.transportista.length);
+
+  if (hayTransportista) {
+    enviarMail(destinatarios(data, 'transportista'), asunto, armarCuerpo([
+      'Se editó tu despacho.',
+      comercial,
+      carga,
+      operacion,
+      'Lugar de entrega:  ' + v(data.lugar),
+      bloqueObservaciones(data.obs),
+      URL_PORTAL
+    ]));
+  }
+}
