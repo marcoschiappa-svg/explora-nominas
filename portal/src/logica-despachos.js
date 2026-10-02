@@ -37,6 +37,56 @@ import {
   DESPACHO, despachoVivo, estadoEntrega, deltaContadores,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
 } from './estados';
+import { leerCalendario, evaluarFechaCarga } from './logica-calendario';
+
+/* -----------------------------------------------------------------------------
+ * v1.2.0 (RF-10) — EL BLOQUEO POR CALENDARIO VIVE ACÁ, NO SOLO EN LA PANTALLA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Nada impedía crear o reprogramar un despacho con fecha de carga en un
+ *     día marcado "Sin operación" (bloquea cualquier tipo) o "Sin despacho"
+ *     (bloquea solo "Entrega al cliente") en el calendario operativo nuevo.
+ *
+ *   CAUSA RAÍZ
+ *     El calendario operativo (`logica-calendario.js`) recién se agrega en
+ *     esta versión — hasta ahora no existía ninguna noción de día bloqueado.
+ *
+ *   ALCANCE
+ *     `verificarFechaCargaOCancelar()` es el único punto que corren
+ *     `aceptarEntrega()` y `editarDespacho()` — las dos funciones que fijan
+ *     una `fecha_carga` (ver V1 de las verificaciones previas: las dos están
+ *     en este archivo, las dos ya corren dentro de `enTransaccion()`). Lee el
+ *     calendario del día con `leerCalendario()` ANTES de entrar a la
+ *     transacción (Firestore no permite lecturas por consulta dentro de una
+ *     transacción, y esta son lecturas por ID directas, así que no hace
+ *     falta releerlas adentro: el calendario cambia con tan poca frecuencia
+ *     que la ventana de carrera no se considera un riesgo real, a diferencia
+ *     de los datos operativos que si se releen). Si bloquea, tira un
+ *     `Error` con un mensaje claro -- la pantalla lo muestra con su
+ *     `traducirError()`, igual que cualquier otro rechazo de esta función.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     El calendario se lee una vez, antes de la transacción -- si alguien
+ *     marca el día como bloqueado en el minuto exacto entre esa lectura y el
+ *     commit, la escritura pasa igual. Es una ventana muy chica y el
+ *     calendario operativo no es un dato que cambie a cada minuto.
+ *
+ *   CÓMO SE VERIFICA
+ *     Manual: con el día de mañana marcado "Sin despacho", crear un despacho
+ *     de "Entrega al cliente" con fecha de carga mañana lo rechaza (en la
+ *     pantalla y aunque se fuerce la llamada); uno de "Entrega en planta" el
+ *     mismo día se permite. Con el día marcado "Sin operación", los tres
+ *     tipos se rechazan. Reprogramar (`editarDespacho`) a esos días también
+ *     se rechaza.
+ * -------------------------------------------------------------------------- */
+async function verificarFechaCargaOCancelar(fechaCarga, tipoPedido) {
+  if (!fechaCarga) return;
+  const { dias, reglas } = await leerCalendario(db, fechaCarga);
+  const { bloquea, motivo } = evaluarFechaCarga(fechaCarga, tipoPedido, dias, reglas);
+  if (bloquea) {
+    throw new Error(`No se puede cargar el ${fechaCarga}: ${motivo}`);
+  }
+}
 
 /* -----------------------------------------------------------------------------
  * Lectura de contexto
@@ -218,6 +268,9 @@ export async function aceptarEntrega({
   pedido, entrega, entregas, despachos,
   fechaCarga, horarioCarga, transportista, denormalizados, usuario,
 }) {
+  // v1.2.0 (RF-10) -- ver `verificarFechaCargaOCancelar()` más arriba.
+  await verificarFechaCargaOCancelar(fechaCarga, pedido.tipo);
+
   return enTransaccion(async (tx, anotar) => {
     /* ── Lecturas ────────────────────────────────────────────────────────── */
 
@@ -429,10 +482,19 @@ export async function asignarTransportista({
  * aceptó el viaje, no la fecha exacta.
  *
  * NO toca la entrega ni el pedido: su estado no depende de qué día carga.
+ *
+ * @param {string} tipoPedido v1.2.0 (RF-10) -- una clave de `TIPOS`
+ *   (`logica-pedidos.js`). El despacho no guarda el tipo de su pedido
+ *   denormalizado, así que quien llama (`Programacion.js`, que ya tiene el
+ *   pedido cargado) lo tiene que pasar -- es lo único nuevo que necesita
+ *   `verificarFechaCargaOCancelar()` para decidir si "Sin despacho" bloquea.
  */
 export async function editarDespacho({
-  despacho, fechaCarga, horarioCarga, usuario,
+  despacho, fechaCarga, horarioCarga, tipoPedido, usuario,
 }) {
+  // v1.2.0 (RF-10) -- ver `verificarFechaCargaOCancelar()` más arriba.
+  await verificarFechaCargaOCancelar(fechaCarga, tipoPedido);
+
   return enTransaccion(async (tx, anotar) => {
     const ref = doc(db, 'despachos', despacho.id);
     const snap = await tx.get(ref);

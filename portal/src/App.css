@@ -13,7 +13,11 @@
  * razonable para ese primer instante, no "el" fondo del portal.
  */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* v1.2.0 (rediseño Programación) -- Paso 0: mismo cambio DM Sans ->
+     Montserrat que `index.css`/`index.html`, para que este archivo (hoy sin
+     ningún import real, ver el comentario de más abajo) no quede
+     desactualizado si alguna vez se vuelve a enganchar. */
+  font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   background: #F9FAFB;
   color: #111827;
 }

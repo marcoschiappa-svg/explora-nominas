@@ -46,6 +46,114 @@ import { enTransaccion, calcularDiferencias } from './datos';
 import { DESPACHO, VIAJE, deltaContadores, viajeAbierto } from './estados';
 
 /* -----------------------------------------------------------------------------
+ * v1.2.0 (RF-02) — VALIDACIÓN DEL CIERRE MANUAL
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El cierre manual (`confirmarCerrarManual` en `Programacion.js`) pedía
+ *     el motivo con `window.prompt` y nada más: sin fecha de fin propia
+ *     (quedaba `serverTimestamp()`, "ahora"), sin forma de corregir un
+ *     motivo equivocado, y sin ninguna validación de que ese "ahora" tuviera
+ *     sentido contra la fecha de carga o el inicio del viaje.
+ *
+ *   CAUSA RAÍZ
+ *     `finalizarViaje()` ya recibía `finTsManual` para escribir `fin_ts`,
+ *     pero ningún lado -- ni la pantalla, ni esta función -- validaba ese
+ *     valor. La regla "la validación vive en la lógica, no en la pantalla"
+ *     (ver el resto de este archivo) no se cumplía para el cierre manual.
+ *
+ *   ALCANCE
+ *     `validarCierreManual()` es pura -- sin Firestore, para poder testearla
+ *     y para que `ModalCierreManual.js` la corra ANTES de guardar, con el
+ *     mismo criterio que después revalida `finalizarViaje()` -- ver más
+ *     abajo, dentro de la transacción, sobre el viaje RELEÍDO. Tres chequeos:
+ *     fin no futuro (5 minutos de tolerancia, por el reloj del celular/PC),
+ *     fin no anterior a `fechaCarga` menos un día (fechas LOCALES
+ *     `YYYY-MM-DD`, mismo criterio que `filtros-listado.js`), y si el viaje
+ *     ya tiene `inicio_ts`, fin estrictamente posterior.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     La tolerancia de 5 minutos es fija, no configurable. Un reloj muy
+ *     desincronizado igual puede colarse dentro de esa ventana.
+ *
+ *   CÓMO SE VERIFICA
+ *     Casos en `logica-viajes.test.js` (o el archivo de tests que corresponda):
+ *     futuro con y sin tolerancia, borde de fecha de carga menos un día, con
+ *     y sin `inicio_ts`. Manualmente: un cierre manual con fin dos días antes
+ *     de la fecha de carga, o con fin en el futuro, no deja guardar -- ni
+ *     desde el modal ni si se lo fuerza saltando el modal.
+ * -------------------------------------------------------------------------- */
+
+const TOLERANCIA_FUTURO_MS = 5 * 60 * 1000;
+
+/** "2026-09-14" -> "2026-09-13". Mismo criterio LOCAL que `filtros-listado.js`
+ * (no se reusa esa función: este archivo no puede depender de una que a su
+ * vez no importa nada de Firestore por diseño, y viceversa -- dos archivos
+ * de lógica pura, cada uno autosuficiente). */
+function unDiaAntes(fechaISO) {
+  const d = new Date(`${fechaISO}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
+function aFechaISOLocal(d) {
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
+/**
+ * Valida la fecha de fin de un cierre manual. Devuelve un array de mensajes
+ * -- vacío si está todo bien.
+ *
+ * 1. `finTs` NO puede ser futuro, con 5 minutos de tolerancia -- el reloj del
+ *    dispositivo que arma el `Date` no siempre coincide al segundo con el del
+ *    servidor.
+ * 2. `finTs` no puede ser anterior a `fechaCarga` menos un día -- un viaje no
+ *    se cierra antes de que el camión pudiera haber cargado.
+ * 3. Si el viaje ya tiene `inicioTs`, `finTs` tiene que ser estrictamente
+ *    posterior: no se puede cerrar un viaje antes de que arrancó.
+ *
+ * @param {Object} params
+ * @param {Date} params.finTs
+ * @param {string|null} params.fechaCarga `YYYY-MM-DD`, del despacho/viaje
+ * @param {*} params.inicioTs `inicio_ts` del viaje -- Timestamp de Firestore,
+ *   `Date`, o `null`/`undefined` si el viaje nunca arrancó
+ * @param {Date} [params.ahora] inyectable para los tests
+ * @returns {string[]}
+ */
+export function validarCierreManual({ finTs, fechaCarga, inicioTs, ahora }) {
+  const mensajes = [];
+
+  if (!finTs || Number.isNaN(finTs.getTime())) {
+    return ['Elegí la fecha y hora de fin.'];
+  }
+
+  const ahoraDate = ahora || new Date();
+
+  if (finTs.getTime() > ahoraDate.getTime() + TOLERANCIA_FUTURO_MS) {
+    mensajes.push('La fecha y hora de fin no puede ser futura.');
+  }
+
+  if (fechaCarga) {
+    const piso = unDiaAntes(fechaCarga);
+    if (aFechaISOLocal(finTs) < piso) {
+      mensajes.push(`La fecha de fin no puede ser anterior a ${piso} (un día antes de la fecha de carga).`);
+    }
+  }
+
+  if (inicioTs) {
+    const inicioDate = inicioTs.toDate ? inicioTs.toDate() : new Date(inicioTs);
+    if (finTs.getTime() <= inicioDate.getTime()) {
+      mensajes.push('La fecha de fin tiene que ser posterior al inicio del viaje.');
+    }
+  }
+
+  return mensajes;
+}
+
+/* -----------------------------------------------------------------------------
  * Iniciar
  * -------------------------------------------------------------------------- */
 
@@ -252,6 +360,12 @@ export async function finalizarViaje({
   if (cerradoPor === 'manual' && (!motivo || !motivo.trim())) {
     throw new Error('El motivo del cierre manual es obligatorio.');
   }
+  // 1. Antes se validaba solo el motivo -- `finTsManual` existía como
+  //    parámetro y se usaba para escribir `fin_ts`, pero nunca se validaba.
+  //    Ver el encabezado v1.2.0 (RF-02) más arriba.
+  if (cerradoPor === 'manual' && !finTsManual) {
+    throw new Error('La fecha y hora de fin son obligatorias.');
+  }
 
   return enTransaccion(async (tx, anotar) => {
     /* ── Lecturas ────────────────────────────────────────────────────────── */
@@ -277,6 +391,20 @@ export async function finalizarViaje({
           ? 'El viaje todavía no arrancó.'
           : `El viaje está ${viajeActual.estado} y no se puede cerrar.`
       );
+    }
+
+    // 2. El modal ya corrió esta misma validación antes de guardar -- se
+    //    vuelve a correr acá, sobre el viaje RELEÍDO (`viajeActual`, no el
+    //    que tenía la pantalla al abrir el modal), porque entre que se abrió
+    //    el modal y se confirmó pudo haber pasado cualquier cosa. Ver el
+    //    encabezado v1.2.0 (RF-02).
+    if (cerradoPor === 'manual') {
+      const problemas = validarCierreManual({
+        finTs: new Date(finTsManual),
+        fechaCarga: viajeActual.fecha_carga,
+        inicioTs: viajeActual.inicio_ts,
+      });
+      if (problemas.length > 0) throw new Error(problemas.join(' '));
     }
 
     /* ── El viaje ────────────────────────────────────────────────────────── */

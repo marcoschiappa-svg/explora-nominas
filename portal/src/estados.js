@@ -109,6 +109,41 @@ export function viajeAbierto(viaje) {
   return !!viaje && (viaje.estado === VIAJE.RECIBIDO || viaje.estado === VIAJE.EN_VIAJE);
 }
 
+/**
+ * v1.2.0 (RF-02) — VENCIDO
+ *
+ * SÍNTOMA: un viaje que quedó `viajeAbierto()` con la fecha de carga ya
+ * pasada no se distinguía de uno recién nominado para mañana -- las dos
+ * pastillas dicen "Asignado" o "En viaje" igual, y el coordinador tenía que
+ * revisar despacho por despacho para encontrar los que hace días que
+ * deberían estar cerrados.
+ *
+ * CAUSA RAÍZ: no existía un criterio único de "vencido" -- iba a quedar
+ * repetido entre el filtro de Programación (bandeja "Viajes abiertos
+ * vencidos") y la etiqueta de la tarjeta del despacho.
+ *
+ * ALCANCE: `viajeAbierto()` + `fecha_carga` del despacho anterior a `hoy`
+ * (string `YYYY-MM-DD`, mismo criterio LOCAL que `filtros-listado.js` -- se
+ * pide como parámetro en vez de calcularlo acá para que quien llama use
+ * siempre el mismo `hoy` en una misma pasada, sin desincronizarse entre dos
+ * llamadas separadas por milisegundos a medianoche).
+ *
+ * LIMITACIONES CONOCIDAS: la fecha de carga se lee de `despacho.fecha_carga`,
+ * no de `viaje.fecha_carga` -- son la misma denormalizada dos veces, pero
+ * esta función se apoya en la fuente más cercana a la acción de programar.
+ *
+ * CÓMO SE VERIFICA: un despacho NOMINADO con `fecha_carga` de ayer y viaje
+ * `RECIBIDO` o `EN_VIAJE` muestra "Vencido" en Programación, y su pedido
+ * aparece con el conmutador "Viajes abiertos vencidos" activo.
+ *
+ * @param {Object} viaje
+ * @param {Object} despacho
+ * @param {string} hoy `YYYY-MM-DD`
+ */
+export function viajeVencido(viaje, despacho, hoy) {
+  return viajeAbierto(viaje) && !!(despacho && despacho.fecha_carga) && despacho.fecha_carga < hoy;
+}
+
 // La demora NO es un estado: es un atributo del viaje. El camión sigue andando,
 // va tarde. Hoy está metida como estado y por eso `Transportista.js` filtra con
 // `['iniciado','demorado'].includes(...)`.

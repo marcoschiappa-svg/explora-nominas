@@ -41,8 +41,13 @@ var ACCIONES = {
   editar_pedido:         { notificar: enviarEmailEditarPedido },
   suspender_pedido:      { notificar: enviarEmailSuspenderPedido },
   rechazar_despacho:     { notificar: enviarEmailRechazoDespacho },
-  reprogramar_despacho:  { notificar: enviarEmailReprogramacion },
-  editar_despacho:       { notificar: enviarEmailEditarDespacho },
+  // `moverEnPlan()` (PlanDeProduccion.gs) reemplaza el bloque de la fila
+  // vieja por el de la fila nueva cuando cambia `fecha_carga` -- antes,
+  // estas dos acciones solo notificaban y el Plan quedaba clavado en la
+  // fecha con la que se había creado el despacho. Ver el comentario "FIX"
+  // en el encabezado de PlanDeProduccion.gs.
+  reprogramar_despacho:  { escribir: moverEnPlan, notificar: enviarEmailReprogramacion },
+  editar_despacho:       { escribir: moverEnPlan, notificar: enviarEmailEditarDespacho },
   borrar_despacho:       { escribir: borrarDespacho },
 };
 

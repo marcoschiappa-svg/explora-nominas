@@ -1,10 +1,21 @@
+/* v1.2.0 (rediseño Programación) -- Paso 0: DM Sans -> Montserrat para todo
+ * el portal. El valor se repite acá literal (no se puede importar
+ * `tipografia.familia` de `ui/tokens.js` en un `.css` plano) -- es la MISMA
+ * decisión que `ui/tokens.js` y `public/index.html`, ver el encabezado de
+ * ese archivo. `input`/`button`/`select`/`textarea` no heredan la tipografía
+ * del body por default en la mayoría de los navegadores -- de ahí el
+ * `font-family: inherit` explícito, para que los pocos controles nativos que
+ * no pasan por `ui/Campo.js`/`ui/Boton.js` (que ya declaran `tipografia.familia`
+ * por su cuenta) tampoco se queden en la fuente del sistema. */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+input, button, select, textarea {
+  font-family: inherit;
 }
 
 code {

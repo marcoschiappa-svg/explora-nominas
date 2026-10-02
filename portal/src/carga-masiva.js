@@ -43,6 +43,40 @@
 import { claveNormalizada } from './mapa-normalizacion';
 import { buscarParecidos, textoDomicilio } from './buscar-domicilios';
 import { TIPOS, validarPedido } from './logica-pedidos';
+import { evaluarFechaEntrega } from './logica-calendario';
+
+/* -----------------------------------------------------------------------------
+ * v1.2.0 (RF-10) — ADVERTENCIA DE CALENDARIO EN LA CARGA MASIVA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     La carga masiva no tenía forma de avisar que una fila cae en un día
+ *     marcado del calendario operativo (feriado, parada de planta...).
+ *
+ *   CAUSA RAÍZ
+ *     El calendario operativo (`logica-calendario.js`) recién se agrega en
+ *     esta versión.
+ *
+ *   ALCANCE
+ *     `interpretarGrupo()` suma un campo `advertencias` (array de strings),
+ *     SEPARADO de `errores` a propósito: una advertencia de calendario no
+ *     bloquea la fila ni el pedido — la fecha de entrega solo ADVIERTE,
+ *     nunca bloquea (ver `evaluarFechaEntrega()`). `catalogos.calendario`
+ *     es opcional (`{ dias, reglas }`, la misma forma que arma cada
+ *     pantalla al suscribirse a `calendario_operativo`/`calendario_reglas`);
+ *     sin él, `advertencias` queda siempre `[]` — no rompe nada para quien
+ *     todavía no lo pasa.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Solo se evalúa `fecha_solicitada` de cada entrega — no hay "fecha de
+ *     carga" en la carga masiva de pedidos, eso lo define recién
+ *     Programación al aceptar la entrega.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- carga-masiva` si hay tests de este archivo, y
+ *     manualmente: una fila con fecha de entrega en un día marcado muestra
+ *     la advertencia en la vista previa (`Pedidos.js`) y el pedido se crea
+ *     igual al confirmar.
+ * -------------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------------
  * La planilla
@@ -283,11 +317,12 @@ export function agrupar(filas) {
  *
  * @param {Object} grupo Salida de `agrupar`
  * @param {Object} catalogos { organizaciones, productos, vinculos, domicilios,
- *   domicilioPlanta }
- * @returns {{pedido: Object, entregas: Array, resuelto: Object, errores: string[]}}
+ *   domicilioPlanta, calendario? } -- `calendario` es `{ dias, reglas }`
+ *   (v1.2.0 RF-10), opcional.
+ * @returns {{pedido: Object, entregas: Array, resuelto: Object, errores: string[], advertencias: string[]}}
  */
 export function interpretarGrupo(grupo, catalogos) {
-  const { organizaciones, productos, vinculos, domicilios, domicilioPlanta } = catalogos;
+  const { organizaciones, productos, vinculos, domicilios, domicilioPlanta, calendario } = catalogos;
   const primera = grupo.filas[0];
   const errores = [];
   const resuelto = {};
@@ -413,7 +448,19 @@ export function interpretarGrupo(grupo, catalogos) {
     domiciliosDelCliente,
   }));
 
-  return { pedido, entregas, resuelto, errores: [...new Set(errores)] };
+  /* ── Calendario operativo (v1.2.0, RF-10) — solo ADVIERTE ────────────── */
+
+  const advertencias = [];
+  if (calendario) {
+    entregas.forEach((e, i) => {
+      const r = evaluarFechaEntrega(e.fecha_solicitada, calendario.dias, calendario.reglas);
+      if (r.advierte) {
+        advertencias.push(`Entrega ${i + 1} (${e.fecha_solicitada || 'sin fecha'}): ${r.motivo}`);
+      }
+    });
+  }
+
+  return { pedido, entregas, resuelto, errores: [...new Set(errores)], advertencias };
 }
 
 /**

@@ -37,6 +37,59 @@
  *
  *   Por eso, si la escritura del perfil falla, se borra la cuenta recién creada.
  *   Mejor no crear nada que crear la mitad.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-03) -- LA VALIDACIÓN Y EL ALTA COMPLETA SE MUDAN ACÁ
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `validar()` (nombre, roles, DNI, CUIT, email, organización, invitación
+ *     duplicada) y el armado de `crearUsuarioNuevo()` (cuenta de Auth +
+ *     perfil, con el `deshacerCuenta` si falla el segundo paso) vivían
+ *     ENTERAS adentro de `Usuarios.js`. RF-03 necesita dar de alta un
+ *     usuario transportista desde `Organizaciones.js`, con las mismas
+ *     reglas -- copiarlas ahí hubiera sido la segunda implementación de la
+ *     misma regla de negocio, que el prompt de esta tarea prohíbe
+ *     explícitamente (punto 9).
+ *
+ *   CAUSA RAÍZ
+ *     No había, hasta ahora, una segunda pantalla que diera de alta un
+ *     usuario con cuenta de Auth -- así que nunca hizo falta sacar esa
+ *     lógica de `Usuarios.js`.
+ *
+ *   ALCANCE
+ *     Dos funciones nuevas, puras hasta donde se puede:
+ *       - `validarAltaUsuario(datos, contexto)` -- SIN Firestore, SIN Auth.
+ *         Es exactamente la lógica que tenía `validar()` en `Usuarios.js`
+ *         (mismos mensajes, mismo orden), generalizada para recibir los
+ *         datos y lo que necesita consultar (`usuarios`, `invitaciones`,
+ *         `editando`, `soloInternos`) como parámetros en vez de leerlos de
+ *         `useState` -- así sigue siendo testeable sin React ni Firebase.
+ *       - `darDeAltaUsuario({ datos, usuario })` -- SÍ toca Auth y
+ *         Firestore: es el `crearCuenta` + `crear()` + `deshacerCuenta` (si
+ *         falla el perfil) que tenía `crearUsuarioNuevo()` en `Usuarios.js`,
+ *         ahora reusable. Devuelve `{ uid, clave }`; la clave sale de
+ *         `generarClave()` y no se guarda en ningún lado (ver más arriba).
+ *         El error que tira distingue en qué fase pasó
+ *         (`err.fase === 'auth'` o `'perfil'`, y `err.cuentaBorrada` en el
+ *         segundo caso) para que quien llama pueda mostrar el mensaje
+ *         correcto -- `Usuarios.js` y `Organizaciones.js` (RF-03) lo usan
+ *         igual.
+ *
+ *     `Usuarios.js` pasa a llamar a las dos -- su comportamiento visible NO
+ *     cambia, ver el encabezado propio de ese archivo.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     `validarAltaUsuario` sigue recibiendo `soloInternos` ya calculado por
+ *     quien llama (depende de `ROLES_INTERNOS`, que es una constante de
+ *     `Usuarios.js` -- no se duplica acá). `Organizaciones.js` nunca crea un
+ *     rol interno desde su flujo, así que siempre le pasa `false`.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- alta-usuarios` (ver `alta-usuarios.test.js`) y
+ *     `CI=true npm run build` sin warnings. Manual: los mismos casos que
+ *     antes rechazaba el alta de `Usuarios.js` (DNI corto, DNI repetido,
+ *     CUIT inválido, sin organización, email duplicado con invitación
+ *     interna) se siguen rechazando igual, con el mismo texto.
  * ========================================================================== */
 
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -47,6 +100,8 @@ import {
 } from 'firebase/auth';
 
 import { CONFIG_ACTIVA } from './firebase';
+import { crear } from './datos';
+import { normalizarCuit } from './mapa-normalizacion';
 
 /* -----------------------------------------------------------------------------
  * Contraseñas
@@ -199,4 +254,161 @@ export function traducirErrorAuth(err) {
     default:
       return (err && err.message) || 'Error desconocido al crear la cuenta.';
   }
+}
+
+/* -----------------------------------------------------------------------------
+ * v1.2.0 (RF-03) — Validación y alta completa
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Busca si ya hay un chofer con ese DNI. Devuelve el documento encontrado
+ * (activo o inactivo), o `null`. Ver el comentario de `omitirDniRepetido` en
+ * `validarAltaUsuario()`, más abajo, para por qué está separada.
+ *
+ * @param {string} dni Ya limpio (solo dígitos)
+ * @param {Object[]} usuarios
+ * @param {string|null} [idPropio] excluir este ID (edición)
+ * @returns {Object|null}
+ */
+export function buscarUsuarioPorDni(dni, usuarios, idPropio = null) {
+  if (!dni) return null;
+  return usuarios.find(u =>
+    u.id !== idPropio && u.datos_chofer && u.datos_chofer.dni === dni
+  ) || null;
+}
+
+/**
+ * Valida los datos de un alta de usuario. Devuelve un array de mensajes;
+ * vacío si está todo bien.
+ *
+ * 1. Es la MISMA lógica que tenía `validar()` en `Usuarios.js` -- ver el
+ *    encabezado v1.2.0 (RF-03) más arriba. Pura: sin Firestore, sin Auth,
+ *    sin `useState` -- todo lo que necesita lo recibe por parámetro.
+ *
+ * @param {Object} datos `{ nombre, email, roles, organizacion_id, dni, cuit }`
+ *   -- mismos nombres de campo que el `form` de `Usuarios.js`.
+ * @param {Object} [contexto]
+ * @param {Object[]} [contexto.usuarios] para chequear DNI repetido y email
+ *   duplicado -- documentos de la colección `usuarios` ya cargados.
+ * @param {Object[]} [contexto.invitaciones] para chequear invitación
+ *   pendiente duplicada -- `{ id: email, ... }`.
+ * @param {Object|null} [contexto.editando] el usuario en edición, o `null`
+ *   si es un alta nueva -- cambia el mensaje del DNI y excluye al propio
+ *   usuario de la búsqueda de duplicados.
+ * @param {boolean} [contexto.soloInternos] si el alta es de un rol interno
+ *   por invitación de Google -- solo ahí se chequea invitación/email
+ *   duplicados (ver LIMITACIONES CONOCIDAS del encabezado del archivo).
+ * @returns {string[]}
+ */
+export function validarAltaUsuario(datos, contexto = {}) {
+  const { usuarios = [], invitaciones = [], editando = null, soloInternos = false, omitirDniRepetido = false } = contexto;
+  const problemas = [];
+
+  const nombre = String(datos.nombre || '');
+  const roles = datos.roles || [];
+  const esChofer = roles.includes('chofer');
+
+  if (!nombre.trim()) problemas.push('El nombre es obligatorio.');
+  if (roles.length === 0) problemas.push('Elegí al menos un rol.');
+
+  if (esChofer) {
+    const dni = String(datos.dni || '').replace(/\D/g, '');
+    if (!dni) {
+      problemas.push(editando
+        ? 'Para agregarle el rol chofer hay que cargarle el DNI.'
+        : 'El DNI es obligatorio para un chofer.');
+    }
+    else if (dni.length < 7 || dni.length > 8) problemas.push('El DNI tiene que tener 7 u 8 dígitos.');
+    if (String(datos.cuit || '').trim() && !normalizarCuit(datos.cuit)) {
+      problemas.push('El CUIT tiene que tener 11 dígitos.');
+    }
+  } else if (!editando && !String(datos.email || '').trim()) {
+    problemas.push('El correo es obligatorio.');
+  }
+
+  if (!datos.organizacion_id) {
+    problemas.push('Elegí la organización.');
+  }
+
+  // Un DNI repetido rompe la app: los viajes se filtran por DNI, así que dos
+  // choferes con el mismo se verían los viajes del otro.
+  //
+  // `omitirDniRepetido`: RF-04, `importar-flota.js` necesita la MISMA
+  // búsqueda pero para una decisión distinta -- un DNI ya cargado en el
+  // padrón es una fila "existente" (se saltea, no es un error), no un
+  // rechazo como acá. La búsqueda es una sola (`buscarUsuarioPorDni`, más
+  // abajo); lo que cambia es qué hace cada caller con el resultado.
+  if (esChofer && !omitirDniRepetido) {
+    const dni = String(datos.dni || '').replace(/\D/g, '');
+    const repetido = buscarUsuarioPorDni(dni, usuarios, editando && editando.id);
+    if (repetido) problemas.push(`Ya hay un usuario con ese DNI: ${repetido.nombre}.`);
+  }
+
+  // Una invitación por Google no crea cuenta de Auth en el momento, así que
+  // no hay ningún `auth/email-already-in-use` que la frene sola si el email
+  // ya está usado. Se chequea acá, a mano, contra lo que sí se puede ver.
+  if (soloInternos && !editando) {
+    const emailNorm = String(datos.email || '').trim().toLowerCase();
+    if (invitaciones.some(i => i.id === emailNorm)) {
+      problemas.push(`Ya hay una invitación pendiente para ${emailNorm}.`);
+    }
+    const yaExiste = usuarios.some(u => (u.email || '').toLowerCase() === emailNorm);
+    if (yaExiste) problemas.push(`Ya existe un usuario con ese email: ${emailNorm}.`);
+  }
+
+  return problemas;
+}
+
+/**
+ * Da de alta un usuario completo: cuenta de Auth + perfil en `usuarios/{uid}`.
+ *
+ * 2. Es el mismo `crearUsuarioNuevo()` que tenía `Usuarios.js` -- ver el
+ *    encabezado v1.2.0 (RF-03). El orden importa: primero Auth, porque el ID
+ *    del documento de `usuarios` TIENE que ser el UID de la cuenta.
+ *
+ * Si falla la escritura del perfil, se deshace la cuenta (ver
+ * `deshacerCuenta` más arriba) y se relanza el error con
+ * `err.fase = 'perfil'` y `err.cuentaBorrada` (boolean). Si falla la propia
+ * creación de la cuenta, se relanza con `err.fase = 'auth'` -- quien llama
+ * usa esto para elegir entre `traducirErrorAuth()` (fase auth) o
+ * `traducirError()` propio de cada pantalla (fase perfil).
+ *
+ * @param {Object} params
+ * @param {Object} params.datos El perfil completo a escribir en `usuarios`
+ *   (`nombre`, `email`, `roles`, `organizacion_id`, `telefonos`,
+ *   `emails_extra`, `datos_chofer`) -- mismo shape que ya escribía
+ *   `Usuarios.js`. NO necesita `estado`: se fuerza `'activo'` acá.
+ * @param {Object} params.usuario La sesión de quien está dando de alta.
+ * @returns {Promise<{uid: string, clave: string}>}
+ */
+export async function darDeAltaUsuario({ datos, usuario }) {
+  const clave = generarClave();
+  let uid;
+
+  try {
+    uid = await crearCuenta(datos.email, clave);
+  } catch (err) {
+    err.fase = 'auth';
+    throw err;
+  }
+
+  try {
+    await crear({
+      coleccion: 'usuarios',
+      id: uid,                       // el ID ES el UID de Auth
+      datos: { ...datos, estado: 'activo' },
+      accion: 'crear_usuario',
+      entidadTipo: 'usuario',
+      usuario,
+    });
+  } catch (err) {
+    console.error('Falló el perfil, se borra la cuenta:', err);
+    const borrada = await deshacerCuenta(datos.email, clave);
+    err.fase = 'perfil';
+    err.cuentaBorrada = borrada;
+    throw err;
+  }
+
+  // La clave se muestra UNA sola vez. No se guarda.
+  return { uid, clave };
 }

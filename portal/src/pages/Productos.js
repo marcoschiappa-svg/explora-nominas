@@ -40,13 +40,42 @@
  * chofer no leen `pedidos`— y el Apps Script rutea por ese nombre. Cambiarlo
  * dejaría los despachos existentes apuntando a un producto que ya no se llama
  * así, y las filas del plan caerían en la columna equivocada.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-07) — ENTRA EL COMERCIAL
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Solo el admin podía dar de alta un producto nuevo, pero es el comercial
+ *     quien conoce de primera mano cuando un cliente pide algo que todavía no
+ *     está cargado (el caso real: Laruso y su aceite reesterificado, que
+ *     quedaba anotado como "Otro" en 215 pedidos porque nadie más lo daba de
+ *     alta).
+ *
+ *   CAUSA RAÍZ
+ *     El acceso estaba pensado como "solo administración", sin considerar que
+ *     el catálogo de productos es un dato comercial, no técnico.
+ *
+ *   ALCANCE
+ *     `motivoSinAcceso`/`puedeEditar` pasan de `esAdmin` a `esComercial`
+ *     (admin + comercial). No se agrega eliminar: sigue sin existir. La
+ *     regla de "no editar el nombre con pedidos vivos" no se tocó.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna nueva — el comercial queda con las mismas reglas de negocio que
+ *     ya regían para el admin en esta pantalla.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Un comercial sin admin puede dar
+ *     de alta, editar y desactivar un producto, y no ve ningún botón de
+ *     eliminar.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { crear, actualizar, desactivar, reactivar } from '../datos';
-import { esAdmin, motivoSinAcceso } from '../sesion';
+import { esComercial, motivoSinAcceso } from '../sesion';
+import { rolesDe } from '../modulos';
 import { claveNormalizada } from '../mapa-normalizacion';
 
 const FORM_VACIO = { nombre: '', codigo: '', obs: '' };
@@ -62,8 +91,8 @@ export default function Productos({ usuario, onVolver }) {
   const [verInactivos, setVerInactivos] = useState(false);
   const [conPedidosVivos, setConPedidosVivos] = useState(new Set());
 
-  const sinAcceso = motivoSinAcceso(usuario, ['admin']);
-  const puedeEditar = esAdmin(usuario);
+  const sinAcceso = motivoSinAcceso(usuario, rolesDe('productos'));
+  const puedeEditar = esComercial(usuario);
 
   /* ── Carga ──────────────────────────────────────────────────────────────── */
 
@@ -426,7 +455,8 @@ async function tienePedidosVivos(productoId) {
 function traducirError(err) {
   if (err && err.code === 'permission-denied') {
     return 'Firestore rechazó la escritura. Los productos solo los edita un '
-         + 'administrador. Revisá la consola del navegador para el detalle.';
+         + 'administrador o un comercial. Revisá la consola del navegador '
+         + 'para el detalle.';
   }
   if (err && err.code === 'failed-precondition') {
     return 'Falta un índice en Firestore. En la consola del navegador hay un '

@@ -52,6 +52,18 @@
  *
  * El admin también puede, y ahí sí elige la organización — para poder cargar
  * las unidades de una empresa que todavía no entró al portal.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-04) — PATENTES Y VALIDACIÓN SE MUDAN A logica-flota.js
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA/CAUSA RAÍZ/ALCANCE/LIMITACIONES/CÓMO SE VERIFICA: ver el
+ *   encabezado de `logica-flota.js` -- ahí está la explicación completa.
+ *
+ *   Acá el cambio es solo de USO: `normalizarPatente`/`patenteValida`/
+ *   `mostrarPatente` y `validar()` pasan a ser wrappers de una línea sobre
+ *   ese módulo -- cero diferencia de comportamiento. Se suma el botón
+ *   "Importar desde Excel" (admin y transportista, no coordinador -- las
+ *   reglas no le permiten crear choferes) que abre `ImportarFlota.js`.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -59,6 +71,8 @@ import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/f
 import { db } from '../firebase';
 import { crear, actualizar, desactivar, reactivar } from '../datos';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
+import { normalizarPatente, mostrarPatente, validarUnidad, datosDeAltaUnidad } from '../logica-flota';
+import ImportarFlota from './ImportarFlota';
 import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
@@ -66,45 +80,6 @@ import Tarjeta from '../ui/Tarjeta';
 import Pastilla from '../ui/Pastilla';
 import Campo from '../ui/Campo';
 import Vacio from '../ui/Vacio';
-
-/* -----------------------------------------------------------------------------
- * Patentes
- * -------------------------------------------------------------------------- */
-
-/**
- * Normaliza una patente: mayúsculas, sin espacios ni guiones.
- *
- * "aa 123 aa" y "AA-123-AA" son la misma unidad. Sin esto, la misma patente
- * escrita de dos formas serían dos unidades distintas, que es exactamente el
- * problema que tienen hoy los domicilios.
- */
-function normalizarPatente(p) {
-  return String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-/**
- * Los dos formatos argentinos vigentes:
- *
- *   ABC123    hasta 2016
- *   AB123CD   Mercosur, desde 2016
- *
- * Se acepta cualquiera de los dos. No se valida contra un padrón —no hay forma
- * desde el navegador— así que esto solo atrapa errores de tipeo groseros.
- */
-function patenteValida(p) {
-  const limpia = normalizarPatente(p);
-  return /^[A-Z]{3}\d{3}$/.test(limpia) || /^[A-Z]{2}\d{3}[A-Z]{2}$/.test(limpia);
-}
-
-/** Con guiones, para mostrar: "AB123CD" → "AB 123 CD". */
-function mostrarPatente(p) {
-  const limpia = normalizarPatente(p);
-  if (/^[A-Z]{3}\d{3}$/.test(limpia)) return `${limpia.slice(0, 3)} ${limpia.slice(3)}`;
-  if (/^[A-Z]{2}\d{3}[A-Z]{2}$/.test(limpia)) {
-    return `${limpia.slice(0, 2)} ${limpia.slice(2, 5)} ${limpia.slice(5)}`;
-  }
-  return limpia;
-}
 
 /** Reemplaza la escala de grises por rojo (protagonista) y azul (acento) --
  * mismo criterio y mismos tonos que Programacion.js y MisDespachos.js. */
@@ -233,39 +208,13 @@ export default function Camiones({ usuario, onVolver }) {
     setVista('form');
   }
 
+  // RF-04: envoltorio sobre la validación pura de `logica-flota.js` -- ver
+  // el encabezado v1.2.0 (RF-04) más arriba.
   function validar() {
-    const problemas = [];
-    const patente = normalizarPatente(form.patente);
-
-    if (!patente) {
-      problemas.push(`La patente del ${defSeccion.nombreEntidad} es obligatoria.`);
-    } else if (!patenteValida(patente)) {
-      problemas.push('La patente no tiene un formato válido. Se espera ABC123 o AB123CD.');
-    }
-
-    if (!form.organizacion_id) {
-      problemas.push('Elegí la empresa de transporte.');
-    }
-
-    // La patente identifica a la unidad dentro de una empresa y un tipo. Dos
-    // iguales harían que al nominar no se sepa cuál se está eligiendo.
-    if (patente) {
-      const repetido = camiones.find(c =>
-        c.id !== (editando && editando.id)
-        && c.tipo === seccion
-        && c.organizacion_id === form.organizacion_id
-        && normalizarPatente(c.patente) === patente
-      );
-      if (repetido) {
-        problemas.push(
-          repetido.estado === 'activo'
-            ? `Esa empresa ya tiene un ${defSeccion.nombreEntidad} con esa patente.`
-            : `Esa empresa tiene un ${defSeccion.nombreEntidad} inactivo con esa patente. Reactivalo en vez de crear otro.`
-        );
-      }
-    }
-
-    return problemas;
+    return validarUnidad(
+      { tipo: seccion, patente: form.patente, organizacion_id: form.organizacion_id },
+      { camiones, editando }
+    );
   }
 
   async function guardar() {
@@ -299,15 +248,11 @@ export default function Camiones({ usuario, onVolver }) {
           usuario,
         });
       } else {
+        // RF-04: mismo documento que arma `datosDeAltaUnidad()` -- ver el
+        // encabezado de `logica-flota.js`.
         await crear({
           coleccion: 'camiones',
-          datos: {
-            ...datos,
-            tipo: seccion,
-            organizacion_id: form.organizacion_id,
-            estado: 'activo',
-            clave_normalizada: `${form.organizacion_id}|${seccion}|${patente}`,
-          },
+          datos: datosDeAltaUnidad({ tipo: seccion, patente, organizacion_id: form.organizacion_id, obs: form.obs }),
           accion: `crear_${defSeccion.nombreEntidad}`,
           entidadTipo: defSeccion.nombreEntidad,
           usuario,
@@ -382,6 +327,19 @@ export default function Camiones({ usuario, onVolver }) {
     return <div style={styles.wrap}><div style={styles.bannerError}>{sinAcceso}</div></div>;
   }
 
+  // RF-04: admin y transportista, nunca coordinador -- las reglas de
+  // `usuarios` no le permiten crear choferes (ver el encabezado de
+  // `ImportarFlota.js`). Misma condición que `puedeEditar`, más abajo.
+  if (vista === 'importar') {
+    return (
+      <ImportarFlota
+        usuario={usuario}
+        organizaciones={organizaciones}
+        onVolver={() => setVista('lista')}
+      />
+    );
+  }
+
   if (vista === 'form') {
     const orgsElegibles = organizaciones
       .filter(o => o.estado === 'activo')
@@ -453,7 +411,10 @@ export default function Camiones({ usuario, onVolver }) {
       <div style={styles.panelHeader}>
         <div style={styles.titulo}>Flota</div>
         {puedeEditar && (
-          <Boton onClick={abrirAlta}>+ {defSeccion.nombreNuevo}</Boton>
+          <div style={{ display: 'flex', gap: espacio.sm }}>
+            <Boton variante="secundario" onClick={() => setVista('importar')}>Importar desde Excel</Boton>
+            <Boton onClick={abrirAlta}>+ {defSeccion.nombreNuevo}</Boton>
+          </div>
         )}
       </div>
 

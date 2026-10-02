@@ -608,16 +608,31 @@ TrackEx en "Sin restricciones"— es independiente de todo esto.
 
 ## Cerrar un viaje a mano
 
-**Quién:** coordinador o admin. **Desde:** `EN_VIAJE` únicamente.
+<!-- v1.2.0 (Paso 0.2 de RF-02) -- Corregido para que coincida con el código
+     (`logica-viajes.js`, `finalizarViaje()`/`validarCierreManual()`, y
+     `ModalCierreManual.js`): el cierre manual SÍ vale desde `RECIBIDO`, no
+     solo desde `EN_VIAJE`. Esta sección decía "EN_VIAJE únicamente" y
+     "RECIBIDO queda afuera" -- eso describía un comportamiento viejo (ver
+     el encabezado "v2 (2026-09-18)" de `logica-viajes.js`, que ya lo
+     extendió a `RECIBIDO`) que quedó sin actualizar acá. -->
 
-**`RECIBIDO` queda afuera:** un viaje que nunca arrancó no se puede dar por
-entregado. Si el camión no fue, se cancela el despacho.
+**Quién:** coordinador o admin. **Desde:** `RECIBIDO` o `EN_VIAJE`.
 
-**Entrada:** motivo obligatorio; fecha y hora de fin opcional.
+**Por qué también desde `RECIBIDO`:** un chofer nominado que nunca inició el
+viaje en la app —olvido, celular sin señal, camión que ya salió con papeles
+y patente puestos— deja el viaje en `RECIBIDO` para siempre si el cierre
+manual solo valiera desde `EN_VIAJE`. El coordinador tiene que poder cerrarlo
+igual.
+
+**Entrada:** motivo obligatorio, de una lista cerrada (`MOTIVOS_CIERRE_MANUAL`
+en `ModalCierreManual.js`, con "Otro" + detalle obligatorio); fecha y hora de
+fin obligatoria.
 
 **Escribe:** lo mismo que finalizar, con `cerrado_por: "manual"`,
 `cierre_motivo`, y **sin posición de fin** — el coordinador no sabe dónde estaba
-el camión, e inventarla sería peor.
+el camión, e inventarla sería peor. Si el viaje venía de `RECIBIDO`, tampoco
+tiene posición ni hora de INICIO — nunca se inventa un dato que no se tiene,
+ni siquiera para completar el registro.
 
 Sin `cerrado_por`, un viaje sin posición de fin parece un viaje con GPS roto.
 
@@ -642,6 +657,42 @@ espacio—; al menos una bandera.
 **Quitar una bandera:** solo sin nada vivo que dependa de ella.
 
 **Desactivar:** solo sin pedidos ni despachos vivos.
+
+### v1.2.0 — navegación por modales
+
+Clic en una fila de la lista abre el **modal de edición** — ya no hay una
+vista de formulario a pantalla completa. Los botones de la fila no propagan
+el clic (`stopPropagation`).
+
+**Domicilios**, **Usuarios** y **Productos** (este último, solo en
+transportistas) abren modales propios en vez de reemplazar la pantalla.
+**Nunca hay dos modales abiertos a la vez**: desde el panel "RESUMEN" del
+modal de edición, los enlaces "Gestionar X" reemplazan el modal actual por
+el correspondiente, pidiendo confirmación antes si hay cambios sin guardar.
+
+**Solo lectura:** si el rol no puede editar una organización (por ejemplo, un
+comercial sobre un transportista), el modal de edición se abre con los
+campos deshabilitados, sin botón "Guardar" y con la leyenda "Solo lectura".
+
+**Domicilios — el coordinador ya no queda bloqueado.** Antes, un coordinador
+sin rol comercial no podía ver el botón "Domicilios" porque la pantalla de
+Domicilios bloqueaba el acceso entero para cualquiera que no fuera admin o
+comercial (limitación que había dejado anotada RF-07). Ahora el botón está
+siempre disponible y el modal decide: ese rol ve la lista de domicilios sin
+ninguna acción (sin alta, vincular, desvincular ni marcar principal).
+
+**Usuarios** (modal, solo visible para admin/coordinador sobre un
+transportista): si la organización es transportista, además de la lista se
+puede dar de alta un usuario nuevo — el admin elige entre Transportista y
+Chofer, el coordinador solo puede crear Transportista. El alta de chofer
+pide DNI (de ahí sale el correo de acceso) en vez de correo. La clave se
+muestra una sola vez, igual que en `Usuarios.js`. Editar o desactivar un
+usuario existente sigue haciéndose solo desde `Usuarios.js`.
+
+**Productos** (modal, en transportistas): el checklist de productos que
+transporta (RF-08) salió del formulario de edición y vive en su propio
+modal. Admin y coordinador editan; el comercial ve los chips en solo
+lectura. "Guardar" sigue escribiendo solo `productos_ids`.
 
 ## Domicilios y vínculos — admin y comercial
 
@@ -762,6 +813,161 @@ documento que el transportista puede leer.
 sin poder entrar sin que nadie lo sepa.
 
 **El paso 5 con `roles` como array:** si tiene más de uno, elige al entrar.
+
+---
+
+## Calendario operativo — v1.2.0 (RF-10)
+
+**Dos tipos**, sobre `calendario_operativo` (un documento por fecha) o la
+regla semanal de `calendario_reglas/semanal`:
+
+- **`sin_operacion`**: bloquea CUALQUIER tipo de pedido en la fecha de carga.
+- **`sin_despacho`**: bloquea solo `"Entrega al cliente"` en la fecha de
+  carga. `"Entrega en planta"` y `"Retiro de Proveedores"` se permiten igual.
+
+**Precedencia:** un día marcado explícitamente y `estado: 'activo'` gana
+sobre la regla semanal. Un día desactivado NO anula la regla semanal — sigue
+rigiendo sola. No existe un tipo "abierto" que anule la regla semanal para un
+día puntual: para abrir un domingo puntual con "domingos sin operación"
+activo como regla, hoy no hay forma.
+
+**Dónde bloquea, dónde advierte:**
+
+| Acción | Fecha | Efecto |
+| --- | --- | --- |
+| Crear despacho (`aceptarEntrega`) | Carga | **Bloquea** — en la pantalla y dentro de `logica-despachos.js` |
+| Reprogramar despacho (`editarDespacho`) | Carga | **Bloquea**, igual |
+| Alta de pedido, editar fecha de una entrega, agregar entregas | Entrega | **Advierte** — deja guardar |
+| Carga masiva | Entrega (por fila) | **Advierte** — la fila se carga igual |
+
+El bloqueo real vive en la función de lógica (`logica-despachos.js`), no solo
+en la pantalla: la validación en `Programacion.js` es la misma regla
+evaluada del lado del cliente, para no dejar que el coordinador se entere
+recién por el error de Firestore.
+
+---
+
+## Ciclo de vida — v1.2.0 (RF-05)
+
+Vista de solo lectura (salvo el cierre manual, que ya existía en
+Programación) sobre **una entrega**, no un pedido: en qué etapa está, cuándo
+pasó por cada una, quién la ejecutó y cuánto tardó.
+
+**Ocho etapas fijas:** Entrega solicitada → Despacho creado → Transporte
+asignado → Aceptado → Nominado → Viaje recibido → En viaje → Entregado.
+
+**De dónde salen los datos:** cada etapa sale de un CAMPO del documento
+(`entregas.creado_en`, `despachos.creado_en`, `viajes.creado_en`/`inicio_ts`/
+`fin_ts`...) para la FECHA, y de un registro de `historial` (con su
+`accion` propia, excluyendo siempre `derivado: true`) para el "quién". Ver
+la tabla completa de fuentes en el encabezado de `logica-ciclo-vida.js`.
+
+**Lo que no tiene registro se muestra "Sin registro" — nunca se estima ni se
+infiere.** Un viaje cerrado a mano desde `RECIBIDO` (sin que el chofer nunca
+haya arrancado la app) queda con "En viaje" en "Sin registro", con la marca
+"Sin inicio".
+
+**Ramas cerradas:** los despachos rechazados o cancelados de una entrega se
+muestran aparte, con sus propias etapas hasta el cierre, el motivo y quién
+lo cerró — la entrega sigue con el despacho vivo, o el último.
+
+**Marcas:** cierre manual (motivo y quién), sin inicio, demorado (atributo
+del viaje), fuera de fecha (entregado después de lo solicitado), suspendida
+y reactivada — todas de una fuente puntual, nunca inferidas.
+
+---
+
+## Tarifario — dos pantallas en paralelo, v1.2.0 (RF-09)
+
+Cuánto sale llevar un producto de un lugar a otro. Conviven dos pantallas:
+
+- **El Tarifario existente** (`Tarifario.js`), **sin ningún cambio**: modo
+  admin por contraseña, las rutas en `portal/rutas.lista[]`, todo como
+  siempre. Se retira cuando se apruebe y se adopte la pantalla nueva.
+- **NuevoTarifario**, con su propio registro maestro de rutas.
+
+**Mientras convivan las dos, las actualizaciones de tarifa se hacen en
+NuevoTarifario.** Si se siguen haciendo en el Tarifario existente, los dos se
+desalinean — no hay ninguna sincronización entre ambos.
+
+### NuevoTarifario — maestras y derivadas
+
+Una **ruta** es origen + destino + producto: **no lleva cliente**, el mismo
+flete vale lo mismo lo pida quien lo pida.
+
+**RF-09b: origen, destino y producto son texto estandarizado, no vínculos.**
+No se relacionan con `organizaciones`, `domicilios` ni `productos` del
+portal — son datos propios del tarifario. Al cargar una maestra o generar
+una derivada, cada campo sugiere (con un `<datalist>`, se puede escribir un
+valor nuevo) los valores que ya existen en el registro maestro, para
+mantener la estandarización sin obligar a elegir de otra colección.
+
+| Clase | Qué es | Quién escribe | Quién lee |
+| --- | --- | --- | --- |
+| **Maestra** | Las rutas del registro maestro (carga inicial + las que agregue el admin). Son datos maestros: su tarifa **solo** cambia por un indicador aprobado. | Solo admin | Admin, coordinador, comercial |
+| **Derivada** | Las que un coordinador o el admin arma con el Generador, a partir de una maestra ELEGIDA. **Nunca modifican la maestra de la que dependen.** | El coordinador que la creó, o el admin | Admin, coordinador y comercial (comercial: solo lectura) |
+
+La clase **no cambia después del alta**.
+
+**Una sola ruta activa por origen+destino+producto**, contando maestras y
+derivadas. Si se genera una ruta que ya existe, se muestra la existente en vez
+de ofrecer guardar un duplicado.
+
+### Quién hace qué
+
+| Pestaña | admin | coordinador | comercial |
+| --- | --- | --- | --- |
+| Registro vigente (maestras) | Sí | Sí | Sí |
+| Historial (por ruta, y general con filtros) | Sí | Sí | Sí |
+| Rutas derivadas | Sí, todas | Sí, todas; edita y desactiva las suyas | Sí, solo lectura |
+| Generar ruta derivada | Sí | Sí | No |
+| Actualizar por indicador + pendientes + versiones | Sí | No | No |
+| Nueva ruta maestra | Sí | No | No |
+
+### Rutas derivadas: la tarifa siempre se calcula
+
+Una derivada se genera eligiendo origen, destino y producto de los maestros y
+cargando el km. La pantalla propone como maestra la vecina más cercana en km
+(mismo criterio que antes tenía el Generador), y se puede elegir otra de la
+lista de similares — pero la maestra elegida queda **fija**
+(`ruta_maestra_id`), no se recalcula sola.
+
+La tarifa de una derivada **nunca se guarda como verdad**: se calcula siempre
+en el momento, `catac(km_derivada) × (tarifa_vigente_maestra /
+catac(km_maestra))`, contra la tabla CATAC activa (la misma del Tarifario
+existente, solo lectura acá). Si la maestra se actualiza, la derivada se
+mueve sola — sin que nadie la toque. Una derivada cuya maestra se desactiva
+queda marcada **"Maestra inactiva"**, sin tarifa calculada, hasta que se le
+asigna otra (el creador o el admin).
+
+### Las tarifas maestras: solo por indicador
+
+**No hay edición manual tarifa por tarifa ni ajuste libre por porcentaje.**
+La única vía para cambiar una tarifa maestra es aplicar un indicador, y solo
+el admin puede hacerlo:
+
+- **CATAMP:** meses con su índice, factor compuesto — se multiplica, no se
+  suma: +2,26 % × +6,85 % = ×1,0926, no +9,11 %.
+- **CATAC:** un porcentaje de variación.
+
+En los dos casos se carga el nombre del indicador, el período, la
+justificación y el link al informe de respaldo (si falta el link, se confirma
+igual). El techo de alerta solo **avisa**, no bloquea. El alcance es todas las
+maestras o una categoría.
+
+**Flujo:** se guarda la foto en `rutas_versiones` → cada maestra afectada
+queda **pendiente** → el admin revisa la tabla de pendientes y aprueba o
+descarta → al aprobar, la tarifa pasa a vigente, se estampan
+`tarifa_actualizada_en`/`tarifa_actualizada_por` y queda un documento en
+`rutas/{id}/tarifas` con la tarifa anterior, la nueva, la variación, la
+justificación y quién lo hizo. Esa subcolección es **append-only**: no se
+edita ni se borra. Las derivadas **no** tienen pendientes ni historial
+propio: se mueven solas cuando se aprueba la maestra.
+
+**Restaurar una versión de `rutas_versiones`** (solo admin) NO pisa las
+tarifas vigentes directo: las carga como **pendientes**, con motivo
+"Restauración de versión \<fecha\>", para que pase por la misma aprobación que
+cualquier otro cambio.
 
 ---
 

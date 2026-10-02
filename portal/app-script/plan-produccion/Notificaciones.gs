@@ -456,8 +456,37 @@ function enviarEmailSuspenderPedido(data) {
  * Tres agregados sobre la versión anterior: el recipiente, el LUGAR DE CARGA
  * —antes solo se mandaba el de entrega, y el transportista tenía que saber de
  * dónde sale el camión por otro lado— y la posición de la entrega.
+ *
+ * FIX (sept 2026) — NO MANDAR SI TODAVÍA NO HAY TRANSPORTISTA
+ *   SÍNTOMA: `programar_despacho` dispara este mail también para despachos
+ *   creados "sin cubrir" (sin transportista todavía) -- un aviso de
+ *   "Despacho asignado" sin nadie asignado. Como `destinatarios()` no
+ *   encuentra nada bajo 'transportista' en ese caso, en la práctica el mail
+ *   igual salía, pero solo a la copia fija (COPIA_FIJA): ruido sin
+ *   destinatario real.
+ *   CAUSA RAÍZ: este mail se manda al programar Y al asignar transportista
+ *   (`ACCIONES.programar_despacho` y `.asignar_transportista` en Codigo.gs
+ *   comparten `notificar: enviarEmailTransportista`), pero antes no había
+ *   ningún chequeo de que el transportista efectivamente estuviera.
+ *   FIX: se manda solo si `data` trae un transportista real -- por
+ *   `destinatarios.transportista` (contrato v2, el que arma el modelo
+ *   nuevo) o por el campo plano `email_transportista` (el que arma
+ *   Coordinador.js, modelo legado) -- lo que venga. `asignar_transportista`
+ *   siempre trae uno de los dos por definición (el formulario exige elegir
+ *   transportista), así que no cambia. Lo que cambia es `programar_despacho`
+ *   sin transportista elegido: antes mandaba (solo a la copia fija), ahora
+ *   no manda nada -- se manda recién cuando alguien se asigna de verdad.
  */
 function enviarEmailTransportista(data) {
+  var hayTransportista =
+    (data.destinatarios && data.destinatarios.transportista && data.destinatarios.transportista.length) ||
+    (data.email_transportista && String(data.email_transportista).trim());
+
+  if (!hayTransportista) {
+    Logger.log('enviarEmailTransportista: sin transportista todavía, no se manda (pedido=' + data.pedido_id + ')');
+    return;
+  }
+
   var asunto = asuntoMail(data, 'Despacho asignado');
 
   var cuerpo = armarCuerpo([

@@ -55,12 +55,47 @@
  *
  *   B1: `crearEstilos(colores, oscuro)` + `useEstilos()`, paleta rojo/azul,
  *   sin topbar propio (BarraSuperior ya cubre logo/volver).
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-02) -- CIERRE MANUAL DESDE ACÁ TAMBIÉN
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Un viaje abierto vencido solo se podía cerrar a mano desde
+ *     Programación -- si el coordinador lo veía primero en el mapa de
+ *     Seguimiento (por ejemplo, por una alerta de "sin señal"), tenía que
+ *     ir a buscar el mismo pedido en la otra pantalla.
+ *
+ *   CAUSA RAÍZ
+ *     `ModalCierreManual.js` no existía todavía; esta pantalla no tenía
+ *     ninguna acción de escritura, solo lectura.
+ *
+ *   ALCANCE
+ *     Botón "Cerrar viaje a mano" en la tarjeta de un viaje vivo (tab "En
+ *     vivo"), visible solo para admin y coordinador -- nunca para el
+ *     transportista, aunque esté viendo el mismo viaje. Abre el MISMO
+ *     `ModalCierreManual` que Programación; después de cerrar, mismo
+ *     comportamiento (nada más que refrescar -- confirmado en las
+ *     verificaciones previas, V4).
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Esta pantalla no lee `despachos` (para no sumar una consulta nueva a
+ *     Firestore -- fuera del alcance de esta tarea), así que el modal no
+ *     puede mostrar el NÚMERO de despacho en su encabezado, solo
+ *     chofer/patente (que sí están denormalizados en el viaje). El modal ya
+ *     contempla esto: esa línea del encabezado simplemente no aparece si
+ *     falta.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Como admin o coordinador, un
+ *     viaje vivo muestra "Cerrar viaje a mano"; como transportista (viendo
+ *     los suyos), no. Cerrarlo saca el viaje de "En vivo" y lo muestra en
+ *     "Historial".
  * ========================================================================== */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, where, doc, getDocs, orderBy } from 'firebase/firestore';
-import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
+import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { VIAJE, ETIQUETA_VIAJE } from '../estados';
 import { saludGPS, ETIQUETA_GPS, COLOR_GPS } from '../logica-viajes';
@@ -68,7 +103,9 @@ import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../
 import { useTema } from '../ui/TemaContext';
 import Tarjeta from '../ui/Tarjeta';
 import Pastilla from '../ui/Pastilla';
+import Boton from '../ui/Boton';
 import Vacio from '../ui/Vacio';
+import ModalCierreManual from './ModalCierreManual';
 
 const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
 
@@ -193,6 +230,8 @@ function Seguimiento({ usuario, onVolver }) {
   const [seleccionado, setSeleccionado] = useState(null);
   const [seleccionadoHist, setSeleccionadoHist] = useState(null);
   const [cargando, setCargando] = useState(true);
+  // RF-02: el viaje sobre el que está abierto ModalCierreManual, o null.
+  const [cerrandoManual, setCerrandoManual] = useState(null);
 
   const soyAdmin = esAdmin(usuario);
   const soyCoordinador = tieneRol(usuario, 'coordinador');
@@ -201,6 +240,13 @@ function Seguimiento({ usuario, onVolver }) {
   const sinAcceso = motivoSinAcceso(usuario, ['admin', 'coordinador', 'transportista']);
 
   const soloVeSuEmpresa = soyTransportista && !soyAdmin && !soyCoordinador;
+  // RF-02: mismo criterio que Programacion.js -- nunca el transportista,
+  // aunque esté viendo sus propios viajes.
+  const puedeCerrarManual = tieneAlgunRol(usuario, ['admin', 'coordinador']);
+
+  function abrirCierreManual(viaje) {
+    setCerrandoManual(viaje);
+  }
 
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroTransportistas, setFiltroTransportistas] = useState([]);
@@ -665,6 +711,18 @@ function Seguimiento({ usuario, onVolver }) {
                         <span style={{ ...styles.cv, color: colorEstadoViaje }}>{c.ultima_ts ? tiempoDesde(c.ultima_ts) : ETIQUETA_GPS.sin_datos}</span>
                       </div>
                     </div>
+                    {/* RF-02: nunca para el transportista -- ver el
+                        encabezado v1.2.0 (RF-02) más arriba. */}
+                    {puedeCerrarManual && (
+                      <div style={styles.cerrarManualFila}>
+                        <Boton
+                          chico variante="peligro"
+                          onClick={(e) => { e.stopPropagation(); abrirCierreManual(c); }}
+                        >
+                          Cerrar viaje a mano
+                        </Boton>
+                      </div>
+                    )}
                   </Tarjeta>
                 );
               })}
@@ -727,6 +785,19 @@ function Seguimiento({ usuario, onVolver }) {
           )}
         </div>
       </div>
+
+      {/* RF-02: mismo modal que Programacion.js -- `despacho.numero` no está
+          disponible acá (ver LIMITACIONES CONOCIDAS del encabezado v1.2.0
+          (RF-02)), el modal lo contempla. */}
+      {cerrandoManual && (
+        <ModalCierreManual
+          viaje={cerrandoManual}
+          despacho={{ id: cerrandoManual.despacho_id, numero: null, fecha_carga: cerrandoManual.fecha_carga }}
+          usuario={usuario}
+          onCerrado={() => setCerrandoManual(null)}
+          onCancelar={() => setCerrandoManual(null)}
+        />
+      )}
     </div>
   );
 }
@@ -770,6 +841,7 @@ function crearEstilos(colores, oscuro) {
     dot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
     choferNombre: { fontSize: 13, fontWeight: tipografia.peso.negrita, color: colores.texto, flex: 1 },
     choferGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', marginBottom: 4 },
+    cerrarManualFila: { marginTop: 8, paddingTop: 8, borderTop: `0.5px solid ${colores.borde}` },
     cf: { display: 'flex', flexDirection: 'column', gap: 1 },
     cl: { fontSize: 10, color: pal.azul },
     cv: { fontSize: 12, color: colores.texto, fontWeight: tipografia.peso.medio },
