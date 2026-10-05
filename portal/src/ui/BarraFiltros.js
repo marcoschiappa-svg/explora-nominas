@@ -160,7 +160,7 @@
  * ========================================================================== */
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from './tokens';
+import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../shared/tokens';
 import { useTema } from './TemaContext';
 import Boton from './Boton';
 

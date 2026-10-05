@@ -20,7 +20,7 @@
  * undefined) usa el tema actual, para no quedar con un gris que no combine.
  *
  * USO
- *   import { COLOR_DESPACHO, ETIQUETA_DESPACHO } from '../estados';
+ *   import { COLOR_DESPACHO, ETIQUETA_DESPACHO } from '../shared/estados';
  *   import Pastilla from '../ui/Pastilla';
  *
  *   <Pastilla colores={COLOR_DESPACHO[d.estado]}>
@@ -29,7 +29,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { radio, tipografia } from './tokens';
+import { radio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Pastilla({ colores, chico = false, children }) {

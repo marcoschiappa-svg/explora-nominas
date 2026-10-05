@@ -220,7 +220,7 @@ import {
 } from 'firebase/firestore';
 
 import { db } from './firebase';
-import { crear, actualizar, desactivar } from './datos';
+import { crear, actualizar, desactivar } from './shared/datos';
 import { esAdmin, tieneRol } from './sesion';
 import { claveNormalizada } from './mapa-normalizacion';
 
@@ -658,6 +658,7 @@ export async function crearRutaParametro({ datos, usuario, rutas = [], extra = {
   }
 
   const idNueva = await crear({
+    db,
     coleccion: 'rutas',
     datos: armarRuta(datos, TIPO_PARAMETRO, {
       ...extra,
@@ -717,6 +718,7 @@ export async function crearRutaDerivada({ datos, usuario, rutas = [], rutaMaestr
   }
 
   return crear({
+    db,
     coleccion: 'rutas',
     datos: armarRuta(datos, TIPO_REFERENCIA, {
       creado_por_uid: usuario.uid,
@@ -759,6 +761,7 @@ export async function editarRutaDerivada({ ruta, cambios, usuario, razon = null 
   }
 
   return actualizar({
+    db,
     coleccion: 'rutas',
     id: ruta.id,
     cambios: permitidos,
@@ -782,6 +785,7 @@ export async function desactivarRuta({ ruta, usuario, razon = null }) {
   }
 
   return desactivar({
+    db,
     coleccion: 'rutas',
     id: ruta.id,
     usuario,

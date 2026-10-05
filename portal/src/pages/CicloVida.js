@@ -82,7 +82,7 @@ import { db } from '../firebase';
 import { motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { rolesDe } from '../modulos';
 import { claveNormalizada } from '../mapa-normalizacion';
-import { despachoVivo, viajeAbierto } from '../estados';
+import { despachoVivo, viajeAbierto } from '../shared/estados';
 import { TIPOS } from '../logica-pedidos';
 import { armarCicloDeEntrega, ETIQUETA_ETAPA, ORDEN_ETAPAS } from '../logica-ciclo-vida';
 import { formatoFechaTs } from '../extractores-pedidos';
@@ -91,7 +91,7 @@ import {
 } from '../filtros-listado';
 import ModalCierreManual from './ModalCierreManual';
 import BarraFiltros from '../ui/BarraFiltros';
-import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../ui/tokens';
+import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';

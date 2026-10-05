@@ -44,7 +44,6 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
-import { db } from './firebase';
 
 /* -----------------------------------------------------------------------------
  * Comparación de valores
@@ -174,7 +173,7 @@ export function calcularDiferencias(antes = {}, despues = {}, prefijo = '') {
  * reintento produciría un registro distinto: el mismo cambio quedaría anotado
  * dos o tres veces.
  */
-function nuevoIdHistorial() {
+function nuevoIdHistorial(db) {
   return doc(collection(db, 'historial')).id;
 }
 
@@ -227,10 +226,11 @@ function armarHistorial({
  * @returns {Promise<string>} el ID del documento creado
  */
 export async function crear({
-  coleccion, datos, accion, usuario,
+  db, coleccion, datos, accion, usuario,
   entidadTipo = null, pedidoId = null, id = null,
 }) {
-  const idHistorial = nuevoIdHistorial();
+  if (!db) throw new Error('crear: falta db');
+  const idHistorial = nuevoIdHistorial(db);
 
   return runTransaction(db, async (tx) => {
     const ref = id ? doc(db, coleccion, id) : doc(collection(db, coleccion));
@@ -286,10 +286,11 @@ export async function crear({
  * @returns {Promise<{cambio: boolean, campos: string[]}>}
  */
 export async function actualizar({
-  coleccion, id, cambios, accion, usuario,
+  db, coleccion, id, cambios, accion, usuario,
   razon = null, entidadTipo = null, pedidoId = null, validar = null,
 }) {
-  const idHistorial = nuevoIdHistorial();
+  if (!db) throw new Error('actualizar: falta db');
+  const idHistorial = nuevoIdHistorial(db);
 
   return runTransaction(db, async (tx) => {
     const ref = doc(db, coleccion, id);
@@ -337,10 +338,11 @@ export async function actualizar({
  *   baja: un chofer con viaje en curso, un producto con pedidos vivos.
  */
 export async function desactivar({
-  coleccion, id, usuario, razon = null, accion = null, validar = null,
+  db, coleccion, id, usuario, razon = null, accion = null, validar = null,
 }) {
+  if (!db) throw new Error('desactivar: falta db');
   return actualizar({
-    coleccion, id,
+    db, coleccion, id,
     cambios: { estado: 'inactivo' },
     accion: accion || `desactivar_${coleccion.replace(/es$/, '').replace(/s$/, '')}`,
     usuario, razon, validar,
@@ -350,9 +352,10 @@ export async function desactivar({
 /**
  * Reactiva un documento desactivado.
  */
-export async function reactivar({ coleccion, id, usuario, razon = null, validar = null }) {
+export async function reactivar({ db, coleccion, id, usuario, razon = null, validar = null }) {
+  if (!db) throw new Error('reactivar: falta db');
   return actualizar({
-    coleccion, id,
+    db, coleccion, id,
     cambios: { estado: 'activo' },
     accion: `reactivar_${coleccion.replace(/es$/, '').replace(/s$/, '')}`,
     usuario, razon, validar,
@@ -372,7 +375,7 @@ export async function reactivar({ coleccion, id, usuario, razon = null, validar 
  * para que un reintento de la transacción no los duplique.
  *
  * ```javascript
- * await enTransaccion(async (tx, anotar) => {
+ * await enTransaccion(db, async (tx, anotar) => {
  *   const viaje = await tx.get(refViaje);
  *   tx.update(refViaje, { estado: 'FINALIZADO' });
  *   anotar({ entidadTipo: 'viaje', entidadId: id, accion: 'finalizar_viaje',
@@ -383,12 +386,14 @@ export async function reactivar({ coleccion, id, usuario, razon = null, validar 
  * Firestore exige TODAS las lecturas antes de cualquier escritura dentro de una
  * transacción. Si se lee después de escribir, falla.
  *
+ * @param {Firestore} db instancia de Firestore (shared/ no importa ./firebase)
  * @param {function} fn (tx, anotar) => Promise
  * @param {number} [maxAnotaciones] cuántos registros de historial se van a
  *   escribir como máximo. Se reservan los IDs por adelantado.
  */
-export async function enTransaccion(fn, maxAnotaciones = 4) {
-  const ids = Array.from({ length: maxAnotaciones }, () => nuevoIdHistorial());
+export async function enTransaccion(db, fn, maxAnotaciones = 4) {
+  if (!db) throw new Error('enTransaccion: falta db');
+  const ids = Array.from({ length: maxAnotaciones }, () => nuevoIdHistorial(db));
 
   return runTransaction(db, async (tx) => {
     let usados = 0;

@@ -296,7 +296,7 @@ import { hoyISO } from '../logica-pedidos';
 import {
   ETIQUETA_PEDIDO, COLOR_PEDIDO,
   despachoVivo, entregaSinCubrir, estadoPedido, viajeVencido,
-} from '../estados';
+} from '../shared/estados';
 import {
   aceptarEntrega, asignarTransportista, editarDespacho, cancelarDespacho,
   correosDeOrganizacion, llamarAppsScript, coordinadoresActivos, armarDestinatarios,
@@ -310,7 +310,7 @@ import ModalCierreManual from './ModalCierreManual';
 import ModalDetallePedido from './programacion/ModalDetallePedido';
 import { agruparTransportistasPorProducto } from './programacion/SelectorTransportista';
 import { contarEntregasSinCubrir } from './programacion/logica-vista';
-import { marca, espacio, radio, tipografia, paletaProgramacion } from '../ui/tokens';
+import { marca, espacio, radio, tipografia, paletaProgramacion } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Vacio from '../ui/Vacio';
 import Pastilla from '../ui/Pastilla';

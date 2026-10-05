@@ -41,7 +41,7 @@
  * ========================================================================== */
 
 import React, { useEffect } from 'react';
-import { espacio, radio, sombra, tipografia } from './tokens';
+import { espacio, radio, sombra, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Modal({ titulo, onCerrar, ancho = 420, alto = '85vh', children }) {

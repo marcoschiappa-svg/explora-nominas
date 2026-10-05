@@ -123,12 +123,12 @@ import { rolesDe } from '../modulos';
 import {
   DESPACHO, ETIQUETA_DESPACHO, COLOR_DESPACHO, ETIQUETA_VIAJE,
   puedeAceptar, puedeRechazar, puedeNominar, despachoVivo,
-} from '../estados';
+} from '../shared/estados';
 import {
   aceptarDespacho, rechazarDespacho, nominar,
 } from '../logica-transportista';
 import { llamarAppsScript, armarDestinatarios } from '../logica-despachos';
-import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
+import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';

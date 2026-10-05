@@ -43,7 +43,7 @@
 import React, { useState, useMemo } from 'react';
 import { doc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { enTransaccion, calcularDiferencias } from '../datos';
+import { enTransaccion, calcularDiferencias } from '../shared/datos';
 import { claveNormalizada, claveDomicilio, normalizarCuit } from '../mapa-normalizacion';
 import { buscarCasiIgual, buscarIdentico, textoDomicilio } from '../buscar-domicilios';
 
@@ -135,7 +135,7 @@ export default function ModalOrganizacion({
     setErrores([]);
 
     try {
-      const resultado = await enTransaccion(async (tx, anotar) => {
+      const resultado = await enTransaccion(db, async (tx, anotar) => {
         const refOrg = doc(collection(db, 'organizaciones'));
 
         const datosOrg = {

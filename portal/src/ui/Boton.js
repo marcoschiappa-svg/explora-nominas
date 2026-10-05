@@ -29,7 +29,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { marca, colorEstado, radio, tipografia } from './tokens';
+import { marca, colorEstado, radio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 const BASE = {

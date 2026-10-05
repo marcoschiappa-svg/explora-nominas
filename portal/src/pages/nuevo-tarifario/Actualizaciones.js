@@ -48,7 +48,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Tarjeta from '../../ui/Tarjeta';
 import Boton from '../../ui/Boton';
 import Segmentado from '../../ui/Segmentado';
-import { espacio, colorEstado } from '../../ui/tokens';
+import { espacio, colorEstado } from '../../shared/tokens';
 import { formatoMoneda, formatoPorcentaje } from '../../formatos';
 import { evaluarCatamp, aplicarFactor } from '../../calculo-tarifario';
 import {

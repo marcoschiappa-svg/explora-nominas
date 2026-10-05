@@ -59,7 +59,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { crear, actualizar, desactivar, reactivar } from '../../datos';
+import { crear, actualizar, desactivar, reactivar } from '../../shared/datos';
 import { claveNormalizada, normalizarCuit } from '../../mapa-normalizacion';
 import { darDeAltaUsuario, validarAltaUsuario, traducirErrorAuth } from '../../alta-usuarios';
 import { textoDomicilio } from '../../buscar-domicilios';
@@ -169,6 +169,7 @@ export default function ModalOrganizacion({
 
       if (editando) {
         await actualizar({
+          db,
           coleccion: 'organizaciones',
           id: editando.id,
           cambios: datos,
@@ -179,6 +180,7 @@ export default function ModalOrganizacion({
         onCerrar();
       } else {
         const nuevoId = await crear({
+          db,
           coleccion: 'organizaciones',
           datos: { ...datos, estado: 'activo', es_propia: false, productos_ids: [] },
           accion: 'crear_organizacion',
@@ -211,6 +213,7 @@ export default function ModalOrganizacion({
       const bloqueo = await buscarDependenciasVivas(editando);
       if (bloqueo) { window.alert(bloqueo); return; }
       await desactivar({
+        db,
         coleccion: 'organizaciones', id: editando.id,
         accion: 'desactivar_organizacion', usuario, razon: motivo.trim(),
       });
@@ -226,7 +229,7 @@ export default function ModalOrganizacion({
   async function volverAActivar() {
     setGuardando(true);
     try {
-      await reactivar({ coleccion: 'organizaciones', id: editando.id, usuario });
+      await reactivar({ db, coleccion: 'organizaciones', id: editando.id, usuario });
       onCerrar();
     } catch (err) {
       console.error(err);

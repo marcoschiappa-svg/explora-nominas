@@ -88,7 +88,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { modulosVisibles } from '../modulos';
-import { marca, tipografia, paletaTexto } from '../ui/tokens';
+import { marca, tipografia, paletaTexto } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 
 /* -----------------------------------------------------------------------------

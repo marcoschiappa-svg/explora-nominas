@@ -30,7 +30,7 @@
  * ========================================================================== */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { espacio, radio, tipografia } from './tokens';
+import { espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 /** Sin acentos, sin mayúsculas, sin espacios de más — para que "Rio Primero" encuentre "Río Primero". */

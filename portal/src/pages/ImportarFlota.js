@@ -69,12 +69,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { crear } from '../datos';
+import { crear } from '../shared/datos';
 import { esAdmin, miOrganizacion } from '../sesion';
 import { darDeAltaUsuario, traducirErrorAuth } from '../alta-usuarios';
 import { mostrarPatente } from '../logica-flota';
 import { interpretarPlanilla } from '../importar-flota';
-import { colorEstado, tipografia } from '../ui/tokens';
+import { colorEstado, tipografia } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';
@@ -260,6 +260,7 @@ export default function ImportarFlota({ usuario, organizaciones, onVolver }) {
       for (const fila of filasDelTipo) {
         try {
           await crear({
+            db,
             coleccion: 'camiones',
             datos: fila.datos,
             accion: `crear_${tipo}`,

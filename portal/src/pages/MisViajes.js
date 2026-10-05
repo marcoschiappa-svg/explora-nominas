@@ -46,11 +46,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { miDni, motivoSinAcceso } from '../sesion';
-import { VIAJE, ETIQUETA_VIAJE } from '../estados';
+import { VIAJE, ETIQUETA_VIAJE } from '../shared/estados';
 import {
   iniciarViaje, reportarDemora, finalizarViaje,
   registrarPuntos, saludGPS, ETIQUETA_GPS, COLOR_GPS,
-} from '../logica-viajes';
+} from '../shared/logica-viajes';
 
 /** Cada cuánto se toma una posición, en milisegundos. */
 const INTERVALO_GPS = 60000;
@@ -171,7 +171,7 @@ export default function MisViajes({ usuario, onVolver }) {
       setUltimoPunto(p);
 
       try {
-        await registrarPuntos(enCurso.id, [p]);
+        await registrarPuntos(db, enCurso.id, [p]);
       } catch (err) {
         // Un punto que no se puede escribir no tiene que romper la pantalla:
         // el chofer está manejando y lo único que le importa es poder cerrar el
@@ -209,7 +209,7 @@ export default function MisViajes({ usuario, onVolver }) {
     setError('');
     try {
       const posicion = await tomarPosicion();
-      await iniciarViaje({ viaje, posicion, misViajes: viajes, usuario });
+      await iniciarViaje({ db, viaje, posicion, misViajes: viajes, usuario });
     } catch (err) {
       console.error(err);
       setError(traducirError(err));
@@ -224,7 +224,7 @@ export default function MisViajes({ usuario, onVolver }) {
     setOcupado(true);
     setError('');
     try {
-      await reportarDemora({ viaje: modalDemora, motivo: motivoDemora, usuario });
+      await reportarDemora({ db, viaje: modalDemora, motivo: motivoDemora, usuario });
       setModalDemora(null);
       setMotivoDemora('');
     } catch (err) {
@@ -254,6 +254,7 @@ export default function MisViajes({ usuario, onVolver }) {
       const posicion = await tomarPosicion();
 
       await finalizarViaje({
+        db,
         viaje,
         despacho: { id: viaje.despacho_id },
         posicion,
