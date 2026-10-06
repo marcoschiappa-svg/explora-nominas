@@ -37,6 +37,37 @@
  *   Si el comercial no carga cronograma, se crea una sola con el volumen total
  *   y la fecha comprometida. Un pedido sin entregas no tendría a qué asociar el
  *   despacho, y el estado derivado no funcionaría.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-09, Paso 0) — `TIPOS` SE MUDA, Y ACÁ QUEDA SU RE-EXPORT
+ * -----------------------------------------------------------------------------
+ *
+ *   SÍNTOMA
+ *     RF-10 dejó el ciclo de imports `logica-despachos.js` →
+ *     `logica-calendario.js` → `logica-pedidos.js` → `logica-despachos.js`.
+ *     Funciona hoy solo porque ninguno de los tres evalúa nada al cargar el
+ *     módulo; cualquier constante derivada a nivel de módulo lo rompería con
+ *     un `undefined` imposible de diagnosticar.
+ *
+ *   CAUSA RAÍZ
+ *     `logica-calendario.js` importaba de acá UNA sola constante (`TIPOS`),
+ *     y con ella se llevaba el módulo entero y su import de
+ *     `logica-despachos.js`, que cierra el ciclo.
+ *
+ *   ALCANCE
+ *     `TIPOS` pasa a definirse en `tipos-pedido.js` (módulo sin imports del
+ *     proyecto) y este archivo la importa y la RE-EXPORTA. Nada más cambia:
+ *     mismos valores, misma forma, y `import { TIPOS } from './logica-pedidos'`
+ *     sigue funcionando en `Pedidos.js`, `carga-masiva.js` y
+ *     `logica-despachos.js` sin tocarlos.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     `RECIPIENTES` y `BANDAS_HORARIAS` se quedan acá: solo las usan las
+ *     pantallas de pedidos y no participan de ningún ciclo.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test` y `CI=true npm run build` en verde, y en
+ *     `logica-calendario.js` no queda ninguna referencia a `logica-pedidos`.
  * ========================================================================== */
 
 import { doc, collection, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
@@ -45,33 +76,25 @@ import { enTransaccion, calcularDiferencias } from './datos';
 import { despachoVivo, ENTREGA, VIAJE } from './estados';
 import { cancelarDespacho, leerContextoPedido } from './logica-despachos';
 import { textoDomicilio } from './buscar-domicilios';
+import { TIPOS } from './tipos-pedido';
 
 /* -----------------------------------------------------------------------------
  * Constantes del dominio
  * -------------------------------------------------------------------------- */
 
 /**
- * Los tres tipos de operación, y de dónde sale cada punta.
+ * 1. v1.2.0 (RF-09, Paso 0) — `TIPOS` ya no se DEFINE acá: vive en
+ *    `tipos-pedido.js`, un módulo sin imports del proyecto. Ver el
+ *    encabezado de ese archivo para el porqué (rompe el ciclo
+ *    `logica-despachos → logica-calendario → logica-pedidos →
+ *    logica-despachos` que dejó RF-10).
  *
- * Hoy el pedido tiene un solo lugar, y cuando el tipo es "Entrega en planta" se
- * escribe la dirección de Explora hardcodeada en el código. Con las dos puntas
- * explícitas los tres casos quedan uniformes, y el modelo queda listo para las
- * órdenes de compra sin tocarlo.
+ *    Se RE-EXPORTA desde acá a propósito: todo lo que ya hacía
+ *    `import { TIPOS } from './logica-pedidos'` —`Pedidos.js`,
+ *    `carga-masiva.js`, `logica-despachos.js`…— sigue funcionando sin
+ *    tocarse. Este archivo queda como el lugar natural para buscarla.
  */
-export const TIPOS = {
-  'Entrega al cliente': {
-    origen: 'propia',    // la planta de Explora
-    destino: 'cliente',
-  },
-  'Entrega en planta': {
-    origen: 'cliente',
-    destino: 'propia',
-  },
-  'Retiro de Proveedores': {
-    origen: 'cliente',   // el proveedor, que en el modelo es una organización
-    destino: 'propia',
-  },
-};
+export { TIPOS };
 
 export const RECIPIENTES = ['Granel', 'IBC', 'Tambor', 'Bidón'];
 

@@ -57,6 +57,20 @@
  *
  *   Ninguna funcion de negocio cambio (validar, guardar, crearInvitacion,
  *   crearUsuarioNuevo, darDeBaja, volverAActivar) -- solo la presentacion.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-03) — VALIDAR Y CREAR SE MUDAN A alta-usuarios.js
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA/CAUSA RAÍZ/ALCANCE/LIMITACIONES/CÓMO SE VERIFICA: ver el
+ *   encabezado v1.2.0 (RF-03) de `alta-usuarios.js` -- ahí está la
+ *   explicación completa de por qué esta lógica se sacó de acá.
+ *
+ *   Acá el cambio es solo de USO: `validar()` pasa a ser un envoltorio de
+ *   una línea sobre `validarAltaUsuario()` (mismos parámetros, mismos
+ *   mensajes, mismo orden -- cero diferencia de comportamiento), y
+ *   `crearUsuarioNuevo()` pasa a llamar a `darDeAltaUsuario()` en vez de
+ *   tener el `crearCuenta`/`crear`/`deshacerCuenta` a mano. El resto de la
+ *   pantalla (formulario, lista, invitaciones, baja) no cambió.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -66,9 +80,8 @@ import { crear, actualizar, desactivar, reactivar } from '../datos';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
 import { claveNormalizada, normalizarCuit } from '../mapa-normalizacion';
 import {
-  crearCuenta,
-  deshacerCuenta,
-  generarClave,
+  darDeAltaUsuario,
+  validarAltaUsuario,
   emailDeChofer,
   traducirErrorAuth,
 } from '../alta-usuarios';
@@ -268,55 +281,14 @@ export default function Usuarios({ usuario, onVolver }) {
     });
   }
 
+  // RF-03: envoltorio sobre la validación pura de `alta-usuarios.js` -- ver
+  // el encabezado v1.2.0 (RF-03) más arriba. Mismos parámetros que antes
+  // leía directo de `form`/`usuarios`/`invitaciones`/`editando`.
   function validar() {
-    const problemas = [];
-
-    if (!form.nombre.trim()) problemas.push('El nombre es obligatorio.');
-    if (form.roles.length === 0) problemas.push('Elegí al menos un rol.');
-
-    if (esChofer) {
-      const dni = form.dni.replace(/\D/g, '');
-      if (!dni) {
-        problemas.push(editando
-          ? 'Para agregarle el rol chofer hay que cargarle el DNI.'
-          : 'El DNI es obligatorio para un chofer.');
-      }
-      else if (dni.length < 7 || dni.length > 8) problemas.push('El DNI tiene que tener 7 u 8 dígitos.');
-      if (form.cuit.trim() && !normalizarCuit(form.cuit)) {
-        problemas.push('El CUIT tiene que tener 11 dígitos.');
-      }
-    } else if (!editando && !form.email.trim()) {
-      problemas.push('El correo es obligatorio.');
-    }
-
-    if (!form.organizacion_id) {
-      problemas.push('Elegí la organización.');
-    }
-
-    // Un DNI repetido rompe la app: los viajes se filtran por DNI, así que dos
-    // choferes con el mismo se verían los viajes del otro.
-    if (esChofer) {
-      const dni = form.dni.replace(/\D/g, '');
-      const repetido = usuarios.find(u =>
-        u.id !== (editando && editando.id)
-        && u.datos_chofer && u.datos_chofer.dni === dni
-      );
-      if (repetido) problemas.push(`Ya hay un usuario con ese DNI: ${repetido.nombre}.`);
-    }
-
-    // Una invitación por Google no crea cuenta de Auth en el momento, así que
-    // no hay ningún `auth/email-already-in-use` que la frene sola si el email
-    // ya está usado. Se chequea acá, a mano, contra lo que sí se puede ver.
-    if (soloInternos && !editando) {
-      const emailNorm = form.email.trim().toLowerCase();
-      if (invitaciones.some(i => i.id === emailNorm)) {
-        problemas.push(`Ya hay una invitación pendiente para ${emailNorm}.`);
-      }
-      const yaExiste = usuarios.some(u => (u.email || '').toLowerCase() === emailNorm);
-      if (yaExiste) problemas.push(`Ya existe un usuario con ese email: ${emailNorm}.`);
-    }
-
-    return problemas;
+    return validarAltaUsuario(
+      { nombre: form.nombre, email: form.email, roles: form.roles, organizacion_id: form.organizacion_id, dni: form.dni, cuit: form.cuit },
+      { usuarios, invitaciones, editando, soloInternos }
+    );
   }
 
   /**
@@ -440,43 +412,27 @@ export default function Usuarios({ usuario, onVolver }) {
   /**
    * Crea la cuenta de Auth y el perfil.
    *
-   * El orden importa: primero Auth, porque el ID del documento de `usuarios`
-   * TIENE que ser el UID de la cuenta. Las reglas resuelven todo con
-   * `get(/usuarios/{request.auth.uid})`, así que un perfil con otro ID sería
-   * invisible para el sistema.
+   * RF-03: delega en `darDeAltaUsuario()` (`alta-usuarios.js`) -- ver el
+   * encabezado v1.2.0 (RF-03) más arriba. El comportamiento visible es el
+   * mismo que antes: la clave se muestra una sola vez, y si falla el perfil
+   * se avisa si la cuenta se pudo o no deshacer.
    */
   async function crearUsuarioNuevo(email, datosPerfil) {
-    const clave = generarClave();
-    let uid = null;
-
     try {
-      uid = await crearCuenta(email, clave);
-    } catch (err) {
-      setErrores([traducirErrorAuth(err)]);
-      return;
-    }
-
-    try {
-      await crear({
-        coleccion: 'usuarios',
-        id: uid,                       // el ID ES el UID de Auth
-        datos: { ...datosPerfil, estado: 'activo' },
-        accion: 'crear_usuario',
-        entidadTipo: 'usuario',
-        usuario,
-      });
-
-      // La clave se muestra UNA sola vez. No se guarda.
+      const { clave } = await darDeAltaUsuario({ datos: { ...datosPerfil, email }, usuario });
       setClaveGenerada({ nombre: datosPerfil.nombre, email, clave });
       setVista('clave');
     } catch (err) {
-      console.error('Falló el perfil, se borra la cuenta:', err);
-      const borrada = await deshacerCuenta(email, clave);
-      setErrores([
-        borrada
-          ? `No se pudo crear el perfil: ${traducirError(err)}. La cuenta se borró, no quedó nada a medias.`
-          : `No se pudo crear el perfil: ${traducirError(err)}. ATENCIÓN: la cuenta de ${email} quedó creada sin perfil y hay que borrarla desde la consola de Firebase.`,
-      ]);
+      console.error(err);
+      if (err.fase === 'auth') {
+        setErrores([traducirErrorAuth(err)]);
+      } else {
+        setErrores([
+          err.cuentaBorrada
+            ? `No se pudo crear el perfil: ${traducirError(err)}. La cuenta se borró, no quedó nada a medias.`
+            : `No se pudo crear el perfil: ${traducirError(err)}. ATENCIÓN: la cuenta de ${email} quedó creada sin perfil y hay que borrarla desde la consola de Firebase.`,
+        ]);
+      }
     }
   }
 

@@ -19,13 +19,32 @@
  *   <Modal titulo="Historial" onCerrar={cerrar} ancho={560}>
  *     contenido con scroll propio si es largo
  *   </Modal>
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (rediseño Pedidos) — `alto` OPCIONAL
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA: el detalle de pedido rediseñado pide un modal de hasta 88vh de
+ *   alto (más que el 85vh fijo que tenía este componente) para que, con dos
+ *   columnas y un panel de entregas largo, se aproveche mejor la pantalla.
+ *
+ *   CAUSA RAÍZ: `maxHeight: '85vh'` estaba fijo, sin forma de pedir otro
+ *   valor por afuera.
+ *
+ *   ALCANCE: un prop `alto` opcional (`maxHeight` del panel), con el mismo
+ *   `'85vh'` de siempre como default -- ningún consumidor existente
+ *   (`Home.js`, `MisViajes.js`, `HistorialPedido.js`, etc.) cambia de
+ *   comportamiento porque ninguno lo pasa.
+ *
+ *   CÓMO SE VERIFICA: `CI=true npm run build` sin warnings. Abrir el detalle
+ *   de un pedido: el modal admite hasta 88vh. Abrir cualquier otro modal del
+ *   portal: sigue en 85vh, igual que siempre.
  * ========================================================================== */
 
 import React, { useEffect } from 'react';
 import { espacio, radio, sombra, tipografia } from './tokens';
 import { useTema } from './TemaContext';
 
-export default function Modal({ titulo, onCerrar, ancho = 420, children }) {
+export default function Modal({ titulo, onCerrar, ancho = 420, alto = '85vh', children }) {
   const { colores } = useTema();
 
   useEffect(() => {
@@ -49,7 +68,7 @@ export default function Modal({ titulo, onCerrar, ancho = 420, children }) {
         onMouseDown={e => e.stopPropagation()}
         style={{
           background: colores.superficieModal, borderRadius: radio.xl, width: '100%', maxWidth: ancho,
-          maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          maxHeight: alto, display: 'flex', flexDirection: 'column', overflow: 'hidden',
           boxShadow: sombra.modal,
         }}
       >

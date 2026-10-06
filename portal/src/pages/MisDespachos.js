@@ -76,12 +76,50 @@
  *   consulta. Y la nominacion de chofer/camion/acoplado por separado
  *   necesita antes partir la entidad "camion" en Camiones.js y cambiar la
  *   firma de nominar() en logica-transportista.js.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-07) — MODO CONSULTA PARA INTERNOS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El coordinador no tenía forma de ver el estado de los despachos de
+ *     TODOS los transportistas desde una sola pantalla — tenía que confiar
+ *     en lo que cada transportista le contaba.
+ *
+ *   CAUSA RAÍZ
+ *     La pantalla asumía un único lector posible: el transportista dueño de
+ *     los despachos, con su consulta siempre filtrada por su organización.
+ *
+ *   ALCANCE
+ *     `mis_despachos` suma el rol `coordinador` (ver `modulos.js`). Quien NO
+ *     tiene el rol `transportista` (`modoConsulta`) entra en solo lectura
+ *     sobre TODOS los transportistas: `despachos`/`viajes` se consultan sin
+ *     `where` por organización — las reglas lo permiten porque `esInterno()`
+ *     no depende de `resource.data` (ver `firestore.rules.produccion`). No se
+ *     cargan `avisos`, choferes ni camiones: son del transportista, no de
+ *     consulta. Un selector filtra por transportista (`organizaciones` con
+ *     `es_transportista`, más "Todos"), cada tarjeta muestra el nombre del
+ *     transportista, y se ocultan aceptar/rechazar/nominar y el formulario
+ *     de nominación — mismo patrón `soloVeSuEmpresa` que ya usa
+ *     `Seguimiento.js`, con la lógica invertida (acá el caso especial es el
+ *     transportista, no el interno).
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     El modo consulta lee TODOS los despachos de una vez, sin paginar — con
+ *     el volumen actual no es un problema, pero si la colección crece mucho
+ *     esta pantalla va a necesitar paginación o un filtro por fecha.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Un coordinador ve los despachos
+ *     de todos los transportistas, sin botones de aceptar/rechazar/nominar,
+ *     y puede filtrar por transportista. Un transportista sigue viendo
+ *     exactamente lo mismo que antes de esta tarea.
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { miOrganizacion, motivoSinAcceso } from '../sesion';
+import { miOrganizacion, tieneRol, motivoSinAcceso } from '../sesion';
+import { rolesDe } from '../modulos';
 import {
   DESPACHO, ETIQUETA_DESPACHO, COLOR_DESPACHO, ETIQUETA_VIAJE,
   puedeAceptar, puedeRechazar, puedeNominar, despachoVivo,
@@ -139,13 +177,47 @@ export default function MisDespachos({ usuario, onVolver }) {
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
 
+  // 1. Modo consulta: cualquiera SIN el rol `transportista` (admin,
+  //    coordinador) entra en solo lectura sobre todos los transportistas.
+  //    Con el rol `transportista`, el comportamiento no cambia un bit.
+  const modoConsulta = !tieneRol(usuario, 'transportista');
+  const [organizacionesTransp, setOrganizacionesTransp] = useState([]);
+  const [filtroTransportista, setFiltroTransportista] = useState('todos');
+
   const miOrg = miOrganizacion(usuario);
-  const sinAcceso = motivoSinAcceso(usuario, ['admin', 'transportista']);
+  const sinAcceso = motivoSinAcceso(usuario, rolesDe('mis_despachos'));
 
   /* ── Carga ──────────────────────────────────────────────────────────────── */
 
   useEffect(() => {
-    if (sinAcceso || !miOrg) { setCargando(false); return; }
+    if (sinAcceso) { setCargando(false); return; }
+    if (!modoConsulta && !miOrg) { setCargando(false); return; }
+
+    if (modoConsulta) {
+      // 2. Sin `where`: las reglas lo permiten porque `esInterno()` no
+      //    depende de `resource.data` (ver firestore.rules.produccion,
+      //    reglas de `despachos`/`viajes`). No se cargan avisos, choferes ni
+      //    camiones -- son del transportista, no de consulta.
+      const unsubs = [
+        onSnapshot(
+          collection(db, 'despachos'),
+          (s) => {
+            setDespachos(s.docs.map(d => ({ id: d.id, ...d.data() })));
+            setCargando(false);
+          },
+          (e) => { console.error('Despachos:', e); setCargando(false); }
+        ),
+        onSnapshot(
+          collection(db, 'viajes'),
+          (s) => setViajes(s.docs.map(d => ({ id: d.id, ...d.data() })))
+        ),
+        onSnapshot(
+          query(collection(db, 'organizaciones'), where('es_transportista', '==', true)),
+          (s) => setOrganizacionesTransp(s.docs.map(d => ({ id: d.id, ...d.data() })))
+        ),
+      ];
+      return () => unsubs.forEach(u => u());
+    }
 
     // Filtrada por organización, siempre. Sin el `where`, las reglas rechazan
     // la consulta entera.
@@ -184,7 +256,7 @@ export default function MisDespachos({ usuario, onVolver }) {
     ];
 
     return () => unsubs.forEach(u => u());
-  }, [sinAcceso, miOrg]);
+  }, [sinAcceso, modoConsulta, miOrg]);
 
   /* ── Índices ────────────────────────────────────────────────────────────── */
 
@@ -199,20 +271,27 @@ export default function MisDespachos({ usuario, onVolver }) {
   const tractores = useMemo(() => camiones.filter(c => c.tipo === 'tractor'), [camiones]);
   const acoplados = useMemo(() => camiones.filter(c => c.tipo === 'acoplado'), [camiones]);
 
+  // 3. En modo consulta, el selector de transportista filtra ANTES de armar
+  //    conteos y visibles -- así las dos cosas quedan consistentes entre sí.
+  const despachosFiltrados = useMemo(() => {
+    if (!modoConsulta || filtroTransportista === 'todos') return despachos;
+    return despachos.filter(d => d.transportista_org_id === filtroTransportista);
+  }, [despachos, modoConsulta, filtroTransportista]);
+
   const conteos = useMemo(() => {
     const c = {};
     SOLAPAS.forEach(s => {
-      c[s.id] = despachos.filter(d => s.estados.includes(d.estado)).length;
+      c[s.id] = despachosFiltrados.filter(d => s.estados.includes(d.estado)).length;
     });
     return c;
-  }, [despachos]);
+  }, [despachosFiltrados]);
 
   const visibles = useMemo(() => {
     const def = SOLAPAS.find(s => s.id === solapa);
-    return despachos
+    return despachosFiltrados
       .filter(d => def.estados.includes(d.estado))
       .sort((a, b) => (a.fecha_carga || '').localeCompare(b.fecha_carga || ''));
-  }, [despachos, solapa]);
+  }, [despachosFiltrados, solapa]);
 
   /* ── Acciones ───────────────────────────────────────────────────────────── */
 
@@ -400,7 +479,7 @@ export default function MisDespachos({ usuario, onVolver }) {
     return <div style={styles.wrap}><div style={styles.bannerError}>{sinAcceso}</div></div>;
   }
 
-  if (!miOrg) {
+  if (!modoConsulta && !miOrg) {
     return (
       <div style={styles.wrap}>
         <div style={styles.bannerError}>
@@ -414,8 +493,25 @@ export default function MisDespachos({ usuario, onVolver }) {
   return (
     <div style={styles.wrap}>
       <div style={styles.panelHeader}>
-        <div style={styles.titulo}>Mis despachos</div>
+        <div style={styles.titulo}>{modoConsulta ? 'Despachos' : 'Mis despachos'}</div>
       </div>
+
+      {/* 4. Selector de transportista -- solo en modo consulta. */}
+      {modoConsulta && (
+        <div style={{ marginBottom: 12 }}>
+          <Campo
+            as="select" label="Transportista"
+            value={filtroTransportista}
+            onChange={e => setFiltroTransportista(e.target.value)}
+          >
+            <option value="todos">Todos</option>
+            {organizacionesTransp
+              .slice()
+              .sort((a, b) => (a.razon_social || '').localeCompare(b.razon_social || '', 'es'))
+              .map(o => <option key={o.id} value={o.id}>{o.razon_social}</option>)}
+          </Campo>
+        </div>
+      )}
 
       {avisos.length > 0 && (
         <div style={styles.avisosWrap}>
@@ -469,6 +565,13 @@ export default function MisDespachos({ usuario, onVolver }) {
           >
             <Pastilla colores={col}>{ETIQUETA_DESPACHO[d.estado] || d.estado}</Pastilla>
 
+            {/* 5. Modo consulta: el dato que le falta a un interno es QUIÉN
+                es el transportista -- lo único que la tarjeta no mostraba
+                porque el transportista mismo ya lo sabe. */}
+            {modoConsulta && (
+              <div style={styles.transportistaLinea}>{d.transporte_nombre || 'Transportista sin nombre'}</div>
+            )}
+
             {/* Prioridad 1: cliente, producto, fecha de carga + horario --
                 lo que hace falta para decidir si aceptar/rechazar/nominar. */}
             <div style={styles.prioridad1}>
@@ -508,8 +611,9 @@ export default function MisDespachos({ usuario, onVolver }) {
               <div style={styles.motivo}>Cancelado por Explora: {d.cancelacion_motivo}</div>
             )}
 
-            {/* Aceptar / rechazar */}
-            {(puedeAceptar(d) || puedeRechazar(d)) && (
+            {/* Aceptar / rechazar -- ocultas en modo consulta: quien no es
+                transportista solo mira. */}
+            {!modoConsulta && (puedeAceptar(d) || puedeRechazar(d)) && (
               <div style={styles.acciones}>
                 <Boton disabled={ocupado} onClick={() => aceptar(d)}>
                   Aceptar
@@ -523,8 +627,8 @@ export default function MisDespachos({ usuario, onVolver }) {
               </div>
             )}
 
-            {/* Nominar */}
-            {puedeNominar(d) && !nominandoEste && (
+            {/* Nominar -- oculto en modo consulta. */}
+            {!modoConsulta && puedeNominar(d) && !nominandoEste && (
               <div style={styles.acciones}>
                 <Boton
                   onClick={() => {
@@ -650,6 +754,10 @@ function crearEstilos(colores, oscuro) {
     },
     solapaActiva: { color: marca, borderBottomColor: marca, fontWeight: tipografia.peso.negrita },
     solapaConteo: { fontSize: 11, padding: '1px 7px', borderRadius: radio.pastilla, background: colores.fondoAlterno, color: pal.azul },
+
+    // 6. Modo consulta: nombre del transportista, arriba de todo -- es lo
+    // primero que un interno necesita ubicar en una tarjeta ajena.
+    transportistaLinea: { fontSize: 11, fontWeight: tipografia.peso.medio, color: pal.azul, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 8 },
 
     // Prioridad 1: lo mas grande e importante -- cliente, producto, fecha +
     // horario. Va en texto pleno (ni gris ni de color), es el dato central.

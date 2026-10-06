@@ -415,7 +415,12 @@ function Chofer({ usuario, onVolver }) {
 }
 
 const s = {
-  wrap: { minHeight: '100vh', fontFamily: "'DM Sans', system-ui, sans-serif", background: '#F8F8F8' },
+  // v1.2.0 (rediseño Programación, Paso 0) -- antes `"'DM Sans', system-ui,
+  // sans-serif"` fijo, que ya no coincide con el resto del portal
+  // (Montserrat, ver `ui/tokens.js`). Esta pantalla no está migrada a
+  // `ui/tokens.js` (no importa nada de acá) -- `'inherit'` alcanza porque el
+  // `<body>` (index.css) ya define Montserrat para todo el portal.
+  wrap: { minHeight: '100vh', fontFamily: 'inherit', background: '#F8F8F8' },
   header: { position: 'relative', paddingBottom: 28 },
   headerTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 0' },
   logoHeader: { height: 28, objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.9 },

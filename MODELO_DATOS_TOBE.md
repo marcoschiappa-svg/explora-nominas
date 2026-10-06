@@ -49,6 +49,9 @@ pedidos/{id}
 
 historial/{id}
 app_logs/{id}
+
+calendario_operativo/{fechaISO}    v1.2.0 (RF-10) -- un documento por fecha
+calendario_reglas/{semanal}        v1.2.0 (RF-10) -- documento único
 ```
 
 ---
@@ -68,10 +71,21 @@ es_cliente          bool
 es_transportista    bool
 es_propia           bool        true solo para Explora
 
+productos_ids       string[]    solo si es_transportista -- v1.2.0 (RF-08)
+
 creado_por_uid      string
 creado_en           Timestamp
 actualizado_en      Timestamp
 ```
+
+**`productos_ids` (RF-08) es un array, no una subcolección** -- mismo criterio
+que los roles de `usuarios`: es acotado (hasta 50, ver
+`firestore.rules.produccion`), lo escribe un solo actor a la vez (quien edita
+la organización) y es del tipo de dato que se consulta con
+`where('productos_ids', 'array-contains', productoId)` si algún día hiciera
+falta filtrar transportistas por producto desde una consulta -- hoy
+Programación no lo necesita, lee la organización entera y arma los grupos en
+memoria (ver `Programacion.js`). Ausente o vacío es "sin declarar".
 
 **Una sola colección, no dos.** Hoy hay `transportistas_portal` y, aparte,
 usuarios con `rol: 'transportista'`, vinculados por el string `empresa` — y los
@@ -683,6 +697,209 @@ configura una vez en la consola, **sin Cloud Functions**.
 
 ---
 
+## `calendario_operativo` — v1.2.0 (RF-10)
+
+```
+tipo                  string      sin_despacho | sin_operacion
+motivo                string      obligatorio -- "Feriado 9 de julio"...
+estado                string      activo | inactivo
+creado_por_uid         string
+creado_en              Timestamp
+actualizado_en          Timestamp
+```
+
+El **ID del documento ES la fecha**, `YYYY-MM-DD`, mismo criterio LOCAL que
+`entregas.fecha_solicitada`. No hay consulta por rango de fechas sobre esta
+colección: se lee por ID directo (un día puntual, desde
+`logica-calendario.js#leerCalendario()`) o se suscribe la colección entera con
+`where('estado', '==', 'activo')` (las pantallas que solo necesitan saber qué
+está bloqueado hoy) o sin filtro (`CalendarioOperativo.js`, que también
+necesita ver los inactivos para no pisar un documento existente).
+
+**`sin_despacho`** bloquea la fecha de carga solo para "Entrega al cliente".
+**`sin_operacion`** bloquea cualquier tipo de pedido. Los dos, sobre la fecha
+de ENTREGA (`Pedidos.js`, carga masiva), solo ADVIERTEN -- nunca bloquean.
+
+**Nada se borra.** Desmarcar un día lo pasa a `estado: 'inactivo'` con
+`desactivar()` de `datos.js`, igual que el resto del modelo nuevo.
+
+## `calendario_reglas` — v1.2.0 (RF-10)
+
+```
+dias    map     { "0": tipo|null, "1": tipo|null, ..., "6": tipo|null }
+```
+
+**Documento único**, con ID fijo `semanal`. `0` es domingo (mismo criterio que
+`Date.getDay()` de JavaScript), `6` es sábado. Existe para marcar algo que se
+repite todas las semanas (`"domingos sin operación"`) sin cargar 52
+documentos en `calendario_operativo`.
+
+**Precedencia:** un día de `calendario_operativo` marcado explícitamente y
+`estado: 'activo'` gana sobre la regla semanal del mismo día. Un día
+`inactivo` NO anula la regla semanal -- simplemente no aporta nada, y la
+regla semanal decide sola. **Limitación conocida:** no existe un tipo
+"abierto" que anule la regla semanal para un día puntual -- para abrir un
+domingo puntual con "domingos sin operación" activo, hoy no hay forma.
+
+---
+
+## Tarifario — dos pantallas en paralelo, v1.2.0 (RF-09)
+
+RF-09 iba a reemplazar por completo el Tarifario existente. Esa decisión se
+revierte: **el Tarifario existente (`Tarifario.js`) queda como LEGACY, sin una
+sola línea modificada**, sobre `portal/*` (`portal/rutas`, `portal/mods`,
+`portal/pendientes`, `portal/historial`, `portal/catac`, `portal/config`),
+`tarifario_versiones` y `catac_versiones` — el modelo de siempre, con su modo
+admin por contraseña. Se retira cuando se apruebe y se adopte la pantalla
+nueva.
+
+En paralelo corre **`NuevoTarifario.js`**, sobre la colección `rutas` y la
+subcolección `rutas/{id}/tarifas` que arma esta sección, más una colección
+nueva, `rutas_versiones`. Las dos pantallas leen la misma tabla CATAC
+(`portal/catac`, de solo lectura para `NuevoTarifario.js`) pero **no
+comparten tarifas**: un cambio en una no se refleja en la otra. Mientras
+convivan las dos, las actualizaciones de tarifa se hacen en
+`NuevoTarifario.js` — ver `COMPORTAMIENTO.md`.
+
+## `rutas` — v1.2.0 (RF-09, ajustado en RF-09b)
+
+**RF-09b: las rutas son texto estandarizado, no vínculos a otras
+colecciones.** `origen`, `destino` y `producto` son texto libre (hasta 120
+caracteres, sin espacios en los extremos) — **no se relacionan con
+`organizaciones`, `domicilios` ni `productos`** del portal. La ruta que usa
+el tarifario es una ruta CONVENIDA ("Bioils Argentina S.A." → "COFCO
+Pto.Gral.San Martin (SF)"), no un domicilio operativo con calle y número.
+
+```
+tipo                  string      parametro | referencia
+origen                string      texto, hasta 120 caracteres
+destino               string      texto, hasta 120 caracteres
+producto              string      texto, hasta 120 caracteres
+clave_normalizada     string      claveNormalizada(origen)|claveNormalizada(destino)|claveNormalizada(producto)
+
+km                    number      carga manual
+tarifa_base           number|null la original de la ruta, si existe
+tarifa_vigente        number
+catac_ref             number|null CATAC del km al momento del cálculo
+categoria             string      General | Peligroso
+
+pendiente               object|null { tarifa_nueva, variacion, just, ref, adjunto,
+                                      fecha, creado_por_uid } — solo en maestra
+estado                  string      activo | inactivo
+tarifa_actualizada_en   Timestamp|null  solo en maestra — cuándo cambió tarifa_vigente
+tarifa_actualizada_por  object|null     solo en maestra — { uid, nombre }
+ruta_maestra_id         string|null     solo en derivada — de qué maestra depende
+tarifa_al_crear         number|null     solo en derivada — foto informativa, NO la tarifa real
+fecha_calculo           Timestamp|null  solo en derivada — cuándo se tomó esa foto
+legacy                  object|null { idx, proveedor, destino, producto } — en las
+                                      cargadas por el script inicial, el texto original
+
+creado_por_uid        string      obligatorio en derivada
+creado_en             Timestamp
+actualizado_en        Timestamp
+```
+
+**La ruta no lleva cliente.** Se identifica por origen, destino y producto: el
+mismo flete vale lo mismo lo pida quien lo pida.
+
+### Las dos clases: MAESTRA y DERIVADA
+
+El campo `tipo` conserva sus valores de RF-09 (`'parametro'`/`'referencia'`)
+para no romper lo ya cargado en staging; en `NuevoTarifario.js` se muestran
+como **maestra** y **derivada**.
+
+| Clase | Qué es | Quién escribe | Quién lee |
+| --- | --- | --- | --- |
+| **Maestra** (`tipo: 'parametro'`) | Las rutas cargadas por `scripts/cargar-registro-maestro.js` y las que agregue el admin. Son datos maestros: su tarifa solo cambia por un indicador aprobado (ver `COMPORTAMIENTO.md`). | Solo admin | Admin, coordinador, comercial |
+| **Derivada** (`tipo: 'referencia'`) | Rutas que arma un coordinador o el admin a partir de una maestra ELEGIDA (`ruta_maestra_id`), con el cálculo del Generador. Nunca modifican la maestra. | El coordinador que la creó, o el admin | Admin, coordinador y comercial (comercial: solo lectura) |
+
+**La tarifa de una derivada nunca se guarda como verdad.** Se calcula siempre
+en el momento:
+
+```
+tarifa = catac(km_derivada) × (tarifa_vigente_maestra / catac(km_maestra))
+```
+
+usando la tabla CATAC activa (`portal/catac`, del Tarifario legacy, solo
+lectura acá) — `calcularTarifaDerivada()` en `calculo-tarifario.js`. Si la
+maestra no existe o está inactiva, no hay tarifa que calcular: la pantalla
+muestra "Maestra inactiva" hasta que se le asigna otra (el creador o el
+admin). `tarifa_al_crear`/`fecha_calculo` son una foto informativa del
+momento del alta, nunca se vuelven a leer para calcular.
+
+**El Generador solo usa rutas maestras activas** como vecinas para sugerir de
+cuál depender. Una derivada no puede ser la maestra de otra.
+
+`tipo` **no cambia después del alta** — ni las reglas lo permiten.
+
+### Unicidad
+
+Una sola ruta **activa** por `clave_normalizada`, **considerando las dos
+clases**. Si se genera una ruta que ya existe (maestra o derivada), se
+muestra la existente y no se guarda una duplicada.
+
+**No es atómica.** Se chequea con una consulta previa y después se escribe: dos
+altas simultáneas de la misma clave podrían duplicarse. El riesgo es bajo —hay
+un solo escritor por clase— y hacerlo atómico exigiría un documento centinela
+por clave, que queda fuera de alcance. Ver `logica-tarifario.js`.
+
+Desactivar una ruta **libera** la clave: la unicidad rige sobre lo activo, no
+sobre el histórico.
+
+---
+
+## `rutas/{id}/tarifas` — subcolección, v1.2.0 (RF-09)
+
+Un documento por cada cambio de tarifa de una ruta **maestra**.
+
+```
+tarifa_anterior   number|null
+tarifa_nueva      number
+variacion         number|null   porcentaje, 2 decimales
+just              string        justificación
+ref               string        CATAMP | CATAC | Versión | Otro
+adjunto           string|null   link al informe de respaldo
+origen            string        editor | ajuste_global | catamp | catac | generador |
+                                restauracion | migracion | alta
+usuario_uid       string
+usuario_nombre    string
+fecha_legacy      string|null   solo en las cargadas por el script inicial: la
+                                fecha en texto que guardaba portal/historial
+ts                Timestamp
+```
+
+**Append-only**: `update` y `delete` en `false`, mismo criterio que `historial`.
+Un registro de auditoría que se puede editar no sirve como registro de
+auditoría. `editor`/`ajuste_global` ya no los genera `NuevoTarifario.js` (no
+hay edición manual tarifa por tarifa ni ajuste libre fuera de un indicador),
+quedan por compatibilidad con lo ya escrito.
+
+---
+
+## `rutas_versiones` — v1.2.0 (RF-09)
+
+Fotos de las tarifas vigentes de las rutas maestra, guardadas ANTES de cada
+actualización por indicador y consultables para restaurar.
+
+```
+desc        string      descripción de la foto
+origen      string      manual | catamp | catac | auto
+meta        object|null detalle del indicador aplicado (tipo, alcance, factor)
+rutas       array       [{ ruta_id, tarifa_vigente }]
+nRutas      number
+fecha       string      ISO
+fechaTxt    string      es-AR, para mostrar
+```
+
+**No es `tarifario_versiones`** — esa colección sigue siendo del Tarifario
+legacy, con su propio formato de snapshots por `idx` sobre `portal/rutas`, sin
+relación con esta. Restaurar una versión de `rutas_versiones` no pisa
+`tarifa_vigente` directo: carga cada ruta afectada como `pendiente`, con
+motivo "Restauración de versión \<fecha\>", para que pase por la misma
+aprobación que cualquier otro cambio de tarifa maestra.
+
+---
+
 # Parte 3 — Estados
 
 ## Despacho
@@ -784,6 +1001,8 @@ función lo escribe.
 | `historial` | lectura | — | — |
 | `contadores` | interno | — | — |
 | `app_logs` | consola | — | crea |
+| `rutas` | admin escribe las parámetro; el coordinador, solo sus referencias. El comercial solo lee las parámetro | — | — |
+| `rutas/{id}/tarifas` | lectura; admin crea | — | — |
 
 Hoy cualquier autenticado lee y escribe **cualquier** pedido, choferes incluidos.
 

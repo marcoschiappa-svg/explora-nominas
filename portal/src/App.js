@@ -1,7 +1,72 @@
+/* -----------------------------------------------------------------------------
+ * v1.2.0 (RF-07) — RUTEO CONTRA LA TABLA ÚNICA DE MÓDULOS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Cada rama de ruteo repetía su propia lista de roles, a veces contra el
+ *     `rol` legacy y a veces contra `tieneAlgunRol` — sin criterio único.
+ *     `tarifario` era el caso más notorio: solo exigía `rol !== 'transportista'`,
+ *     sin límite real de roles, mientras el tile de `Home.js` sí lo limitaba.
+ *
+ *   CAUSA RAÍZ
+ *     No existía un solo lugar que dijera qué rol puede usar cada módulo.
+ *
+ *   ALCANCE
+ *     Todas las ramas pasan a `puede(id)`, que llama a
+ *     `puedeVerModulo(usuario, moduloPorId(id))` de `modulos.js`. El mapeo
+ *     id → componente se queda acá, que es lo único específico de este
+ *     archivo.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna — el comportamiento de ruteo (caer a Home si no corresponde)
+ *     es el mismo de antes.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Entrar a un módulo por estado sin
+ *     el rol correspondiente cae a Home, igual que antes de esta tarea.
+ *
+ * v1.2.0 (RF-10 y RF-05) -- dos ramas nuevas, mismo patrón que el resto:
+ *   `calendario` -> `CalendarioOperativo.js`, `ciclo_vida` -> `CicloVida.js`.
+ *   Los roles salen de `modulos.js`, como siempre -- nada de roles propios
+ *   acá.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-09) -- SE DESHACE EL PASO A `usuario`: `Tarifario` QUEDA LEGACY
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El párrafo de ALCANCE de más arriba decía que `Tarifario` pasa a
+ *     recibir `usuario` en vez de `userRole`/`userEmail` — eso nunca se
+ *     terminó de revertir acá cuando RF-09 reemplazó la pantalla entera, y
+ *     ahora que esa pantalla vuelve a su versión ORIGINAL (con `T_BASE` y
+ *     modo admin por contraseña), la rama de este archivo quedó
+ *     desalineada con la firma real del componente.
+ *
+ *   CAUSA RAÍZ
+ *     RF-09 se revierte, pero `Tarifario.js` no: queda como legacy, sin
+ *     modificarse, hasta que se apruebe y se adopte `NuevoTarifario.js`
+ *     (pantalla nueva, en paralelo, sobre la colección `rutas`).
+ *
+ *   ALCANCE
+ *     La rama de `tarifario` vuelve a pasarle `userRole={usuario.rol}` y
+ *     `userEmail={usuario.email}` (los campos legacy que ya trae el objeto
+ *     de sesión, ver `sesion.js`), en vez de `usuario`. Rama nueva
+ *     `nuevo_tarifario` -> `NuevoTarifario.js`, mismo patrón que el resto
+ *     (`usuario`/`onVolver`). La visibilidad de ambos módulos sigue
+ *     saliendo de `modulos.js` sin cambios.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Mientras conviven las dos pantallas, un cambio de tarifa en una no se
+ *     refleja en la otra (colecciones separadas) — ver `COMPORTAMIENTO.md`.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Manual: el Tarifario legacy pide
+ *     la clave de administrador igual que antes de v1.2.0.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect } from 'react';
 import { auth, ENTORNO } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { cargarSesion, tieneAlgunRol } from './sesion';
+import { cargarSesion } from './sesion';
+import { moduloPorId, puedeVerModulo } from './modulos';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Pedidos from './pages/Pedidos';
@@ -18,7 +83,10 @@ import Organizaciones from './pages/Organizaciones';
 import Usuarios from './pages/Usuarios';
 import Productos from './pages/Productos';
 import Camiones from './pages/Camiones';
+import CalendarioOperativo from './pages/CalendarioOperativo';
+import CicloVida from './pages/CicloVida';
 import Tarifario from './Tarifario';
+import NuevoTarifario from './pages/NuevoTarifario';
 import Pie from './ui/Pie';
 import { TemaProvider, useTema } from './ui/TemaContext';
 import BarraSuperior from './ui/BarraSuperior';
@@ -133,47 +201,56 @@ function Contenido() {
   } else if (!usuario) {
     cuerpo = <Login onLogin={handleLogin} />;
   } else {
-    const rol = usuario.rol;
+    // v1.2.0 (RF-07): el ruteo ya no repite roles propios por módulo — todos
+    // se resuelven contra la tabla única de `modulos.js`
+    // (`puedeVerModulo(usuario, moduloPorId(id))`). El mapeo id → componente
+    // sigue viviendo acá, que es lo único específico de `App.js`. Si el
+    // módulo pedido no existe o el usuario no puede verlo, cae a Home, igual
+    // que antes.
+    const puede = (id) => puedeVerModulo(usuario, moduloPorId(id));
 
-    // A partir de acá, cada módulo rutea contra una de dos fuentes:
-    //   - Los LEGACY (pedidos_legacy, coordinador, transportista, chofer,
-    //     seguimiento, admin, tarifario) comparan contra `rol`, el campo viejo
-    //     de `usuarios_portal`. No cambian.
-    //   - Los NUEVOS (los que en `Home.js` llevan `nuevo: true`) usan
-    //     `tieneAlgunRol(usuario, [...])`, con la MISMA lista de roles que el
-    //     tile correspondiente en `Home.js`, mirando `perfil.roles`.
-    if (modulo === 'pedidos' && tieneAlgunRol(usuario, ['admin', 'comercial', 'coordinador'])) {
+    if (modulo === 'pedidos' && puede('pedidos')) {
       cuerpo = <Pedidos usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'pedidos_legacy' && (rol === 'admin' || rol === 'comercial' || rol === 'coordinador')) {
+    } else if (modulo === 'pedidos_legacy' && puede('pedidos_legacy')) {
       // Los pedidos que quedaron en `pedidos_portal`, en solo lectura. Este
       // bloque se borra cuando no quede ninguno vivo.
       cuerpo = <PedidosLegacy usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'coordinador' && (rol === 'admin' || rol === 'coordinador')) {
+    } else if (modulo === 'coordinador' && puede('coordinador')) {
       cuerpo = <Coordinador usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'programacion' && tieneAlgunRol(usuario, ['admin', 'coordinador'])) {
+    } else if (modulo === 'programacion' && puede('programacion')) {
       cuerpo = <Programacion usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'transportista' && (rol === 'admin' || rol === 'transportista')) {
+    } else if (modulo === 'transportista' && puede('transportista')) {
       cuerpo = <Transportista usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'mis_despachos' && tieneAlgunRol(usuario, ['admin', 'transportista'])) {
+    } else if (modulo === 'mis_despachos' && puede('mis_despachos')) {
       cuerpo = <MisDespachos usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'chofer' && (rol === 'admin' || rol === 'chofer')) {
+    } else if (modulo === 'chofer' && puede('chofer')) {
       cuerpo = <Chofer usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'mis_viajes' && tieneAlgunRol(usuario, ['chofer'])) {
+    } else if (modulo === 'mis_viajes' && puede('mis_viajes')) {
       cuerpo = <MisViajes usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'seguimiento' && tieneAlgunRol(usuario, ['admin', 'coordinador', 'transportista'])) {
+    } else if (modulo === 'seguimiento' && puede('seguimiento')) {
       cuerpo = <Seguimiento usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'admin' && rol === 'admin') {
+    } else if (modulo === 'admin' && puede('admin')) {
       cuerpo = <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'organizaciones' && tieneAlgunRol(usuario, ['admin', 'comercial'])) {
+    } else if (modulo === 'organizaciones' && puede('organizaciones')) {
       cuerpo = <Organizaciones usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'usuarios' && tieneAlgunRol(usuario, ['admin', 'transportista'])) {
+    } else if (modulo === 'usuarios' && puede('usuarios')) {
       cuerpo = <Usuarios usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'productos' && tieneAlgunRol(usuario, ['admin'])) {
+    } else if (modulo === 'productos' && puede('productos')) {
       cuerpo = <Productos usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'camiones' && tieneAlgunRol(usuario, ['admin', 'coordinador', 'transportista'])) {
+    } else if (modulo === 'camiones' && puede('camiones')) {
       cuerpo = <Camiones usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'tarifario' && rol !== 'transportista') {
-      cuerpo = <Tarifario userRole={rol} userEmail={usuario.email} onVolver={() => setModulo('home')} />;
+    } else if (modulo === 'calendario' && puede('calendario')) {
+      // v1.2.0 (RF-10)
+      cuerpo = <CalendarioOperativo usuario={usuario} onVolver={() => setModulo('home')} />;
+    } else if (modulo === 'ciclo_vida' && puede('ciclo_vida')) {
+      // v1.2.0 (RF-05)
+      cuerpo = <CicloVida usuario={usuario} onVolver={() => setModulo('home')} />;
+    } else if (modulo === 'tarifario' && puede('tarifario')) {
+      // v1.2.0 (RF-09, comentario ALCANCE) — Tarifario legacy, sin tocar: recibe
+      // los campos viejos de la sesión, no el objeto `usuario` completo.
+      cuerpo = <Tarifario userRole={usuario.rol} userEmail={usuario.email} onVolver={() => setModulo('home')} />;
+    } else if (modulo === 'nuevo_tarifario' && puede('nuevo_tarifario')) {
+      cuerpo = <NuevoTarifario usuario={usuario} onVolver={() => setModulo('home')} />;
     } else {
       cuerpo = <Home usuario={usuario} onModulo={setModulo} />;
     }

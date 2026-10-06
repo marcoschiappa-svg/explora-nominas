@@ -30,6 +30,25 @@
 //   puntual pasa de `"Pedido:  " + id` a `"[ " + id + " |"` — con el espacio
 //   y la barra al final, para no matchear por error el prefijo de otro
 //   pedido que empiece con los mismos caracteres.
+//
+// FIX — MOVER EL BLOQUE CUANDO CAMBIA LA FECHA DE CARGA (sept 2026)
+//   SÍNTOMA: un despacho aparecía bien en el Plan al crearlo, pero si el
+//   coordinador después le corregía la fecha de carga (editar_despacho /
+//   reprogramar_despacho) el bloque quedaba clavado para siempre en la fila
+//   de la fecha VIEJA. Invisible a simple vista porque `construirNota()`
+//   nunca muestra `fecha_carga` en el texto -- solo `fecha_entrega` -- así
+//   que la nota se veía perfecta aunque estuviera sumando en el día
+//   equivocado.
+//   CAUSA RAÍZ: `ACCIONES.editar_despacho` y `ACCIONES.reprogramar_despacho`
+//   en Codigo.gs no tenían `escribir: escribirEnPlan` (ni ningún `escribir`).
+//   Solo mandaban el mail; el Plan nunca se tocaba de nuevo.
+//   ALCANCE: `editarDespacho()` y `reprogramarDespacho()` en el portal solo
+//   tocan `fecha_carga` y `horario_carga` -- nunca producto/cliente/ov/
+//   volumen -- así que la columna es siempre la misma entre la escritura
+//   vieja y la nueva; lo único que puede cambiar es la fila.
+//   VERIFICACIÓN: crear un despacho de prueba, editarle la fecha de carga a
+//   un día distinto, y confirmar que el bloque desaparece de la fila vieja
+//   y aparece en la fila nueva (no duplicado, no en las dos).
 // ============================================================
 
 var PLAN_ID          = '1TF7NPAYho68wAzQTp6bUGrAWEx6VVIcee2r34sCrwHU';
@@ -288,4 +307,35 @@ function borrarDespacho(data) {
     'borrarDespacho: fila=' + filaReal + ' col=' + col +
     ' pedido=' + data.pedido_id + ' -' + volumenABajar + ' -> ' + nuevoVal
   );
+}
+
+// ============================================================
+// MOVER UN DESPACHO — usado por editar_despacho y reprogramar_despacho
+// ============================================================
+//   Saca el bloque de la fila de `data.fecha_carga_anterior` (la fecha
+//   ANTES de la edición, que el portal manda junto con la fecha nueva) y lo
+//   vuelve a escribir en la fila de `data.fecha_carga` (la fecha nueva).
+//   Como la columna sale de producto/cliente/ov/tipo -- que no cambian en
+//   una edición -- es siempre la misma en las dos pasadas; solo se mueve de
+//   fila.
+//
+//   Si la fecha no cambió (el coordinador solo tocó el horario), esto de
+//   paso sirve para refrescar la nota con el horario nuevo: sale y vuelve a
+//   entrar en la misma celda, sin alterar el total (el volumen no cambia en
+//   una edición).
+//
+//   Si `data.fecha_carga_anterior` no viene (llamador viejo, o algún caso
+//   no contemplado), se degrada a un `escribirEnPlan()` normal -- agrega el
+//   bloque nuevo sin tocar nada existente. Es el comportamiento de antes de
+//   este fix, así que no rompe nada que ya funcionaba.
+function moverEnPlan(data) {
+  if (!data.fecha_carga_anterior) {
+    Logger.log('moverEnPlan: sin fecha_carga_anterior, escribo sin mover (pedido=' + data.pedido_id + ')');
+    escribirEnPlan(data);
+    return;
+  }
+
+  var dataVieja = Object.assign({}, data, { fecha_carga: data.fecha_carga_anterior });
+  borrarDespacho(dataVieja);
+  escribirEnPlan(data);
 }

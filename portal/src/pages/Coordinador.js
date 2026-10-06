@@ -778,7 +778,13 @@ function Coordinador({ usuario, onVolver }) {
       const hayEspera = nuevosDespachos.some(d => d.estado === 'En espera');
       await updateDoc(doc(db, 'pedidos_portal', p.docId), { despachos: nuevosDespachos, estado: hayEspera ? 'prog-parcial' : 'Programado' });
       const todosEmails = [despachoActual.email_transportista, ...(despachoActual.emails_extra || [])].filter(Boolean).join(',');
-      const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
+      // `despachoActual` es el objeto de ANTES de la reasignación de más
+      // arriba (`nuevosDespachos[despachoIdx] = {...}`) -- `fecha_carga`
+      // acá todavía es la vieja. Se manda como `fecha_carga_anterior` para
+      // que `moverEnPlan()` (Apps Script) pueda sacar el bloque de la fila
+      // vieja del Plan de Producción antes de escribirlo en la fila nueva
+      // (`fecha_carga: rd.fecha_carga`, la que eligió el coordinador ahora).
+      const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, fecha_carga_anterior: despachoActual.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
       await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setReprogramando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Despacho reprogramado. Se notificó al transportista.');

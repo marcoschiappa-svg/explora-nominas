@@ -1,0 +1,17 @@
+feat(portal): v1.2.0
+
+Requerimientos de la versión (ver portal/CHANGELOG.md):
+- RF-07 Visibilidad de módulos por rol (modulos.js), cierre de portal/* por rol
+- RF-01 Filtros y orden en Pedidos y Programación (BarraFiltros, filtros-listado)
+- RF-02 Cierre manual de viajes con modal y bandeja de viajes vencidos
+- RF-08 Productos por transportista
+- RF-03 Alta de usuario transportista desde Organizaciones
+- RF-04 Importación de choferes, tractores y acoplados desde Excel
+- RF-10 Calendario operativo (visible para todos, editable por admin)
+- RF-05 Ciclo de vida por entrega (tramos, eventos, tiempos)
+- RF-09 NuevoTarifario en paralelo al Tarifario legacy (rutas como datos)
+- Rediseño de Pedidos, Programación, NuevoTarifario y Organizaciones; Montserrat en todo el portal
+
+Cambia firestore.rules.produccion y firestore.indexes.json: publicar antes del merge (Paso 8).
+NuevoTarifario requiere la carga inicial con scripts/cargar-registro-maestro.js en cada entorno.
+RF-06 (órdenes de compra) queda para v1.3.0.

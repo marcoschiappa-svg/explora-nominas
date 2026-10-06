@@ -58,11 +58,37 @@
  *      `App.js` empezó a chequear esa ruta con `tieneAlgunRol` en vez del
  *      `rol` viejo. Sin este cambio, un transportista podía entrar por la
  *      ruta pero no ver el tile para llegar ahí.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-07) — LA TABLA DE MÓDULOS SE VA A `modulos.js`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Esta pantalla y `App.js` tenían cada una su propia lista de módulos y
+ *     roles, y podían divergir (y de hecho divergían: ver `modulos.js`).
+ *
+ *   CAUSA RAÍZ
+ *     No había un único lugar que dijera qué rol ve y puede usar cada módulo.
+ *
+ *   ALCANCE
+ *     La lista de 15 módulos (con sus roles, categoría, emoji, textos y
+ *     acento) se muda entera a `modulos.js`, sin cambiar NINGÚN valor
+ *     presentacional. Acá solo queda armar los tiles con
+ *     `modulosVisibles(usuario)`. Tres roles de la matriz cambian a
+ *     propósito (documentados en `modulos.js`): coordinador suma
+ *     `mis_despachos` y `organizaciones`, comercial suma `productos`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna — el render de abajo (secciones, cards, lista legacy) es
+ *     exactamente el mismo, solo cambia de dónde sale `modulos`.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Cada rol ve los mismos tiles que
+ *     veía antes de esta tarea, salvo los tres casos que suman rol.
  * ========================================================================== */
 
 import React, { useState, useMemo } from 'react';
-import { tieneAlgunRol } from '../sesion';
-import { marca, colorEstado, tipografia, paletaTexto } from '../ui/tokens';
+import { modulosVisibles } from '../modulos';
+import { marca, tipografia, paletaTexto } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
 
 /* -----------------------------------------------------------------------------
@@ -84,34 +110,13 @@ function saludo() {
 }
 
 function Home({ usuario, onModulo }) {
-  const rol = usuario?.rol || '';
   const { colores, oscuro } = useTema();
   const pal = paletaTexto(oscuro);
   const [focoId, setFocoId] = useState(null);
 
-  // Mismos id, roles y `nuevo` que antes —eso es lo que decide permisos y
-  // ruteo en `App.js`, y no se tocó—. `categoria` y `legacy` son campos
-  // nuevos, solo para agrupar y pintar.
-  const modulos = useMemo(() => [
-    { id: 'pedidos',        categoria: 'pedidos',     emoji: '📋', titulo: 'Pedidos',              desc: 'Crear y consultar pedidos',                            roles: ['admin', 'comercial', 'coordinador'], acento: marca, nuevo: true },
-    { id: 'pedidos_legacy', categoria: 'pedidos',     emoji: '🗄️', titulo: 'Pedidos anteriores',    desc: 'Los que quedaron del modelo viejo. Solo consulta',     roles: ['admin', 'comercial', 'coordinador'], acento: '#6B7280', legacy: true },
-    { id: 'programacion',   categoria: 'pedidos',     emoji: '📅', titulo: 'Programación',          desc: 'Convertir entregas en camiones concretos',             roles: ['admin', 'coordinador'],              acento: colorEstado.acentoVerde, nuevo: true },
-    { id: 'coordinador',    categoria: 'pedidos',     emoji: '🗄️', titulo: 'Programación anterior', desc: 'Los pedidos que quedaron del modelo viejo',            roles: ['admin', 'coordinador'],              acento: '#6B7280', legacy: true },
-
-    { id: 'mis_despachos',  categoria: 'transporte',  emoji: '🚛', titulo: 'Mis despachos',         desc: 'Aceptar, rechazar y nominar la unidad',                roles: ['admin', 'transportista'],            acento: colorEstado.acentoAzulFuerte, nuevo: true },
-    { id: 'transportista',  categoria: 'transporte',  emoji: '🗄️', titulo: 'Despachos anteriores',  desc: 'Los que quedaron del modelo viejo',                    roles: ['admin', 'transportista'],            acento: '#6B7280', legacy: true },
-    { id: 'mis_viajes',     categoria: 'transporte',  emoji: '🗺️', titulo: 'Mis viajes',            desc: 'Iniciá, reportá y finalizá tus viajes',                roles: ['chofer'],                            acento: colorEstado.acentoVerde, nuevo: true },
-    { id: 'chofer',         categoria: 'transporte',  emoji: '🗄️', titulo: 'Viajes anteriores',     desc: 'Los que quedaron del modelo viejo',                    roles: ['chofer'],                            acento: '#6B7280', legacy: true },
-    { id: 'camiones',       categoria: 'transporte',  emoji: '🚚', titulo: 'Mi Flota',              desc: 'Las unidades de cada empresa de transporte',           roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoVerde, nuevo: true },
-
-    { id: 'seguimiento',    categoria: 'seguimiento', emoji: '📡', titulo: 'Seguimiento',           desc: 'Mapa en tiempo real de choferes activos',              roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzul, nuevo: true },
-    { id: 'tarifario',      categoria: 'seguimiento', emoji: '💲', titulo: 'Tarifario',             desc: 'Consulta y gestión de tarifas de flete por ruta',      roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar },
-
-    { id: 'admin',          categoria: 'admin',       emoji: '⚙️', titulo: 'Administración',        desc: 'Gestión de usuarios, roles y configuración',           roles: ['admin'],                             acento: '#374151' },
-    { id: 'organizaciones', categoria: 'admin',       emoji: '🏢', titulo: 'Organizaciones',        desc: 'Clientes, transportes y sus domicilios',               roles: ['admin', 'comercial'],                acento: colorEstado.acentoPurpura, nuevo: true },
-    { id: 'usuarios',       categoria: 'admin',       emoji: '👥', titulo: 'Usuarios',              desc: 'Altas, roles y bajas de las personas del sistema',     roles: ['admin', 'transportista'],            acento: colorEstado.acentoAzul, nuevo: true },
-    { id: 'productos',      categoria: 'admin',       emoji: '🛢️', titulo: 'Productos',             desc: 'Lo que se transporta. Antes estaba fijo en el código', roles: ['admin'],                             acento: colorEstado.acentoAmbar, nuevo: true },
-  ].filter(m => m.nuevo ? tieneAlgunRol(usuario, m.roles) : m.roles.includes(rol)), [usuario, rol]);
+  // 1. La tabla de módulos (id, roles, categoría, textos, acento) vive en
+  //    `modulos.js` — ver el encabezado v1.2.0 (RF-07) más arriba.
+  const modulos = useMemo(() => modulosVisibles(usuario), [usuario]);
 
   // Agrupadas por sección, y dentro de cada una, separadas en "activas"
   // (la card grande) y "legacy" (la lista angosta debajo). Una sección que

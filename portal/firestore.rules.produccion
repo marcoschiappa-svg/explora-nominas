@@ -138,14 +138,107 @@ service cloud.firestore {
     // No hay dato sensible en el nombre y el CUIT de una empresa que ya figura
     // en cada despacho.
     //
-    // Escritura para admin y comercial. `es_propia` no se toca nunca despues de
-    // creada: Explora es Explora.
+    // v1.2.0 (RF-07) — COORDINADOR ENTRA, CADA ROL SOLO SU TIPO
+    //
+    //   SINTOMA: el coordinador necesita dar de alta transportes (los conoce
+    //   de primera mano, antes de que exista un despacho), pero la regla solo
+    //   dejaba escribir a comercial/admin.
+    //
+    //   CAUSA RAIZ: la regla no distinguia "que tipo de organizacion" — un
+    //   comercial podia crear un transporte y viceversa, sin que nada lo
+    //   impidiera salvo la UI.
+    //
+    //   ALCANCE: admin sigue sin restriccion (elige las banderas a mano,
+    //   igual que hoy). Comercial sin admin solo puede crear/editar clientes
+    //   puros (`es_cliente:true, es_transportista:false, es_propia:false`).
+    //   Coordinador sin admin solo puede crear/editar transportes puros
+    //   (`es_transportista:true, es_cliente:false, es_propia:false`). Un
+    //   usuario con los dos roles puede cualquiera de las dos combinaciones,
+    //   una por vez, segun cual mande la escritura — la regla evalua "or".
+    //   `es_propia` sigue sin poder cambiar nunca (`noCambia`).
+    //
+    //   LIMITACIONES CONOCIDAS: una organizacion que sea cliente Y transporte
+    //   a la vez solo la puede tocar el admin — ninguno de los dos roles
+    //   soltos por si mismo puede crear ni editar esa combinacion.
+    //
+    //   COMO SE VERIFICA: un comercial sin admin no puede crear un transporte
+    //   (permission-denied), un coordinador sin admin no puede crear un
+    //   cliente, y ninguno de los dos puede tocar `es_propia`.
+    //
+    // v1.2.0 (RF-08) — VALIDACION DE FORMA DE `productos_ids`
+    //
+    //   SINTOMA: `organizaciones` suma `productos_ids: string[]` (que
+    //   productos transporta cada transporte, RF-08) sin ningun limite de
+    //   tamano -- un cliente de Firestore con un bug podria escribir un
+    //   array arbitrariamente grande.
+    //
+    //   CAUSA RAIZ: el campo es nuevo, no existia ninguna regla sobre el.
+    //
+    //   ALCANCE: NO cambia quien puede escribir -- eso ya lo define el
+    //   bloque de arriba (RF-07). Solo agrega una validacion de FORMA: si
+    //   `productos_ids` viene en la escritura, tiene que ser una `list` de
+    //   como mucho 50 elementos. Ausente = "sin declarar", tambien valido
+    //   (`.get('productos_ids', [])` no rompe si el campo no esta).
+    //
+    //   LIMITACIONES CONOCIDAS: no valida que cada ID sea un producto que
+    //   realmente exista -- eso exigiria un `get()` por elemento del array,
+    //   y el limite de accesos por solicitud no lo permite para una lista
+    //   de hasta 50. Lo valida el codigo del portal al armar el checklist
+    //   (`Organizaciones.js`): solo ofrece productos que existen.
+    //
+    //   COMO SE VERIFICA: escribir `productos_ids` con un string en vez de
+    //   una lista, o con mas de 50 elementos, se rechaza.
+    function productosIdsValidos() {
+      return request.resource.data.get('productos_ids', []) is list
+             && request.resource.data.get('productos_ids', []).size() <= 50;
+    }
     // -------------------------------------------------------------------------
+
+    // 1. Lo que puede escribir un comercial sin admin: cliente puro.
+    function soloBanderasCliente() {
+      return request.resource.data.es_cliente == true
+             && request.resource.data.es_transportista == false
+             && request.resource.data.es_propia == false;
+    }
+
+    // 2. Lo que puede escribir un coordinador sin admin: transporte puro.
+    function soloBanderasTransportista() {
+      return request.resource.data.es_transportista == true
+             && request.resource.data.es_cliente == false
+             && request.resource.data.es_propia == false;
+    }
+
+    // 3. Para editar (a diferencia de crear), ademas de escribir las
+    //    banderas correctas, el documento actual ya tenia que ser de ese
+    //    tipo puro Y la escritura no puede cambiar ninguna de las tres.
+    function eraClientePuro() {
+      return resource.data.es_cliente == true
+             && resource.data.es_transportista == false
+             && resource.data.es_propia == false;
+    }
+
+    function eraTransportistaPuro() {
+      return resource.data.es_transportista == true
+             && resource.data.es_propia == false;
+    }
+
+    function banderasSinCambios() {
+      return noCambia('es_cliente') && noCambia('es_transportista') && noCambia('es_propia');
+    }
 
     match /organizaciones/{orgId} {
       allow read: if activo();
-      allow create: if esComercial();
-      allow update: if esComercial() && noCambia('es_propia');
+
+      allow create: if (esAdmin()
+                    || (tieneRol('comercial') && soloBanderasCliente())
+                    || (tieneRol('coordinador') && soloBanderasTransportista()))
+                    && productosIdsValidos();
+
+      allow update: if ((esAdmin() && noCambia('es_propia'))
+                    || (tieneRol('comercial') && eraClientePuro() && banderasSinCambios())
+                    || (tieneRol('coordinador') && eraTransportistaPuro() && banderasSinCambios()))
+                    && productosIdsValidos();
+
       allow delete: if false;   // se desactiva con estado, no se borra
     }
 
@@ -204,6 +297,18 @@ service cloud.firestore {
              && request.resource.data.estado == 'activo';
     }
 
+    // v1.2.0 (RF-03) -- lo que el coordinador puede escribir al crear el
+    // usuario transportista de una organización, en el mismo flujo del alta
+    // de esa organización (`Organizaciones.js`). Mismo criterio de forma que
+    // `choferValidoDelTransportista()`: rol único y exacto, `estado` fijo.
+    // La organización tiene que ser un transporte de verdad -- se resuelve
+    // con UN get() (cuenta contra el límite de 10, junto con `yo()`).
+    function usuarioTransportistaValidoDelCoordinador() {
+      return request.resource.data.roles == ['transportista']
+             && request.resource.data.estado == 'activo'
+             && get(/databases/$(database)/documents/organizaciones/$(request.resource.data.organizacion_id)).data.es_transportista == true;
+    }
+
     // Lo que el transportista puede modificar de un chofer suyo. El DNI no
     // esta: es inmutable. Los roles y la organizacion tampoco — mover un chofer
     // de empresa es cosa de admin.
@@ -257,7 +362,13 @@ service cloud.firestore {
 
       allow create: if esAdmin()
                     || (tieneRol('transportista') && choferValidoDelTransportista())
-                    || (userId == request.auth.uid && aceptaInvitacionValida());
+                    || (userId == request.auth.uid && aceptaInvitacionValida())
+                    // v1.2.0 (RF-03): el coordinador puede crear el usuario
+                    // transportista de una organización, solo con
+                    // `roles: ['transportista']` y solo si esa organización
+                    // es un transporte -- ver `usuarioTransportistaValidoDelCoordinador()`.
+                    // Cualquier otro rol sigue siendo solo del admin.
+                    || (tieneRol('coordinador') && usuarioTransportistaValidoDelCoordinador());
 
       allow update: if (esAdmin() && noCambia('datos_chofer.dni'))
                     || (
@@ -313,7 +424,10 @@ service cloud.firestore {
     // PRODUCTOS
     //
     // Lectura para todos: el despacho y el viaje muestran el producto.
-    // Alta y edicion solo admin.
+    //
+    // v1.2.0 (RF-07): alta y edicion pasan de admin a `esComercial()` (admin +
+    // comercial) — el comercial es quien de hecho conoce los productos nuevos
+    // que pide un cliente. No se agrega eliminar: sigue en `false`.
     //
     // El nombre no se edita si hay pedidos vivos con ese producto — eso no lo
     // puede verificar una regla, lo valida el codigo. El despacho lleva
@@ -322,7 +436,7 @@ service cloud.firestore {
 
     match /productos/{productoId} {
       allow read: if activo();
-      allow create, update: if esAdmin();
+      allow create, update: if esComercial();
       allow delete: if false;
     }
 
@@ -716,6 +830,233 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
+    // v1.2.0 (RF-10) — CALENDARIO OPERATIVO
+    //
+    // Dos colecciones nuevas: `calendario_operativo` (un documento por
+    // fecha `YYYY-MM-DD`, marca puntual) y `calendario_reglas` (un único
+    // documento `semanal`, con un tipo por día de semana). Ver
+    // `logica-calendario.js` para la precedencia entre las dos.
+    //
+    // Lectura: cualquier interno (admin/coordinador/comercial) -- el
+    // comercial no puede marcar días, pero sí necesita verlos para el aviso
+    // de fecha de entrega en `Pedidos.js`. El transportista y el chofer no
+    // leen esto -- no hay ningún módulo que se lo muestre.
+    //
+    // Escritura: solo admin y coordinador (mismos roles que ven el módulo
+    // `calendario` en `modulos.js`). `delete: false` -- nada se borra acá
+    // tampoco, se desactiva (`estado: 'inactivo'`) con `desactivar()` de
+    // `datos.js`, igual que el resto del modelo nuevo.
+    //
+    // Validación de forma en `calendario_operativo`: `tipo` tiene que ser
+    // uno de los dos valores, y `motivo` un string no vacío. En
+    // `calendario_reglas` no hay `tipo`/`motivo` (es un mapa de 7 entradas,
+    // una por día), así que solo se exige que `dias` sea un mapa.
+    // -------------------------------------------------------------------------
+
+    function tipoDeDiaCalendarioValido() {
+      return request.resource.data.tipo in ['sin_despacho', 'sin_operacion'];
+    }
+
+    function motivoDeDiaCalendarioValido() {
+      return request.resource.data.motivo is string && request.resource.data.motivo.size() > 0;
+    }
+
+    match /calendario_operativo/{fechaISO} {
+      allow read: if esInterno();
+      allow create, update: if tieneAlgunRol(['admin', 'coordinador'])
+                            && tipoDeDiaCalendarioValido()
+                            && motivoDeDiaCalendarioValido();
+      allow delete: if false;
+    }
+
+    match /calendario_reglas/{docId} {
+      allow read: if esInterno();
+      allow create, update: if tieneAlgunRol(['admin', 'coordinador'])
+                            && request.resource.data.dias is map;
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // v1.2.0 (RF-09) — RUTAS DEL TARIFARIO
+    //
+    //   SINTOMA
+    //     Las rutas del tarifario vivian dentro de `portal/rutas.lista[]`, un
+    //     array de texto libre indexado por POSICION, con las tarifas
+    //     (`portal/mods`), los pendientes (`portal/pendientes`) y el historial
+    //     (`portal/historial`) colgando de ese mismo indice. La unica regla
+    //     que los cubria era la de `portal/{docId}`: cualquier admin escribia
+    //     los cuatro documentos enteros, y nadie mas podia escribir nada — el
+    //     coordinador no tenia donde guardar una tarifa calculada.
+    //
+    //   CAUSA RAIZ
+    //     El tarifario nacio en v1.0 como un modulo autonomo, antes de que
+    //     existieran `organizaciones`, `domicilios` y `productos`, y guardo lo
+    //     unico que tenia a mano: el texto que alguien tipeo.
+    //
+    //   ALCANCE
+    //     Coleccion `rutas`, un documento por ruta, con DOS CLASES:
+    //
+    //       `tipo: 'parametro'`   dato maestro. Lo escribe SOLO el admin.
+    //                             Lo leen admin, coordinador y comercial.
+    //       `tipo: 'referencia'`  lo arma un coordinador con el Generador a
+    //                             partir de una parametro. Lo escribe su
+    //                             creador (o el admin). Lo leen admin y
+    //                             coordinador — el comercial NO.
+    //
+    //     Como la lectura depende de `resource.data.tipo`, la consulta del
+    //     comercial TIENE que venir con `where('tipo','==','parametro')`: si
+    //     pide la coleccion entera, Firestore la rechaza completa. Eso lo
+    //     garantiza `consultaRutas()` en `logica-tarifario.js`, que arma la
+    //     consulta segun el rol.
+    //
+    //     La subcoleccion `rutas/{id}/tarifas` es la bitacora de cambios de
+    //     tarifa de una ruta PARAMETRO. Reemplaza a `portal/mods` y
+    //     `portal/historial`. Es append-only: `update` y `delete` en `false`,
+    //     mismo criterio que `historial` — un registro de auditoria que se
+    //     puede editar no sirve como registro de auditoria.
+    //
+    //   LIMITACIONES CONOCIDAS
+    //     · La UNICIDAD de `clave_normalizada` (una sola ruta activa por
+    //       origen|destino|producto, considerando las dos clases) NO la puede
+    //       imponer una regla: exigiria consultar la coleccion, y las reglas
+    //       solo pueden hacer `get()` por ruta. La chequea el codigo con una
+    //       consulta previa (`buscarClaveEnFirestore()`), que no es atomica —
+    //       ver LIMITACIONES de `logica-tarifario.js`.
+    //     · Un coordinador puede editar `km` y `tarifa_vigente` de su propia
+    //       referencia sin limite de valor: la regla no valida rangos, eso lo
+    //       hace `validarRuta()`. Escribir una tarifa absurda en una
+    //       referencia propia no afecta a nadie mas — no es un dato maestro.
+    //     · Un coordinador podria, desde la consola, DESACTIVAR su propia
+    //       referencia poniendo `estado: 'inactivo'`. Es exactamente lo que
+    //       hace el boton "Desactivar", asi que no hay nada que restringir.
+    //
+    //   COMO SE VERIFICA
+    //     Desde la consola del navegador: un coordinador no puede crear ni
+    //     editar una ruta con `tipo: 'parametro'`, ni editar la referencia de
+    //     otro coordinador, ni escribir `portal/rutas`. Un comercial no puede
+    //     leer una ruta `tipo: 'referencia'`. Nadie puede borrar una ruta ni
+    //     modificar un documento de `rutas/{id}/tarifas`.
+    // -------------------------------------------------------------------------
+    // v1.2.0 (RF-09) — NuevoTarifario: LECTURA DE `rutas` SE ABRE AL COMERCIAL
+    // -------------------------------------------------------------------------
+    //   SÍNTOMA
+    //     `NuevoTarifario.js` (pantalla nueva, en paralelo al Tarifario
+    //     legacy) muestra "Rutas derivadas" en modo lectura también al
+    //     comercial — la regla de arriba se lo esconde (`puedeLeerRuta()`
+    //     exige admin/coordinador para `tipo:'referencia'`).
+    //
+    //   CAUSA RAÍZ
+    //     `puedeLeerRuta()` fue pensada cuando "referencia" (ahora "derivada"
+    //     en la pantalla) era una herramienta de trabajo del coordinador, sin
+    //     vista para comercial.
+    //
+    //   ALCANCE
+    //     `read` de `rutas` pasa a `esInterno()` liso, sin distinguir por
+    //     `tipo` — `puedeLeerRuta()` queda sin uso y se retira. `create` y
+    //     `update` no cambian: siguen exactamente como describe el bloque de
+    //     arriba (admin cualquier `tipo`; coordinador solo sus propias
+    //     referencias/derivadas, sin cambiar `tipo`/`creado_por_uid`/
+    //     `clave_normalizada`; `delete: false`). Se agrega el bloque
+    //     `rutas_versiones` (fotos previas a cada actualización por
+    //     indicador), mismo criterio que `rutas/{id}/tarifas`: lectura
+    //     interna, alta solo admin, append-only.
+    //
+    //   LIMITACIONES CONOCIDAS
+    //     Las mismas que ya documentaba el bloque de arriba (unicidad no
+    //     atómica, sin límites de rango en la regla).
+    //
+    //   CÓMO SE VERIFICA
+    //     Desde la consola del navegador, un comercial puede LEER una ruta
+    //     `tipo:'referencia'` pero no escribirla; un coordinador no puede
+    //     escribir `rutas_versiones`.
+    // -------------------------------------------------------------------------
+    // v1.2.0 (RF-09b) — LAS RUTAS SON TEXTO, SIN VÍNCULO A OTRAS COLECCIONES
+    // -------------------------------------------------------------------------
+    //   SÍNTOMA
+    //     `origen_domicilio_id`/`destino_domicilio_id`/`producto_id` se
+    //     retiran del modelo de `rutas` (ver `logica-tarifario.js` y
+    //     `NuevoTarifario.js`): pasan a ser `origen`/`destino`/`producto`,
+    //     texto libre estandarizado.
+    //
+    //   CAUSA RAÍZ
+    //     Ver el bloque "RF-09b" del encabezado de `logica-tarifario.js`.
+    //
+    //   ALCANCE
+    //     Este bloque de reglas NO validaba ninguno de esos tres campos por
+    //     su nombre —ni `referenciaMia()` ni `editaSuReferencia()` los
+    //     mencionan, solo miran `tipo`/`creado_por_uid`/
+    //     `clave_normalizada`—, así que no hay ninguna condición que
+    //     reemplazar. `create`/`update`/`read`/`delete` quedan EXACTAMENTE
+    //     como estaban: los permisos (quién crea y edita cada clase) no
+    //     cambian con este ajuste.
+    //
+    //   LIMITACIONES CONOCIDAS
+    //     Igual que antes: la regla no valida la longitud ni el contenido de
+    //     `origen`/`destino`/`producto` (los 120 caracteres y los campos no
+    //     vacíos los exige `validarRuta()` en el código, no una regla) — ver
+    //     la primera LIMITACIONES de este archivo, ya documentaba que la
+    //     regla no valida rangos.
+    //
+    //   CÓMO SE VERIFICA
+    //     `CI=true npm test` y `CI=true npm run build`: `NuevoTarifario.js`
+    //     sigue creando y editando rutas con los mismos roles que antes.
+    // -------------------------------------------------------------------------
+
+    // 2. Lo que un coordinador puede CREAR: solo referencias, y solo a su
+    //    propio nombre. Sin la segunda condicion podria guardar referencias
+    //    firmadas por otro.
+    function referenciaMia() {
+      return request.resource.data.tipo == 'referencia'
+             && request.resource.data.creado_por_uid == request.auth.uid;
+    }
+
+    // 3. Lo que un coordinador puede EDITAR: una referencia que ya era suya,
+    //    sin cambiar de clase, de dueño ni de identidad.
+    function editaSuReferencia() {
+      return resource.data.tipo == 'referencia'
+             && resource.data.creado_por_uid == request.auth.uid
+             && noCambia('tipo')
+             && noCambia('creado_por_uid')
+             && noCambia('clave_normalizada');
+    }
+
+    match /rutas/{rutaId} {
+      // v1.2.0 (RF-09, ver bloque "NuevoTarifario" más arriba) — lectura
+      // interna lisa, sin distinguir por `tipo`.
+      allow read: if esInterno();
+
+      allow create: if esAdmin()
+                    || (tieneRol('coordinador') && referenciaMia());
+
+      // El admin puede cualquiera, pero `tipo` no cambia despues del alta:
+      // convertir una referencia en parametro se hace creando la parametro y
+      // desactivando la referencia (`promoverReferencia()`), no mutando el
+      // campo.
+      allow update: if (esAdmin() && noCambia('tipo'))
+                    || (tieneRol('coordinador') && editaSuReferencia());
+
+      allow delete: if false;   // se desactiva con estado, no se borra
+
+      // Bitacora de cambios de tarifa de una ruta parametro. Las
+      // subcolecciones NO heredan las reglas del padre: necesitan la suya.
+      match /tarifas/{tarifaId} {
+        allow read: if esInterno();
+        allow create: if esAdmin();
+        allow update, delete: if false;   // append-only, como `historial`
+      }
+    }
+
+    // v1.2.0 (RF-09, ver bloque "NuevoTarifario" más arriba) — fotos previas
+    // a cada actualización de tarifas maestras por indicador (CATAMP/CATAC) o
+    // a cada restauración. Mismo criterio que `rutas/{id}/tarifas`:
+    // append-only, alta solo admin.
+    match /rutas_versiones/{docId} {
+      allow read: if esInterno();
+      allow create: if esAdmin();
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
     // LOG REMOTO DE LA APP
     //
     // Eventos de diagnostico del GPS: permisos, arranque del servicio, errores
@@ -737,17 +1078,22 @@ service cloud.firestore {
     // =========================================================================
     // PARTE 5 — MODELO VIEJO
     //
-    // Estas colecciones siguen en uso mientras los pedidos vivos terminan su
-    // ciclo. Las reglas quedan EXACTAMENTE como estaban: endurecerlas ahora
-    // romperia las pantallas que todavia leen de aca.
+    // `usuarios_portal`, `pedidos_portal` y `transportistas_portal` siguen en
+    // uso mientras los pedidos vivos terminan su ciclo. Sus reglas quedan
+    // EXACTAMENTE como estaban: endurecerlas ahora romperia las pantallas que
+    // todavia leen de aca.
     //
     // Se retiran cuando no quede ningun pedido vivo en `pedidos_portal`. Ese es
     // el criterio para saber que termino la transicion — verificable, en vez de
     // una fecha inventada.
     //
     // La app TrackEx publicada solo toca `usuarios_portal`, `pedidos_portal` y
-    // `app_logs`. Mientras estas reglas no cambien, nada de lo que hagamos en
-    // el modelo nuevo puede afectar a los choferes.
+    // `app_logs`. Mientras las reglas de esas tres no cambien, nada de lo que
+    // hagamos en el modelo nuevo puede afectar a los choferes.
+    //
+    // Las reglas de `portal`, `tarifario_versiones` y `catac_versiones` (el
+    // Tarifario legacy) van después de `transportistas_portal`, con su propio
+    // encabezado v1.2.0 (RF-09).
     // =========================================================================
 
     match /usuarios_portal/{uid} {
@@ -770,6 +1116,38 @@ service cloud.firestore {
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
     }
 
+    // v1.2.0 (RF-09) — `portal`, `tarifario_versiones` Y `catac_versiones`
+    // VUELVEN A SER LAS REGLAS LEGACY DEL TARIFARIO ORIGINAL
+    //
+    //   SÍNTOMA: RF-09 había endurecido estas tres colecciones a
+    //   `esInterno()`/`esAdmin()` (ver historial de este archivo) porque
+    //   reemplazaba `Tarifario.js` por completo. Esa pantalla nueva se
+    //   revierte, pero `Tarifario.js` NO: vuelve a su versión original
+    //   (restaurada por Ivan desde git), con modo admin por contraseña propia
+    //   y sembrado de `T_BASE`, y queda como legacy sin modificarse hasta que
+    //   se apruebe y se adopte `NuevoTarifario.js` (pantalla nueva, sobre la
+    //   colección `rutas` — ver más abajo).
+    //
+    //   CAUSA RAÍZ: ese código no se toca, así que las reglas tienen que
+    //   volver a ser exactamente las que ese código necesita: escritura
+    //   abierta a cualquier autenticado (el gate real es la contraseña,
+    //   dentro de la app) y el chequeo de admin contra
+    //   `usuarios_portal.rol`, no contra el `esAdmin()` del modelo nuevo.
+    //
+    //   ALCANCE: los tres bloques de abajo son una copia TEXTUAL de
+    //   `firestore.rules.produccion` tal como estaba antes de RF-09 (ver
+    //   `firestore.rules.head`, solo de referencia) — sin traducir nada al
+    //   estilo nuevo.
+    //
+    //   LIMITACIONES CONOCIDAS: `portal/config` (con la contraseña de
+    //   administrador del Tarifario legacy) queda legible y ESCRIBIBLE por
+    //   cualquier usuario autenticado, sea cual sea su rol — el mismo riesgo
+    //   que tenía esta pantalla antes de v1.2.0. Se resuelve cuando se retire
+    //   el Tarifario legacy.
+    //
+    //   CÓMO SE VERIFICA: el Tarifario legacy funciona igual que antes de
+    //   v1.2.0 (consulta, generador, editor, CATAMP, versiones y CATAC, con
+    //   la clave de administrador).
     match /portal/{docId} {
       allow read, write: if request.auth != null;
     }
@@ -780,9 +1158,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/usuarios_portal/$(request.auth.uid)).data.rol == 'admin';
     }
 
-    // Versiones del convenio CATAC. Escritura solo admin.
-    // Tarifario.js sigue escribiendo aca sin cambios, igual que las otras
-    // colecciones de esta Parte 5.
     match /catac_versiones/{docId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null &&

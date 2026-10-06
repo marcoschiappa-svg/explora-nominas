@@ -21,68 +21,307 @@
  * y cancelados, que son la historia de lo que se probó.
  *
  * -----------------------------------------------------------------------------
- * REDISENO -- MISMO PATRON QUE Pedidos.js
+ * v1.2.0 (rediseño Programación) — "Portal Programación" (Claude Design)
  * -----------------------------------------------------------------------------
- *   ANTES: una lista plana con acordeon -- clickear un pedido lo expandia en
- *   el lugar, mezclando la fila de la lista con todo su detalle.
+ *   SÍNTOMA
+ *     Ivan aprobó un diseño nuevo para esta pantalla (lista y detalle), hecho
+ *     en Claude Design: lista con un único panel blanco (radio 16) en vez de
+ *     tarjetas sueltas, con solo estado/cliente/producto/cantidad/chip "N sin
+ *     cubrir"/OV-OC (sin número PED, sin fechas, sin entregas ni despachos);
+ *     una barra de filtros COMPACTA (buscador a ancho completo + botón
+ *     "Filtros y orden" que despliega todo lo de RF-01); y un modal de
+ *     detalle con panel "ENTREGAS" donde cada despacho vivo es su propia
+ *     línea, con sus propios botones. Corre DESPUÉS del rediseño de
+ *     `Pedidos.js` (v1.2.0) -- reusa sus tokens (`paletaPedidos`,
+ *     `radioPedidos`) y la `BarraFiltros` ya reestilizada a panel único.
  *
- *   AHORA: clickear un pedido abre un MODAL -- datos del pedido a la
- *   izquierda (tipo, recipiente, producto, cliente, OV/OC, banda horaria,
- *   volumen total), entregas a la derecha. Ninguna funcion de
- *   logica-despachos.js/logica-viajes.js cambio de comportamiento: lo que
- *   cambio es como se llega a cada accion, no que hace la accion.
+ *   CAUSA RAÍZ
+ *     Cambio de presentación pedido explícitamente -- no de lógica. Todo el
+ *     trabajo de RF-01/RF-02/Paso 0.2/RF-08/RF-10 de más abajo sigue intacto:
+ *     mismos permisos, mismas acciones, mismos `logica-despachos.js`/
+ *     `logica-viajes.js`/`logica-calendario.js`/`filtros-listado.js`. Lo que
+ *     cambia es CÓMO se ve.
  *
- *   LA LISTA se filtra con pastillas de estado (mismo patron que Pedidos.js),
- *   ademas del buscador y el toggle "solo sin cubrir" que ya existia.
+ *   VERIFICACIONES PREVIAS DE LA TAREA (V1-V5, ver el reporte completo)
+ *     V1. Acciones existentes de esta pantalla -- todas se conservan:
+ *         · Entrega sin cubrir: crear despacho (`aceptarEntrega()`), con
+ *           fecha/horario y `SelectorTransportista` (RF-08) opcional.
+ *         · Despacho: Asignar/Reasignar (`asignarTransportista()`), Editar
+ *           -reprograma- (`editarDespacho()`), Cancelar (`cancelarDespacho()`),
+ *           Cerrar viaje a mano (RF-02, `ModalCierreManual`).
+ *         · Pedido: "Ver historial" -- es la ÚNICA acción a nivel pedido que
+ *           tenía esta pantalla (a diferencia de `Pedidos.js`, acá no hay
+ *           "editar domicilio" ni "suspender": esos son de `Pedidos.js`).
+ *         Ninguna quedó sin lugar en el diseño nuevo -- "Ver historial" sigue
+ *         en la columna izquierda del modal; el resto vive en
+ *         `programacion/ModalDetallePedido.js` (ver su propio encabezado).
+ *     V2. Mapeo de estados de despacho -> los 3 estilos del diseño: ver
+ *         `programacion/logica-vista.js` (`estiloEstadoDespacho()`).
+ *     V3. Tipografía -- Paso 0: `ui/tokens.js` (`tipografia.familia`),
+ *         `public/index.html` (Google Fonts + `<style>` del flash inicial),
+ *         `src/index.css` (`body`, + `input/button/select/textarea{font-family:
+ *         inherit}` nuevo), `src/App.css` (dead file, actualizado por las
+ *         dudas), y `src/pages/Chofer.js` (única pantalla NO migrada a
+ *         `ui/tokens.js` con una fuente fija hardcodeada -- pasó a `inherit`).
+ *         El resto de los ~25 archivos que tenían `fontFamily`/`font-family`
+ *         ya usaban `tipografia.familia` (cambia solo) o `monospace`/
+ *         `'inherit'` para IDs y códigos (se conservan, ver el Paso 0 del
+ *         prompt) -- `Tarifario.js` tiene los suyos fijos y NO se toca (regla
+ *         explícita de la tarea).
+ *     V4. Observaciones del pedido: campo `pedido.obs`, cargado en el alta de
+ *         `Pedidos.js` (`form.obs`). Ya se mostraba acá como una caja roja
+ *         (`obsBox`) antes de este rediseño -- ahora usa los colores exactos
+ *         de la tabla del diseño (`paletaProgramacion().notaPedido`).
+ *     V5. El detalle YA era un modal antes de este rediseño (`Modal.js`, dos
+ *         columnas) -- no un árbol expandible. Lo que cambia es el diseño
+ *         DENTRO del modal, no la naturaleza modal/no-modal.
  *
- *   CADA ENTREGA, adentro del modal, muestra dia de la semana + fecha y la
- *   banda horaria del pedido como contexto (la entrega en si no tiene una
- *   hora propia -- eso lo define el despacho, con su propio horario_carga),
- *   y el volumen ("la carga que se le indica"). Si esta sin cubrir, el
- *   formulario para crear el despacho queda siempre visible ahi mismo (fecha
- *   de carga, horario, y el selector de transportista) en vez de esconderse
- *   detras de un boton "Programar".
+ *   ALCANCE
+ *     1. `ui/tokens.js` -- `paletaProgramacion(oscuro)` + `radioProgramacion`,
+ *        ver el encabezado de ese archivo.
+ *     2. `ui/BarraFiltros.js` -- variante `'compacta'`, ver su propio
+ *        encabezado v1.2.0 (rediseño Programación).
+ *     3. `pages/programacion/logica-vista.js` (nuevo) -- lógica pura: cuenta
+ *        de entregas sin cubrir, orden de entregas por número, mapeo de
+ *        estado de despacho a estilo, formato de fecha larga.
+ *     4. `pages/programacion/SelectorTransportista.js` (nuevo) -- el
+ *        selector de RF-08, extraído tal cual (mismo comportamiento) para
+ *        que este archivo no pase de las ~700 líneas que pide el prompt.
+ *     5. `pages/programacion/ModalDetallePedido.js` (nuevo) -- el modal de
+ *        detalle rediseñado, ver su propio encabezado.
+ *     6. Este archivo -- se queda con la carga de datos, los índices, los
+ *        extractores de RF-01/RF-02, las acciones (`confirmarAceptar`/
+ *        `confirmarAsignar`/`confirmarEditar`/`confirmarCancelar`/
+ *        `abrirCierreManual`, sin cambios) y la LISTA rediseñada (`FilaPedido`).
  *
- *   SELECTOR DE TRANSPORTISTA: reemplaza a BuscadorOrganizacion para este
- *   campo puntual por components de chips con un avatar de iniciales (color
- *   sacado de los acentos que ya existen en tokens.js, ninguno nuevo) --
- *   ver SelectorTransportista() mas abajo.
+ *   DISCREPANCIAS CON EL DISEÑO (frenadas, no resueltas a mano)
+ *     - Igual que `Pedidos.js`: el chip "Con camión"/"Sin camión" por entrega
+ *       que pide el diseño no tiene un campo binario real en el modelo -- se
+ *       mantiene la etiqueta de `ETIQUETA_ENTREGA` (Sin cubrir/Con camión/
+ *       Entregada/Suspendida), que ya cumplía ese lugar. Ver el encabezado de
+ *       `programacion/ModalDetallePedido.js`.
+ *     - El diseño trae un chip de PRIORIDAD por entrega -- el propio Paso 3
+ *       del prompt lo descarta explícito ("No hay prioridad: las entregas se
+ *       ordenan por número"), así que ni se buscó un campo para eso.
+ *     - "Cantidad sin cubrir" PARCIAL (una entrega cubierta a medias, con una
+ *       línea de despacho Y una línea de "sin cubrir" al mismo tiempo): este
+ *       modelo no lo tiene -- cada despacho cubre el volumen COMPLETO de su
+ *       entrega. Ver LIMITACIONES en `programacion/logica-vista.js` y
+ *       `programacion/ModalDetallePedido.js`.
+ *     - Las pastillas de estado y los dos conmutadores (RF-01/RF-02) del
+ *       Paso 1 del prompt dicen "la activa va en rojo sólido" -- se aplicó
+ *       ese criterio a las CINCO por igual (los tres estados + los dos
+ *       conmutadores), en vez de mantener el color de dominio por estado
+ *       (`COLOR_PEDIDO`) que tenían antes de este rediseño solo en la pastilla
+ *       activa. El badge de estado DENTRO de cada fila y del modal SÍ sigue
+ *       usando `COLOR_PEDIDO` -- ese es un dato, no un filtro.
  *
- *   SE FUE EL TOPBAR PROPIO: igual que en Pedidos.js, BarraSuperior.js ya
- *   cubre logo + volver a inicio para todo el portal.
+ *   LIMITACIONES CONOCIDAS
+ *     Las de cada archivo nuevo (ver sus encabezados) -- ninguna nueva acá.
  *
- *   MIGRADO A TemaContext/tokens.js desde el arranque (la leccion de
- *   Pedidos.js): `styles` es `crearEstilos(colores)` + el hook
- *   `useEstilos()`, no un objeto fijo.
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- --watchAll=false` (incluye `Programacion`,
+ *     `filtros-listado`) y `CI=true npm run build` sin warnings. Pruebas
+ *     manuales al pie del prompt de la tarea.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-01) -- BARRA DE FILTROS Y ORDEN, COMPARTIDA CON Pedidos.js
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Esta pantalla no tenía orden elegible -- siempre por fecha de creación
+ *     descendente, vía el `orderBy('creado_en', 'desc')` de la consulta -- y
+ *     el único filtro además del texto era "Solo sin cubrir".
+ *
+ *   CAUSA RAÍZ
+ *     Mismo motivo que en `Pedidos.js`: faltaba la lógica pura de
+ *     filtro/orden (`filtros-listado.js`) y el componente genérico
+ *     (`ui/BarraFiltros.js`) -- construidos ahí, se reusan acá sin
+ *     duplicar nada.
+ *
+ *   ALCANCE
+ *     1. Orden nuevo (no existía): `ordenPor` + `ordenSentido`, con "fecha
+ *        de entrega más próxima" ascendente como default -- mismo criterio
+ *        que ya trae `Pedidos.js`. Séis criterios: entrega, creación,
+ *        cliente, OV/OC, producto y "fecha de carga más próxima" (la MENOR
+ *        `fecha_carga` entre los despachos vivos del pedido).
+ *     2. Filtros nuevos: cliente, producto, tipo, creado por (selección
+ *        múltiple), fecha solicitada de entrega y fecha de carga (rango).
+ *        Transportista (selección múltiple, con la opción extra "Sin
+ *        asignar") -- el pedido pasa si algún despacho VIVO tiene el
+ *        transportista elegido, o si alguna entrega está sin despacho vivo
+ *        o con uno sin transportista.
+ *     3. "Solo sin cubrir" se muda DENTRO de `filtros` (`soloSinCubrir`) en
+ *        vez de ser un estado suelto -- mismo criterio de siempre
+ *        (`entregaSinCubrir`), ahora expuesto como un `toggle` genérico de
+ *        `BarraFiltros` (deja la barra lista para sumar "Viajes abiertos
+ *        vencidos" de RF-02 sin reescribirla, como pide el prompt).
+ *     4. Persistencia por usuario, con debounce de 300ms. Esta pantalla NO
+ *        tiene "Mis pedidos"/"Todos" -- no hay nada análogo que guardar ahí.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Igual que `Pedidos.js`: el filtro de fecha compara contra fechas
+ *     LOCALES `YYYY-MM-DD`, mismo criterio que `hoyISO()` en todo el portal.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- filtros-listado` y `CI=true npm run build` sin
+ *     warnings. Pruebas manuales al pie del prompt de la tarea.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-02) -- CIERRE MANUAL CON MODAL, Y "VIAJES ABIERTOS VENCIDOS"
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `confirmarCerrarManual` era un `window.prompt()` pidiendo el motivo
+ *     como texto libre -- sin fecha de fin propia (quedaba "ahora"), sin
+ *     validación, y sin forma de encontrar de un vistazo los viajes que
+ *     llevan días abiertos.
+ *
+ *   CAUSA RAÍZ
+ *     No existía el modal (`ModalCierreManual.js`, nuevo) ni un criterio de
+ *     "vencido" (`viajeVencido()`, en `estados.js`).
+ *
+ *   ALCANCE
+ *     1. `confirmarCerrarManual` se retira: el botón "Cerrar viaje a mano"
+ *        ahora abre `ModalCierreManual`, con el mismo chequeo de rol que
+ *        tenía (admin/coordinador) movido a `abrirCierreManual`. Después de
+ *        cerrar, mismo comportamiento que había: nada más que refrescar --
+ *        no hay llamada a Apps Script ni aviso especial para este cierre,
+ *        ni antes ni ahora (confirmado en las verificaciones previas, V4).
+ *     2. Conmutador nuevo "Viajes abiertos vencidos" en `BarraFiltros`,
+ *        junto a "Solo sin cubrir". Un pedido pasa si alguno de sus
+ *        despachos vivos tiene un viaje `viajeVencido()`. Participa de los
+ *        conteos de las pastillas (se aplica antes) y de "Limpiar filtros".
+ *     3. La tarjeta de un despacho con viaje vencido muestra la etiqueta
+ *        "Vencido".
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     SUPERADO por el Paso 0.2 de v1.2.0 (ver el bloque de encabezado de ese
+ *     nombre, más abajo): esta limitación describía la persistencia con
+ *     clave propia de `localStorage`, que ya no existe -- el conmutador
+ *     ahora se persiste dentro del mismo objeto de `filtros-listado.js` que
+ *     el resto. Se deja este párrafo sin borrar para que quede registro de
+ *     por qué nació así.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Un despacho NOMINADO con
+ *     `fecha_carga` de ayer y viaje `RECIBIDO` muestra "Vencido"; con el
+ *     conmutador activo, solo esos pedidos quedan visibles, y sobrevive a
+ *     recargar la página.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (Paso 0.2) -- "VIAJES ABIERTOS VENCIDOS" SE UNIFICA CON EL RESTO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El conmutador "Viajes abiertos vencidos" se persistía en
+ *     `explora:programacion:vencidos:v1:<uid>`, una clave de `localStorage`
+ *     propia y distinta de `explora:listado:v1:programacion:<uid>` (la que
+ *     usa el resto de los filtros, vía `filtros-listado.js`) -- limitación
+ *     conocida y documentada del RF-02 original (ver más arriba).
+ *
+ *   CAUSA RAÍZ
+ *     Cuando se hizo RF-02, `filtros-listado.js` estaba fuera de su
+ *     alcance.
+ *
+ *   ALCANCE
+ *     1. `claveVencidos`/`leerSoloVencidos`/`guardarSoloVencidos` se
+ *        retiran. En su lugar, `soloVencidos` viaja dentro del mismo
+ *        objeto que `guardarPreferencias('programacion', uid, {...})` ya
+ *        guardaba (`filtros`, `grupoActivo`, `ordenPor`, `ordenSentido`) --
+ *        ver el campo nuevo en `filtros-listado.js` (comentario 10 de
+ *        `podarPreferencias()`).
+ *     2. `migrarSoloVencidosLegacy(uid)` (nueva, exportada) lee la clave
+ *        vieja UNA sola vez -- en el mismo efecto que aplica
+ *        `leerPreferencias()`, al cargar la pantalla -- y la borra siempre,
+ *        haya o no un valor. Si el objeto nuevo ya trae `soloVencidos` (la
+ *        migración ya corrió antes y se volvió a guardar), ese valor gana;
+ *        si no, se usa el legacy recién leído.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna nueva.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- Programacion` (test de `migrarSoloVencidosLegacy`
+ *     en `Programacion.test.js`) y `CI=true npm run build` sin warnings.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-08) -- GRUPOS DE TRANSPORTISTA POR PRODUCTO DECLARADO
+ * -----------------------------------------------------------------------------
+ *   Ver el encabezado de `programacion/SelectorTransportista.js` -- este
+ *   componente se extrajo tal cual a su propio archivo con este rediseño,
+ *   sin cambio de comportamiento. `agruparTransportistasPorProducto` se
+ *   re-exporta acá abajo para no romper el import de `Programacion.test.js`.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.0 (RF-10) -- CALENDARIO OPERATIVO: LA FECHA DE CARGA SE BLOQUEA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Nada impedía crear o reprogramar un despacho con fecha de carga en un
+ *     feriado o una parada de planta -- eso se manejaba de palabra.
+ *
+ *   CAUSA RAÍZ
+ *     No existía el calendario operativo (`logica-calendario.js`, nuevo).
+ *
+ *   ALCANCE
+ *     Esta pantalla se suscribe a `calendario_operativo` (solo los días
+ *     ACTIVOS) y a `calendario_reglas/semanal`. `evaluarFechaCarga()`
+ *     (bloquea) se evalúa en `programacion/ModalDetallePedido.js`, en el
+ *     alta de un despacho nuevo y en la edición de fecha de uno existente --
+ *     el bloqueo REAL, el que no se puede saltear, está en
+ *     `aceptarEntrega()`/`editarDespacho()` (`logica-despachos.js`): esto es
+ *     solo para no dejar que el coordinador se entere recién por el error de
+ *     Firestore. Con este rediseño se sumó `evaluarFechaEntrega()` (ADVIERTE,
+ *     no bloquea) sobre la fecha SOLICITADA de cada entrega -- mismo
+ *     criterio que ya usa `Pedidos.js`, ver el encabezado de
+ *     `ModalDetallePedido.js`, punto 6.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna nueva -- mismas que documenta `logica-calendario.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     Manual: con un día marcado "Sin despacho", crear un despacho de
+ *     "Entrega al cliente" con fecha de carga ese día lo bloquea (mensaje
+ *     bajo el campo, botón deshabilitado); uno de "Entrega en planta" el
+ *     mismo día se permite. Con "Sin operación", los tres tipos se
+ *     bloquean. Reprogramar (Editar) a esos días también se bloquea. Una
+ *     entrega con fecha SOLICITADA en un día marcado muestra el aviso, sin
+ *     impedir nada.
  * ========================================================================== */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { textoDomicilio } from '../buscar-domicilios';
 import { hoyISO } from '../logica-pedidos';
 import {
-  DESPACHO, ETIQUETA_DESPACHO, COLOR_DESPACHO,
-  ETIQUETA_ENTREGA, ETIQUETA_PEDIDO, COLOR_PEDIDO,
-  despachoVivo, entregaSinCubrir, estadoPedido, viajeAbierto,
-  puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
+  ETIQUETA_PEDIDO, COLOR_PEDIDO,
+  despachoVivo, entregaSinCubrir, estadoPedido, viajeVencido,
 } from '../estados';
 import {
   aceptarEntrega, asignarTransportista, editarDespacho, cancelarDespacho,
   correosDeOrganizacion, llamarAppsScript, coordinadoresActivos, armarDestinatarios,
 } from '../logica-despachos';
-import { finalizarViaje } from '../logica-viajes';
+import {
+  SIN_ASIGNAR, aplicarFiltros, comparador, filtrosActivos, filtrosVacios,
+  leerPreferencias, guardarPreferencias,
+} from '../filtros-listado';
 import HistorialPedido from './HistorialPedido';
-import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
+import ModalCierreManual from './ModalCierreManual';
+import ModalDetallePedido from './programacion/ModalDetallePedido';
+import { agruparTransportistasPorProducto } from './programacion/SelectorTransportista';
+import { contarEntregasSinCubrir } from './programacion/logica-vista';
+import { marca, espacio, radio, tipografia, paletaProgramacion } from '../ui/tokens';
 import { useTema } from '../ui/TemaContext';
-import Boton from '../ui/Boton';
-import Tarjeta from '../ui/Tarjeta';
-import Pastilla from '../ui/Pastilla';
-import Campo from '../ui/Campo';
-import Modal from '../ui/Modal';
 import Vacio from '../ui/Vacio';
+import Pastilla from '../ui/Pastilla';
+import BarraFiltros from '../ui/BarraFiltros';
+import PanelLista from '../ui/PanelLista';
+
+// v1.2.0 (rediseño Programación) -- re-exportada tal cual para que
+// `Programacion.test.js` no tenga que cambiar de dónde importa: la función
+// se mudó a `programacion/SelectorTransportista.js` (ver su encabezado), pero
+// el nombre público sigue siendo el mismo.
+export { agruparTransportistasPorProducto };
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubDJCXh7WxjZp1ruCH5SMu9YmWbFCNF2ff7l5mn447nV8BIWbQ5-Mz-uQ/exec';
 
@@ -91,76 +330,44 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXOlu0PUTAVubD
 // de esta pantalla son un subconjunto de las de Pedidos.js.
 const GRUPOS_PROGRAMACION = ['pendiente', 'programado_parcial', 'programado'];
 
-// Mismo criterio que en Pedidos.js: colores de estado de ENTREGA fijos en
-// los dos temas, no estan en estados.js (que solo expone COLOR_PEDIDO /
-// COLOR_DESPACHO), asi que se arman aca con el mismo esquema de la barra de
-// progreso: cumplida verde, programada ambar, pendiente gris, suspendida
-// atenuada.
-const COLOR_ENTREGA = {
-  cumplida:   { borde: colorEstado.exitoBorde, fondo: colorEstado.exitoFondo, texto: colorEstado.exitoTexto },
-  programada: { borde: colorEstado.advertenciaBorde, fondo: colorEstado.advertenciaFondo, texto: colorEstado.advertenciaTexto },
-  pendiente:  { borde: '#D1D5DB', fondo: '#F3F4F6', texto: '#6B7280' },
-  suspendida: { borde: colorEstado.peligroBordeAlterno, fondo: colorEstado.peligroFondo, texto: colorEstado.peligroTexto },
-};
-
-const DIAS_SEMANA_COMPLETOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const MESES_COMPLETOS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+// RF-01: no existía orden elegible en esta pantalla -- "entrega" ascendente
+// (fecha más próxima primero) es el default, mismo criterio que Pedidos.js.
+const ORDEN_OPCIONES = [
+  { id: 'entrega', label: 'Fecha de entrega' },
+  { id: 'creacion', label: 'Fecha de creacion' },
+  { id: 'cliente', label: 'Cliente' },
+  { id: 'ov', label: 'OV / OC' },
+  { id: 'producto', label: 'Producto' },
+  { id: 'carga', label: 'Fecha de carga' },
 ];
 
-/** "2026-09-03" -> "Jueves 03 de Septiembre del 2026". */
-function formatearFechaCompleta(fechaISO) {
-  if (!fechaISO) return '';
-  const d = new Date(fechaISO + 'T00:00:00');
-  if (Number.isNaN(d.getTime())) return fechaISO;
-  const dia = String(d.getDate()).padStart(2, '0');
-  return `${DIAS_SEMANA_COMPLETOS[d.getDay()]} ${dia} de ${MESES_COMPLETOS[d.getMonth()]} del ${d.getFullYear()}`;
-}
-
-/** Iniciales para el avatar del selector: "Transportes ABC" -> "TA". */
-function inicialesDe(nombre) {
-  const palabras = String(nombre || '').trim().split(/\s+/).filter(Boolean);
-  if (palabras.length === 0) return '?';
-  if (palabras.length === 1) return palabras[0].slice(0, 2).toUpperCase();
-  return (palabras[0][0] + palabras[1][0]).toUpperCase();
-}
-
-// Reparte los acentos que YA existen en tokens.js entre los avatares --
-// ningun color nuevo entra a la paleta. Se usan a pleno color de fondo con
-// texto blanco (mismo criterio que los botones sobre `marca`), asi el
-// contraste da bien sin necesitar un tono "Fondo" pastel para cada acento.
-const PALETA_AVATARES = [
-  colorEstado.acentoPurpura, colorEstado.acentoVerde, colorEstado.acentoAzul,
-  colorEstado.acentoAmbar, colorEstado.acentoAzulFuerte, marca,
-];
-
-function colorAvatarDe(nombre) {
-  const texto = String(nombre || '');
-  let hash = 0;
-  for (let i = 0; i < texto.length; i++) hash = (hash * 31 + texto.charCodeAt(i)) >>> 0;
-  return PALETA_AVATARES[hash % PALETA_AVATARES.length];
-}
-
-/**
- * Reemplaza la escala de grises (textoSecundario/textoSuave/textoTenue) por
- * tonos de rojo -- protagonista, familia de `marca` -- y de azul, como
- * acento para numeros de referencia y texto "de chrome" (labels, ayuda).
- * Pedido explicito: nada de gris, rojo primero.
+/* -----------------------------------------------------------------------------
+ * v1.2.0 (Paso 0.2 de RF-02) -- "Viajes abiertos vencidos" pasa a vivir en
+ * el mismo objeto de preferencias que el resto de los filtros
+ * (`filtros-listado.js`, campo `soloVencidos`) en vez de su propia clave de
+ * `localStorage`. Ver el encabezado v1.2.0 (Paso 0.2) de ese archivo.
  *
- * `marcaHover` y `colorEstado.acentoAzul` ya existen en tokens.js y andan
- * bien en modo claro (8.85:1 y 9.84:1 contra blanco, medido) -- pero los dos
- * son demasiado oscuros para leerse sobre una superficie oscura, asi que en
- * oscuro se usan variantes mas claras: `colorEstado.peligroBordeAlterno`
- * (ya existe, 9.05:1) para el rojo, y un celeste nuevo (`#93C5FD`, 9.53:1)
- * para el azul -- no hay un tono claro de acentoAzul ya definido en
- * tokens.js para reusar.
- */
-function paletaTexto(oscuro) {
-  return {
-    rojo: oscuro ? colorEstado.peligroBordeAlterno : marcaHover,
-    azul: oscuro ? '#93C5FD' : colorEstado.acentoAzul,
-  };
+ * `migrarSoloVencidosLegacy` se corre UNA sola vez, en el mismo efecto que
+ * aplica `leerPreferencias()` (más abajo): lee la clave vieja si existe, la
+ * borra siempre -- exista o no un valor -- y devuelve lo que encontró, o
+ * `null`. Se exporta para poder testearla sin montar el componente entero.
+ * -------------------------------------------------------------------------- */
+function claveVencidosLegacy(uid) {
+  return `explora:programacion:vencidos:v1:${uid}`;
+}
+
+export function migrarSoloVencidosLegacy(uid) {
+  const clave = claveVencidosLegacy(uid);
+  try {
+    const crudo = window.localStorage.getItem(clave);
+    window.localStorage.removeItem(clave);
+    return crudo === null ? null : crudo === '1';
+  } catch (err) {
+    // Mismo criterio de "nunca rompe" que `filtros-listado.js`: un
+    // `localStorage` deshabilitado (modo privado) no puede tumbar la carga
+    // de la pantalla.
+    return null;
+  }
 }
 
 /* =============================================================================
@@ -178,22 +385,33 @@ export default function Programacion({ usuario, onVolver }) {
   const [domicilios, setDomicilios] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
+  // v1.2.0 (RF-10) -- el calendario operativo, para bloquear/advertir en
+  // `ModalDetallePedido.js`. `calendarioDias` es un Map<fechaISO, {tipo,
+  // motivo, estado}> de los días ACTIVOS.
+  const [calendarioDias, setCalendarioDias] = useState(new Map());
+  const [calendarioReglas, setCalendarioReglas] = useState(null);
 
   const [pedidoAbiertoId, setPedidoAbiertoId] = useState(null);
   const [mostrandoHistorial, setMostrandoHistorial] = useState(false);
-  // "aceptando" (crear despacho para una entrega sin cubrir) ya no es un
-  // estado compartido: cada BloqueEntregaPrograma tiene su propio formulario
-  // local, siempre visible. "asignando"/"editando" (sobre un despacho que ya
-  // existe) siguen siendo compartidos -- son acciones puntuales sobre UN
-  // despacho a la vez, no un formulario que este siempre a la vista.
+  // "asignando"/"editando" son acciones puntuales sobre UN despacho a la vez
+  // dentro del modal -- se comparten entre las líneas de despacho porque solo
+  // una puede estar en edición simultáneamente.
   const [asignando, setAsignando] = useState(null);   // { despachoId, transportistaId }
   const [editando, setEditando] = useState(null);     // { despachoId, fecha, horario }
+  // RF-02: el despacho + viaje sobre el que está abierto ModalCierreManual,
+  // o null si está cerrado.
+  const [cerrandoManual, setCerrandoManual] = useState(null); // { despacho, viaje }
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState('');
 
   const [filtro, setFiltro] = useState('');
   const [grupoActivo, setGrupoActivo] = useState('todos');
-  const [soloSinCubrir, setSoloSinCubrir] = useState(false);
+  // RF-01: "Solo sin cubrir" pasa a vivir dentro de `filtros.soloSinCubrir`.
+  const [filtros, setFiltros] = useState(filtrosVacios());
+  const [ordenPor, setOrdenPor] = useState('entrega');
+  const [ordenSentido, setOrdenSentido] = useState('asc');
+  // RF-02: "Viajes abiertos vencidos".
+  const [soloVencidos, setSoloVencidos] = useState(false);
 
   const sinAcceso = motivoSinAcceso(usuario, ['admin', 'coordinador']);
 
@@ -214,6 +432,13 @@ export default function Programacion({ usuario, onVolver }) {
       onSnapshot(collection(db, 'productos'), (s) => setProductos(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'domicilios'), (s) => setDomicilios(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'usuarios'), (s) => setUsuarios(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(query(collection(db, 'calendario_operativo'), where('estado', '==', 'activo')), (s) => {
+        setCalendarioDias(new Map(s.docs.map(d => [d.id, d.data()])));
+      }),
+      onSnapshot(collection(db, 'calendario_reglas'), (s) => {
+        const semanal = s.docs.find(d => d.id === 'semanal');
+        setCalendarioReglas(semanal ? semanal.data() : null);
+      }),
     ];
     return () => unsubs.forEach(u => u());
   }, [sinAcceso]);
@@ -255,9 +480,6 @@ export default function Programacion({ usuario, onVolver }) {
     return pedidos.map(p => {
       const suyas = (entregasPorPedido.get(p.id) || []).sort((a, b) => a.numero - b.numero);
       return {
-        // El estado NO es un campo del documento: se deriva de los tres
-        // contadores. Se calcula acá, una vez, para no repetirlo en cada
-        // lugar de la pantalla que necesita mostrarlo o filtrar por él.
         pedido: { ...p, estado: estadoPedido(p) },
         entregas: suyas.map(e => ({
           entrega: e,
@@ -269,25 +491,149 @@ export default function Programacion({ usuario, onVolver }) {
     });
   }, [pedidos, entregas, despachos]);
 
-  /** Base para las pastillas de estado: solo texto + "solo sin cubrir",
-   * antes de aplicar el filtro de estado. Los conteos de cada pastilla
-   * salen de esta misma lista, igual que en Pedidos.js. */
+  /** La base ESTRUCTURAL de la pantalla: nunca cumplido ni suspendido (regla
+   * de negocio existente, no un filtro de la barra). */
+  const baseEstructural = useMemo(
+    () => arbol.filter(x => x.pedido.estado !== 'cumplido' && x.pedido.estado !== 'suspendido'),
+    [arbol]
+  );
+
+  // RF-01: extractores para `filtros-listado.js`.
+  const extractoresPrograma = useMemo(() => ({
+    clienteId: x => x.pedido.cliente_org_id || null,
+    productoId: x => x.pedido.producto_id || null,
+    tipo: x => x.pedido.tipo || null,
+    creadoPorUid: x => x.pedido.creado_por_uid || null,
+    fechasEntrega: x => x.entregas
+      .filter(e => e.entrega.estado !== 'suspendida')
+      .map(e => e.entrega.fecha_solicitada)
+      .filter(Boolean),
+    transportistaIdsVivos: x => x.todosLosDespachos.filter(despachoVivo).map(d => d.transportista_org_id).filter(Boolean),
+    tieneEntregaSinAsignar: x => x.entregas.some(e =>
+      entregaSinCubrir(e.entrega, e.despachos)
+      || e.despachos.some(d => despachoVivo(d) && !d.transportista_org_id)
+    ),
+    fechasCarga: x => x.todosLosDespachos.filter(despachoVivo).map(d => d.fecha_carga).filter(Boolean),
+    tieneSinCubrir: x => x.entregas.some(e => entregaSinCubrir(e.entrega, e.despachos)),
+    numero: x => x.pedido.numero || '',
+    clienteNombre: x => { const o = orgsPorId.get(x.pedido.cliente_org_id); return o ? o.razon_social : null; },
+    ov: x => x.pedido.ov || null,
+    fechaEntregaProxima: x => {
+      const fechas = x.entregas.map(e => e.entrega).filter(e => e.estado === 'pendiente').map(e => e.fecha_solicitada).filter(Boolean).sort();
+      return fechas[0] || null;
+    },
+    fechaCreacionMillis: x => (x.pedido.creado_en && x.pedido.creado_en.toMillis) ? x.pedido.creado_en.toMillis() : null,
+    productoNombre: x => { const p = prodsPorId.get(x.pedido.producto_id); return p ? p.nombre : null; },
+    fechaCargaProxima: x => {
+      const fechas = x.todosLosDespachos.filter(despachoVivo).map(d => d.fecha_carga).filter(Boolean).sort();
+      return fechas[0] || null;
+    },
+  }), [orgsPorId, prodsPorId]);
+
+  // Opciones de cada selector -- de `baseEstructural`, ordenadas alfabéticamente.
+  const opcionesClientes = useMemo(() => {
+    const ids = new Set(baseEstructural.map(x => x.pedido.cliente_org_id).filter(Boolean));
+    return organizaciones.filter(o => ids.has(o.id)).map(o => ({ id: o.id, label: o.razon_social }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [baseEstructural, organizaciones]);
+
+  const opcionesProductos = useMemo(() => {
+    const ids = new Set(baseEstructural.map(x => x.pedido.producto_id).filter(Boolean));
+    return productos.filter(p => ids.has(p.id)).map(p => ({ id: p.id, label: p.nombre }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [baseEstructural, productos]);
+
+  const opcionesTipos = useMemo(() => {
+    const ids = new Set(baseEstructural.map(x => x.pedido.tipo).filter(Boolean));
+    return [...ids].map(t => ({ id: t, label: t })).sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [baseEstructural]);
+
+  const opcionesCreadoPor = useMemo(() => {
+    const ids = new Set(baseEstructural.map(x => x.pedido.creado_por_uid).filter(Boolean));
+    return usuarios.filter(u => ids.has(u.id)).map(u => ({ id: u.id, label: u.nombre || u.email || 'Sin identificar' }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [baseEstructural, usuarios]);
+
+  const opcionesTransportistas = useMemo(() => {
+    const opciones = transportistas.map(t => ({ id: t.id, label: t.razon_social }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+    return [{ id: SIN_ASIGNAR, label: 'Sin asignar' }, ...opciones];
+  }, [transportistas]);
+
+  // v1.2.0 (rediseño Programación) -- `enPanel` ya no tiene efecto en la
+  // variante compacta de `BarraFiltros` (TODOS los controles caen detrás de
+  // "Filtros y orden" ahí, ver su encabezado); se deja igual para no
+  // reescribir esta lista sin necesidad -- es inocuo.
+  const controlesBarra = useMemo(() => [
+    { campo: 'clientes', tipo: 'multi', etiqueta: 'Cliente', opciones: opcionesClientes, vacio: 'Sin clientes con pedidos' },
+    { campo: 'productos', tipo: 'multi', etiqueta: 'Producto', opciones: opcionesProductos, vacio: 'Sin productos con pedidos' },
+    { campo: 'entrega', tipo: 'rango', etiqueta: 'Fecha de entrega' },
+    { campo: 'transportistas', tipo: 'multi', etiqueta: 'Transportista', opciones: opcionesTransportistas },
+    { campo: 'carga', tipo: 'rango', etiqueta: 'Fecha de carga' },
+    { campo: 'tipos', tipo: 'multi', etiqueta: 'Tipo', opciones: opcionesTipos, enPanel: true },
+    { campo: 'creadoPor', tipo: 'multi', etiqueta: 'Creado por', opciones: opcionesCreadoPor, enPanel: true },
+  ], [opcionesClientes, opcionesProductos, opcionesTransportistas, opcionesTipos, opcionesCreadoPor]);
+
+  // Persistencia (RF-01) -- se lee una sola vez cuando los datos ya
+  // cargaron, se guarda con debounce.
+  const prefsAplicadasRef = useRef(false);
+
+  useEffect(() => {
+    if (prefsAplicadasRef.current || cargando) return;
+    prefsAplicadasRef.current = true;
+
+    const validos = {
+      clientes: new Set(organizaciones.map(o => o.id)),
+      productos: new Set(productos.map(p => p.id)),
+      creadoPor: new Set(usuarios.map(u => u.id)),
+      transportistas: new Set(transportistas.map(t => t.id)),
+    };
+    const prefs = leerPreferencias('programacion', usuario.uid, validos);
+    const legacy = migrarSoloVencidosLegacy(usuario.uid);
+
+    if (prefs) {
+      if (prefs.filtros) setFiltros(f => ({ ...f, ...prefs.filtros }));
+      if (prefs.grupoActivo) setGrupoActivo(prefs.grupoActivo);
+      if (prefs.ordenPor) setOrdenPor(prefs.ordenPor);
+      if (prefs.ordenSentido) setOrdenSentido(prefs.ordenSentido);
+    }
+
+    if (prefs && typeof prefs.soloVencidos === 'boolean') {
+      setSoloVencidos(prefs.soloVencidos);
+    } else if (legacy !== null) {
+      setSoloVencidos(legacy);
+    }
+  }, [cargando, organizaciones, productos, usuarios, transportistas, usuario.uid]);
+
+  useEffect(() => {
+    if (!prefsAplicadasRef.current) return;
+    const id = setTimeout(() => {
+      guardarPreferencias('programacion', usuario.uid, { filtros, grupoActivo, ordenPor, ordenSentido, soloVencidos });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [filtros, grupoActivo, ordenPor, ordenSentido, soloVencidos, usuario.uid]);
+
+  // RF-02: ¿alguno de los despachos VIVOS de este pedido tiene un viaje
+  // vencido?
+  const pedidoTieneVencido = useCallback((x) => {
+    const hoy = hoyISO();
+    return x.todosLosDespachos.some(d =>
+      despachoVivo(d) && viajeVencido(viajePorDespacho.get(d.id) || null, d, hoy));
+  }, [viajePorDespacho]);
+
+  /** Base para las pastillas de estado: texto + filtros de la barra, antes
+   * de aplicar el filtro de estado. */
   const baseFiltrada = useMemo(() => {
     const texto = claveNormalizada(filtro);
-    return arbol
-      .filter(x => x.pedido.estado !== 'cumplido' && x.pedido.estado !== 'suspendido')
-      .filter(x => {
-        if (!soloSinCubrir) return true;
-        return x.entregas.some(e => entregaSinCubrir(e.entrega, e.despachos));
-      })
-      .filter(x => {
-        if (!texto) return true;
-        const org = orgsPorId.get(x.pedido.cliente_org_id);
-        return claveNormalizada(x.pedido.numero).includes(texto)
-            || claveNormalizada(x.pedido.ov).includes(texto)
-            || (org && claveNormalizada(org.razon_social).includes(texto));
-      });
-  }, [arbol, filtro, soloSinCubrir, orgsPorId]);
+    const porTexto = !texto ? baseEstructural : baseEstructural.filter(x => {
+      const org = orgsPorId.get(x.pedido.cliente_org_id);
+      return claveNormalizada(x.pedido.numero).includes(texto)
+          || claveNormalizada(x.pedido.ov).includes(texto)
+          || (org && claveNormalizada(org.razon_social).includes(texto));
+    });
+    const filtradas = aplicarFiltros(porTexto, filtros, extractoresPrograma);
+    return soloVencidos ? filtradas.filter(pedidoTieneVencido) : filtradas;
+  }, [baseEstructural, filtro, orgsPorId, filtros, extractoresPrograma, soloVencidos, pedidoTieneVencido]);
 
   const conteosPorGrupo = useMemo(() => {
     const c = {};
@@ -297,9 +643,20 @@ export default function Programacion({ usuario, onVolver }) {
   }, [baseFiltrada]);
 
   const visibles = useMemo(() => {
-    if (grupoActivo === 'todos') return baseFiltrada;
-    return baseFiltrada.filter(x => x.pedido.estado === grupoActivo);
-  }, [baseFiltrada, grupoActivo]);
+    const base = grupoActivo === 'todos' ? baseFiltrada : baseFiltrada.filter(x => x.pedido.estado === grupoActivo);
+    return [...base].sort(comparador(ordenPor, ordenSentido, extractoresPrograma));
+  }, [baseFiltrada, grupoActivo, ordenPor, ordenSentido, extractoresPrograma]);
+
+  // "Limpiar filtros" -- limpia filtros (incluido "Solo sin cubrir"), texto,
+  // pastilla de estado y "Viajes abiertos vencidos" (RF-02); no toca el orden.
+  const hayFiltrosActivosBarra = filtrosActivos(filtros) || !!filtro || grupoActivo !== 'todos' || soloVencidos;
+
+  function limpiarFiltrosBarra() {
+    setFiltros(filtrosVacios());
+    setFiltro('');
+    setGrupoActivo('todos');
+    setSoloVencidos(false);
+  }
 
   const abierto = pedidoAbiertoId ? arbol.find(x => x.pedido.id === pedidoAbiertoId) : null;
 
@@ -310,46 +667,12 @@ export default function Programacion({ usuario, onVolver }) {
    * lo dejan afuera y no habría forma de expresarlo: "los pedidos donde tengo un
    * despacho" es un join— así que todo lo que su pantalla muestra tiene que
    * estar acá. Y el Apps Script rutea al Plan de Producción por nombre.
-   *
-   * `entrega` es opcional a propósito: los lugares donde hoy no hay una
-   * entrega puntual a mano siguen funcionando igual, cayendo al domicilio
-   * del pedido. Cuando SÍ hay una entrega y el tipo es "Entrega al cliente",
-   * su propio `destino_domicilio_id` gana — es la dirección real por la que
-   * se preguntó al cargar esa entrega, no la del pedido en general.
-   *
-   * -----------------------------------------------------------------------------
-   * v2 (2026-09-18) — TAMBIÉN LO QUE NECESITAN LOS MAILS DEL DESPACHO
-   * -----------------------------------------------------------------------------
-   *   Notificaciones.gs v2 le pide a `confirmar_despacho`, `rechazar_despacho`
-   *   y `nominar_unidad` -- las tres disparadas desde `MisDespachos.js`,
-   *   pantalla del transportista -- `entrega_numero`, `entregas_total`, y a
-   *   quién avisar (`destinatarios.coordinadores`, y `.comercial` para la
-   *   nominación).
-   *
-   *   El transportista no puede resolver nada de eso en el momento: no lee
-   *   `entregas` ni `pedidos` (mismo motivo que el resto de este comentario),
-   *   y tampoco puede leer `usuarios` de otra organización -- las reglas de
-   *   Firestore evalúan el filtro contra QUIEN PREGUNTA, así que una consulta
-   *   de coordinadores hecha desde su sesión no devuelve nada (ver
-   *   `coordinadoresActivos()` en `logica-despachos.js`).
-   *
-   *   Por eso se congela ACÁ, al aceptar la entrega -- el único momento en
-   *   que hay una sesión de coordinador/comercial con acceso completo. Igual
-   *   que `cliente_razon_social` y el resto: es un dato que puede quedar
-   *   desactualizado (un coordinador que se da de baja después no se saca de
-   *   `coordinadores_email` de un despacho ya aceptado), tradeoff que este
-   *   archivo ya acepta para todo lo denormalizado.
    */
   async function denormalizadosDe(pedido, entrega = null) {
     const org = orgsPorId.get(pedido.cliente_org_id);
     const prod = prodsPorId.get(pedido.producto_id);
     const idDestino = (entrega && entrega.destino_domicilio_id) || pedido.destino_domicilio_id;
     const destino = domsPorId.get(idDestino);
-
-    // El comercial es el usuario que creó el pedido. Se resuelve acá, no con
-    // una consulta aparte: `usuarios` ya está cargado completo (línea 216) --
-    // esta pantalla es de uso interno, así que tiene permiso a la colección
-    // entera, a diferencia de `MisDespachos.js`.
     const comercial = usuarios.find(u => u.id === pedido.creado_por_uid);
 
     return {
@@ -371,18 +694,14 @@ export default function Programacion({ usuario, onVolver }) {
     if (!f || !f.fecha) { setError('Elegí la fecha de carga.'); return; }
 
     const transportista = f.transportistaId ? orgsPorId.get(f.transportistaId) : null;
+    const correosTransportista = transportista ? correosDeOrganizacion(usuarios, transportista.id) : [];
 
-    // Sin correo, el transportista no se entera del despacho y no puede
-    // aceptarlo. Es el arreglo que ya existe hoy y hay que conservarlo.
-    if (transportista) {
-      const correos = correosDeOrganizacion(usuarios, transportista.id);
-      if (correos.length === 0) {
-        setError(
-          `${transportista.razon_social} no tiene ningún usuario activo con correo. `
-          + 'Cargalo desde Usuarios antes de asignarle despachos.'
-        );
-        return;
-      }
+    if (transportista && correosTransportista.length === 0) {
+      setError(
+        `${transportista.razon_social} no tiene ningún usuario activo con correo. `
+        + 'Cargalo desde Usuarios antes de asignarle despachos.'
+      );
+      return;
     }
 
     setOcupado(true);
@@ -403,10 +722,13 @@ export default function Programacion({ usuario, onVolver }) {
       });
       creado = true;
 
-      // Después del commit. ESTO sí escribe en el Plan de Producción.
       const rPlan = await llamarAppsScript(APPS_SCRIPT_URL, 'programar_despacho', {
         pedido_id: x.pedido.numero,
         despacho_id: numero,
+        ...(transportista ? {
+          email_transportista: correosTransportista.join(','),
+          destinatarios: armarDestinatarios({ coordinadores: await coordinadoresActivos(), transportista: correosTransportista }),
+        } : {}),
         ...payloadDe(x.pedido, entregaItem.entrega, f, transportista),
       });
       if (!rPlan.ok) {
@@ -459,9 +781,6 @@ export default function Programacion({ usuario, onVolver }) {
         despacho_id: despacho.numero,
         email_transportista: correos.join(','),
         reasignacion,
-        // `coordinadores` va siempre, aunque este mail hoy solo lea
-        // `destinatarios.transportista` -- es el contrato fijo de
-        // Notificaciones.gs v2, igual en las nueve llamadas.
         destinatarios: armarDestinatarios({ coordinadores: await coordinadoresActivos(), transportista: correos }),
         ...payloadDe(x.pedido, entrega, {
           fecha: despacho.fecha_carga,
@@ -493,6 +812,7 @@ export default function Programacion({ usuario, onVolver }) {
         despacho,
         fechaCarga: f.fecha,
         horarioCarga: f.horario,
+        tipoPedido: x.pedido.tipo,
         usuario,
       });
 
@@ -503,6 +823,7 @@ export default function Programacion({ usuario, onVolver }) {
           pedido_id: x.pedido.numero,
           despacho_id: despacho.numero,
           email_transportista: correos.join(','),
+          fecha_carga_anterior: despacho.fecha_carga,
           ...payloadDe(x.pedido, entrega, f, orgsPorId.get(despacho.transportista_org_id)),
         });
         if (!rEdit.ok) {
@@ -528,14 +849,6 @@ export default function Programacion({ usuario, onVolver }) {
     setError('');
 
     try {
-      // `cancelarDespacho()` ya hace todo lo que antes se armaba acá a mano:
-      // cancela el despacho y el viaje, recalcula la entrega y el pedido dentro
-      // de su transacción, deja el aviso para el transportista en `avisos`
-      // (reemplaza al mail de `cancelar_despacho`), y DESPUÉS del commit llama
-      // sola a `borrar_despacho` con el payload que la función realmente
-      // necesita — antes se le mandaba `{pedido_id, despacho_id, motivo}`
-      // desde acá, que no le alcanza a `resolverColumna()` para encontrar la
-      // celda correcta en el Plan.
       const rCancel = await cancelarDespacho({
         pedido: x.pedido,
         despacho,
@@ -556,73 +869,26 @@ export default function Programacion({ usuario, onVolver }) {
   }
 
   /**
-   * Cierra a mano un viaje que quedó abierto (RECIBIDO o EN_VIAJE) sin que
-   * el chofer lo haya cerrado — teléfono roto, se olvidó, nunca llegó a
-   * arrancarlo desde la app, lo que sea. Es más urgente de lo que parece:
-   * sin esto, el viaje queda abierto para siempre y eso bloquea la ficha
-   * del chofer en el ABM de usuarios (no se puede desactivar a alguien con
-   * un viaje en curso).
-   *
-   * `finalizarViaje` con `cerradoPor: 'manual'` no guarda posición de fin —el
-   * coordinador no sabe dónde estaba el camión, y poner la última conocida
-   * como si fuera la de entrega sería inventar un dato que no se tiene.
-   *
-   * Solo admin y coordinador -- son los dos roles que ya tienen acceso a
-   * esta pantalla entera (`sinAcceso` más arriba), pero el cierre manual
-   * reescribe el estado de un viaje ajeno sin que el chofer haya hecho
-   * nada, así que lleva su propio chequeo explícito en vez de confiar en
-   * que el gate de la pantalla no cambie nunca.
+   * v1.2.0 (RF-02) -- Abre `ModalCierreManual` sobre un viaje que quedó
+   * abierto sin que el chofer lo haya cerrado. Solo admin y coordinador.
    */
-  async function confirmarCerrarManual(despacho, viaje) {
+  function abrirCierreManual(despacho, viaje) {
     if (!tieneAlgunRol(usuario, ['admin', 'coordinador'])) {
       setError('No tenés permiso para cerrar un viaje a mano.');
       return;
     }
-
-    const motivo = window.prompt(
-      `Vas a cerrar el viaje del despacho ${despacho.numero} a mano. `
-      + 'Contá por qué (el chofer no lo cerró, se le rompió el teléfono, etc.):'
-    );
-    if (motivo === null) return;
-    if (!motivo.trim()) { window.alert('El motivo es obligatorio.'); return; }
-
-    setOcupado(true);
     setError('');
-
-    try {
-      await finalizarViaje({
-        viaje,
-        despacho: { id: despacho.id },
-        posicion: null,
-        cerradoPor: 'manual',
-        motivo: motivo.trim(),
-        usuario,
-      });
-    } catch (err) {
-      console.error(err);
-      setError(traducirError(err));
-    } finally {
-      setOcupado(false);
-    }
+    setCerrandoManual({ despacho, viaje });
   }
 
   /**
    * El payload que espera el Apps Script, con los nombres resueltos.
-   *
-   * Mismo criterio que `denormalizadosDe()`: si hay una `entrega` con su
-   * propio `destino_domicilio_id` (solo pasa con "Entrega al cliente"), esa
-   * dirección gana sobre la del pedido — así el mail y la nota del Plan de
-   * Producción muestran la dirección real de ESA entrega, no una genérica.
    */
   function payloadDe(pedido, entrega, form, transportista) {
     const org = orgsPorId.get(pedido.cliente_org_id);
     const prod = prodsPorId.get(pedido.producto_id);
     const idDestino = (entrega && entrega.destino_domicilio_id) || pedido.destino_domicilio_id;
     const destino = domsPorId.get(idDestino);
-    // Lugar de CARGA, no de entrega: mismo domicilio que resuelve el destino
-    // de arriba, pero sobre `origen_domicilio_id` del pedido. Agregado en v2
-    // de Notificaciones.gs -- antes el transportista solo veía a dónde tenía
-    // que llevar la carga, no de dónde salía.
     const origen = domsPorId.get(pedido.origen_domicilio_id);
 
     return {
@@ -632,7 +898,7 @@ export default function Programacion({ usuario, onVolver }) {
       ov: pedido.ov || '',
       lugar: destino ? textoDomicilio(destino) : '',
       lugar_carga: origen ? textoDomicilio(origen) : '',
-      recipiente: pedido.recipiente || 'Granel',   // mismo default que `crearPedido()`
+      recipiente: pedido.recipiente || 'Granel',
       tipo: pedido.tipo,
       fecha_carga: form.fecha || '',
       horario_carga: form.horario || '',
@@ -652,6 +918,36 @@ export default function Programacion({ usuario, onVolver }) {
     return <div style={styles.wrap}><div style={styles.bannerError}>{sinAcceso}</div></div>;
   }
 
+  // v1.2.0 (rediseño Programación) -- las pastillas de estado + los dos
+  // conmutadores (RF-01/RF-02) se arman ACÁ (conocen `COLOR_PEDIDO`,
+  // `GRUPOS_PROGRAMACION`...) y se le pasan a `BarraFiltros` por el slot
+  // `piePastillas`, como ya hacía `Pedidos.js` -- ver el encabezado de
+  // `ui/BarraFiltros.js`. Las cinco (3 estados + 2 conmutadores) usan el
+  // mismo estilo "activa en rojo sólido" -- Paso 1 del prompt.
+  const pastillasFiltro = (
+    <>
+      <PastillaFiltro activo={grupoActivo === 'todos'} onClick={() => setGrupoActivo('todos')} label={`Todos (${baseFiltrada.length})`} />
+      {GRUPOS_PROGRAMACION.map(g => (
+        <PastillaFiltro
+          key={g}
+          activo={grupoActivo === g}
+          onClick={() => setGrupoActivo(g)}
+          label={`${ETIQUETA_PEDIDO[g]} (${conteosPorGrupo[g] || 0})`}
+        />
+      ))}
+      <PastillaFiltro
+        activo={filtros.soloSinCubrir}
+        onClick={() => setFiltros(f => ({ ...f, soloSinCubrir: !f.soloSinCubrir }))}
+        label="Solo sin cubrir"
+      />
+      <PastillaFiltro
+        activo={soloVencidos}
+        onClick={() => setSoloVencidos(v => !v)}
+        label="Viajes abiertos vencidos"
+      />
+    </>
+  );
+
   return (
     <div style={styles.wrap}>
       <div style={styles.panelHeader}>
@@ -660,58 +956,58 @@ export default function Programacion({ usuario, onVolver }) {
 
       {error && <div style={styles.bannerError}>{error}</div>}
 
-      <div style={styles.controlesFila}>
-        <input
-          style={styles.buscador}
-          value={filtro}
-          onChange={e => setFiltro(e.target.value)}
-          placeholder="Buscar por número, cliente u orden..."
-        />
-      </div>
-
-      <div style={styles.pastillasGrupo}>
-        <PastillaGrupo
-          activo={grupoActivo === 'todos'}
-          onClick={() => setGrupoActivo('todos')}
-          label={`Todos (${baseFiltrada.length})`}
-        />
-        {GRUPOS_PROGRAMACION.map(g => (
-          <PastillaGrupo
-            key={g}
-            activo={grupoActivo === g}
-            onClick={() => setGrupoActivo(g)}
-            label={`${ETIQUETA_PEDIDO[g]} (${conteosPorGrupo[g] || 0})`}
-            colores={COLOR_PEDIDO[g]}
-          />
-        ))}
-        <PastillaToggle
-          activo={soloSinCubrir}
-          onClick={() => setSoloSinCubrir(v => !v)}
-          label="Solo sin cubrir"
-        />
-      </div>
+      {/* Paso 1 del prompt: variante compacta -- buscador a ancho completo +
+          "Filtros y orden" (RF-01 entero) + pastillas (estado + RF-01
+          "Solo sin cubrir" + RF-02 "Viajes abiertos vencidos"). */}
+      <BarraFiltros
+        variante="compacta"
+        texto={filtro}
+        onCambiarTexto={setFiltro}
+        placeholderTexto="Buscar por número, cliente u orden..."
+        controles={controlesBarra}
+        valores={filtros}
+        onCambiarValor={(campo, valor) => setFiltros(f => ({ ...f, [campo]: valor }))}
+        orden={{
+          opciones: ORDEN_OPCIONES,
+          valor: ordenPor,
+          sentido: ordenSentido,
+          onCambiarValor: setOrdenPor,
+          onCambiarSentido: () => setOrdenSentido(s => (s === 'asc' ? 'desc' : 'asc')),
+        }}
+        totalBase={baseEstructural.length}
+        totalVisible={baseFiltrada.length}
+        hayFiltrosActivos={hayFiltrosActivosBarra}
+        onLimpiar={limpiarFiltrosBarra}
+        etiquetaItem="pedidos"
+        piePastillas={pastillasFiltro}
+      />
 
       {cargando && <Vacio titulo="Cargando..." />}
-      {!cargando && visibles.length === 0 && <Vacio titulo="No hay pedidos para programar." />}
+      {!cargando && visibles.length === 0 && <Vacio titulo="No hay pedidos que coincidan con los filtros." />}
 
+      {/* Paso 2: un único panel blanco (radio 16), filas separadas por una
+          línea fina -- no tarjetas sueltas. */}
       {!cargando && visibles.length > 0 && (
-        <div>
-          {visibles.map(x => (
-            <FilaPrograma
+        <PanelLista
+          items={visibles}
+          render={(x, i, esUltima) => (
+            <FilaPedido
               key={x.pedido.id}
               x={x}
               org={orgsPorId.get(x.pedido.cliente_org_id)}
               prod={prodsPorId.get(x.pedido.producto_id)}
+              vencido={pedidoTieneVencido(x)}
+              esUltima={esUltima}
               onClick={() => setPedidoAbiertoId(x.pedido.id)}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
 
-      {/* Mismo patron que Pedidos.js: nunca se montan los dos modales juntos.
-          El historial reemplaza al detalle mientras esta abierto. */}
+      {/* Nunca se montan los dos modales juntos -- el historial reemplaza al
+          detalle mientras está abierto. */}
       {abierto && !mostrandoHistorial && (
-        <ModalDetallePrograma
+        <ModalDetallePedido
           x={abierto}
           org={orgsPorId.get(abierto.pedido.cliente_org_id)}
           prod={prodsPorId.get(abierto.pedido.producto_id)}
@@ -719,6 +1015,8 @@ export default function Programacion({ usuario, onVolver }) {
           orgsPorId={orgsPorId}
           transportistas={transportistas}
           viajePorDespacho={viajePorDespacho}
+          calendarioDias={calendarioDias}
+          calendarioReglas={calendarioReglas}
           asignando={asignando}
           setAsignando={setAsignando}
           editando={editando}
@@ -728,7 +1026,7 @@ export default function Programacion({ usuario, onVolver }) {
           onAsignar={(d) => confirmarAsignar(abierto, d)}
           onEditar={(d) => confirmarEditar(abierto, d)}
           onCancelar={(d) => confirmarCancelar(abierto, d)}
-          onCerrarManual={(d, v) => confirmarCerrarManual(d, v)}
+          onCerrarManual={(d, v) => abrirCierreManual(d, v)}
           setError={setError}
           onCerrar={() => { setPedidoAbiertoId(null); setMostrandoHistorial(false); setAsignando(null); setEditando(null); }}
           onVerHistorial={() => setMostrandoHistorial(true)}
@@ -738,553 +1036,83 @@ export default function Programacion({ usuario, onVolver }) {
       {abierto && mostrandoHistorial && (
         <HistorialPedido pedidoId={abierto.pedido.id} onCerrar={() => setMostrandoHistorial(false)} />
       )}
+
+      {/* RF-02: mismo modal que Seguimiento.js. */}
+      {cerrandoManual && (
+        <ModalCierreManual
+          viaje={cerrandoManual.viaje}
+          despacho={{
+            id: cerrandoManual.despacho.id,
+            numero: cerrandoManual.despacho.numero,
+            fecha_carga: cerrandoManual.despacho.fecha_carga,
+          }}
+          usuario={usuario}
+          onCerrado={() => setCerrandoManual(null)}
+          onCancelar={() => setCerrandoManual(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* -----------------------------------------------------------------------------
- * Fila de la lista
+ * Fila de la lista -- Paso 2 del prompt: estado, cliente, producto, cantidad,
+ * chip "N sin cubrir", OV/OC. Sin número PED, sin fechas, sin entregas ni
+ * despachos -- eso queda para el modal.
  * -------------------------------------------------------------------------- */
 
-function FilaPrograma({ x, org, prod, onClick }) {
+function FilaPedido({ x, org, prod, vencido, esUltima, onClick }) {
   const styles = useEstilos();
-  const { colores } = useTema();
+  const { oscuro } = useTema();
+  const paleta = paletaProgramacion(oscuro);
   const p = x.pedido;
   const col = COLOR_PEDIDO[p.estado] || COLOR_PEDIDO.pendiente;
-  const sinCubrir = x.entregas.filter(e => entregaSinCubrir(e.entrega, e.despachos)).length;
+  const sinCubrir = contarEntregasSinCubrir(x.entregas);
 
   return (
-    <Tarjeta
+    <div
       onClick={onClick}
-      style={{ marginBottom: espacio.sm, padding: '12px 16px', borderLeft: `3px solid ${col ? col.bg : colores.borde}` }}
+      style={{ ...styles.fila, ...(esUltima ? { borderBottom: 'none' } : {}) }}
     >
-      <div style={styles.filaContenido}>
-        <Pastilla colores={col}>{ETIQUETA_PEDIDO[p.estado] || p.estado}</Pastilla>
-        <span style={styles.filaCliente}>{org ? org.razon_social : '—'}</span>
-        <span style={styles.filaProducto}>{prod ? prod.nombre : '—'}</span>
-        <span style={styles.filaVolumen}>{p.volumen} tn</span>
-        {sinCubrir > 0 && (
-          <Pastilla chico colores={{ bg: colorEstado.advertenciaFondo, color: colorEstado.advertenciaTexto }}>
-            {sinCubrir} sin cubrir
-          </Pastilla>
-        )}
-        <span style={styles.filaNumero}>{p.numero}</span>
-      </div>
-    </Tarjeta>
+      <span style={styles.filaEstado}><Pastilla colores={col}>{ETIQUETA_PEDIDO[p.estado] || p.estado}</Pastilla></span>
+      <span style={styles.filaCliente}>{org ? org.razon_social : '—'}</span>
+      <span style={styles.filaProducto}>{prod ? prod.nombre : '—'}</span>
+      <span style={styles.filaCantidad}>{p.volumen} tn</span>
+      {sinCubrir > 0 && (
+        <Pastilla chico colores={{ bg: paleta.chipSinCubrir.fondo, color: paleta.chipSinCubrir.texto }}>
+          {sinCubrir} sin cubrir
+        </Pastilla>
+      )}
+      {vencido && (
+        <Pastilla chico colores={{ bg: paleta.estadoDespacho.sinCubrir.fondo, color: paleta.estadoDespacho.sinCubrir.texto }}>Vencido</Pastilla>
+      )}
+      <span style={styles.filaOv}>{p.ov}</span>
+    </div>
   );
 }
 
-function PastillaGrupo({ activo, onClick, label, colores }) {
-  const { colores: coloresTema, oscuro } = useTema();
-  const pal = paletaTexto(oscuro);
-  const bg = activo ? (colores ? colores.bg : marca) : coloresTema.fondoAlterno;
-  const color = activo ? (colores ? colores.color : '#fff') : pal.azul;
+/* -----------------------------------------------------------------------------
+ * Pastilla de filtro -- estado / "Solo sin cubrir" / "Viajes abiertos
+ * vencidos". Las cinco con el mismo criterio: activa en rojo sólido, mismo
+ * texto que pide el Paso 1 del prompt.
+ * -------------------------------------------------------------------------- */
+
+function PastillaFiltro({ activo, onClick, label }) {
+  const { colores } = useTema();
   return (
     <button
+      type="button"
       onClick={onClick}
       style={{
         padding: '6px 14px', borderRadius: radio.pastilla, border: 'none', cursor: 'pointer',
         fontSize: tipografia.tamano.sm, fontWeight: activo ? tipografia.peso.negrita : tipografia.peso.normal,
-        background: bg, color, whiteSpace: 'nowrap',
+        background: activo ? marca : colores.fondoAlterno,
+        color: activo ? '#fff' : colores.textoSecundario,
+        whiteSpace: 'nowrap', fontFamily: tipografia.familia,
       }}
     >
       {label}
     </button>
-  );
-}
-
-/** Pastilla-toggle para "Solo sin cubrir" -- mismo look que PastillaGrupo,
- * pero es un on/off en vez de un grupo excluyente, asi que usa el color de
- * advertencia (mismo que la banda-horaria/aviso) en vez de `marca` cuando
- * esta activa, para no confundirla con un filtro de estado. */
-function PastillaToggle({ activo, onClick, label }) {
-  const { colores, oscuro } = useTema();
-  const pal = paletaTexto(oscuro);
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '6px 14px', borderRadius: radio.pastilla, cursor: 'pointer',
-        fontSize: tipografia.tamano.sm, fontWeight: activo ? tipografia.peso.negrita : tipografia.peso.normal,
-        background: activo ? colorEstado.advertenciaFondo : colores.fondoAlterno,
-        color: activo ? colorEstado.advertenciaTexto : pal.azul,
-        border: activo ? `1px solid ${colorEstado.advertenciaBorde}` : '1px solid transparent',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {activo ? '✓ ' : ''}{label}
-    </button>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * Modal de detalle -- izquierda datos del pedido, derecha entregas
- * -------------------------------------------------------------------------- */
-
-function ModalDetallePrograma({
-  x, org, prod, domsPorId, orgsPorId, transportistas, viajePorDespacho,
-  asignando, setAsignando, editando, setEditando,
-  ocupado, onAceptar, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
-  onCerrar, onVerHistorial,
-}) {
-  const styles = useEstilos();
-  const p = x.pedido;
-  const colEstado = COLOR_PEDIDO[p.estado] || COLOR_PEDIDO.pendiente;
-  // Mismo criterio que Pedidos.js: para "Entrega al cliente" cada entrega
-  // puede tener su propio destino, asi que ahi la direccion se muestra POR
-  // ENTREGA (mas abajo, en BloqueEntregaPrograma), no una sola vez del lado
-  // del pedido -- mostrarla ahi seria mostrar la de una sola entrega como si
-  // fuera la de todo el pedido. Para los demas tipos el destino es unico y
-  // sigue del lado del pedido.
-  const esEntregaAlCliente = p.tipo === 'Entrega al cliente';
-  const destinoPedido = domsPorId.get(p.destino_domicilio_id);
-
-  return (
-    <Modal titulo={`Pedido ${p.numero}`} onCerrar={onCerrar} ancho={960}>
-      <div style={{ ...styles.franjaEstadoModal, background: colEstado.bg }} />
-      <div style={styles.modalDosColumnas}>
-
-        <div style={styles.modalColumna}>
-          <div style={styles.estadoModalFila}>
-            <Pastilla colores={colEstado}>{ETIQUETA_PEDIDO[p.estado] || p.estado}</Pastilla>
-            <span style={styles.volumenModal}>{p.volumen} tn</span>
-          </div>
-
-          <div style={styles.modalGrid}>
-            <Dato label="Tipo" valor={p.tipo} />
-            <Dato label="Recipiente" valor={p.recipiente} />
-            <Dato label="Producto" valor={prod ? prod.nombre : ''} />
-            <Dato label="Cliente" valor={org ? org.razon_social : ''} />
-            <Dato label="OV / OC" valor={p.ov} />
-            <Dato label="Banda horaria" valor={p.banda_horaria} />
-            {!esEntregaAlCliente && (
-              <Dato label="Destino" valor={destinoPedido ? textoDomicilio(destinoPedido) : ''} />
-            )}
-            {esEntregaAlCliente && (
-              <Dato label="Destino" valor="Varía por entrega ->" />
-            )}
-          </div>
-
-          {p.obs && <div style={styles.obsBox}>{p.obs}</div>}
-
-          <div style={styles.accionesColumna}>
-            <Boton variante="secundario" onClick={onVerHistorial}>Ver historial</Boton>
-          </div>
-        </div>
-
-        <div style={styles.modalColumna}>
-          <div style={styles.entregasTitulo}>Entregas</div>
-
-          {x.entregas.map(item => (
-            <BloqueEntregaPrograma
-              key={item.entrega.id}
-              x={x}
-              item={item}
-              pedido={p}
-              esEntregaAlCliente={esEntregaAlCliente}
-              domsPorId={domsPorId}
-              orgsPorId={orgsPorId}
-              transportistas={transportistas}
-              viajePorDespacho={viajePorDespacho}
-              asignando={asignando}
-              setAsignando={setAsignando}
-              editando={editando}
-              setEditando={setEditando}
-              ocupado={ocupado}
-              onAceptar={(form) => onAceptar(item, form)}
-              onAsignar={onAsignar}
-              onEditar={onEditar}
-              onCancelar={onCancelar}
-              onCerrarManual={onCerrarManual}
-              setError={setError}
-            />
-          ))}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function Dato({ label, valor }) {
-  const styles = useEstilos();
-  const tieneValor = valor !== undefined && valor !== null && valor !== '';
-  return (
-    <div style={styles.field}>
-      <span style={styles.label}>{label}</span>
-      <span style={tieneValor ? styles.valorCompleto : styles.valorVacio}>
-        {tieneValor ? valor : 'Sin dato'}
-      </span>
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * Bloque de una entrega -- dia/hora/carga, sus despachos, y el alta si esta
- * sin cubrir
- * -------------------------------------------------------------------------- */
-
-function BloqueEntregaPrograma({
-  x, item, pedido, esEntregaAlCliente, domsPorId, orgsPorId, transportistas, viajePorDespacho,
-  asignando, setAsignando, editando, setEditando,
-  ocupado, onAceptar, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
-}) {
-  const styles = useEstilos();
-  const { entrega, despachos } = item;
-  const sinCubrir = entregaSinCubrir(entrega, despachos);
-  const colEntrega = COLOR_ENTREGA[entrega.estado] || COLOR_ENTREGA.pendiente;
-
-  // Solo los despachos VIVOS ocupan lugar aca -- los rechazados/cancelados
-  // son historia, no algo con lo que haya que hacer nada ahora, y competian
-  // por el mismo espacio que hace falta para crear el despacho nuevo. Se
-  // siguen pudiendo ver, pero desde "Ver historial" (arriba, en la columna
-  // del pedido), no clavados en el medio de esta lista.
-  const despachosVivos = despachos.filter(despachoVivo);
-  const despachosMuertos = despachos.length - despachosVivos.length;
-
-  // Direccion de esta entrega puntual -- solo aplica a "Entrega al cliente"
-  // (ver el comentario en ModalDetallePrograma). Cae al domicilio del
-  // pedido si la entrega no tiene uno propio cargado.
-  const destinoEntrega = esEntregaAlCliente
-    ? domsPorId.get(entrega.destino_domicilio_id || pedido.destino_domicilio_id)
-    : null;
-
-  // Formulario para crear el despacho de esta entrega, LOCAL a este bloque
-  // -- cada entrega sin cubrir tiene el suyo, siempre visible, sin pisarse
-  // entre si. La fecha de carga arranca en la de la entrega (lo mas
-  // frecuente); si hay que adelantarla, se cambia aca mismo.
-  const [form, setForm] = useState({ fecha: entrega.fecha_solicitada, horario: '', transportistaId: '' });
-
-  function crear() {
-    setError('');
-    onAceptar(form);
-  }
-
-  return (
-    <div style={{ ...styles.entregaCard, borderLeft: `3px solid ${colEntrega.borde}` }}>
-      <div style={styles.entregaHeader}>
-        <span style={styles.entregaNroChico}>#{entrega.numero}</span>
-        <Pastilla chico colores={{ bg: colEntrega.fondo, color: colEntrega.texto }}>
-          {ETIQUETA_ENTREGA[entrega.estado] || entrega.estado}
-        </Pastilla>
-      </div>
-      <div style={styles.entregaFechaCompleta}>{formatearFechaCompleta(entrega.fecha_solicitada)}</div>
-      <div style={styles.entregaVolFila}>
-        <span style={styles.entregaVol}>{entrega.volumen} tn</span>
-        {destinoEntrega && <span style={styles.entregaDestino}>{textoDomicilio(destinoEntrega)}</span>}
-      </div>
-
-      {/* Solo el/los despacho(s) vivos -- ver arriba por que. */}
-      {despachosVivos.map(d => (
-        <DespachoBloque
-          key={d.id}
-          despacho={d}
-          orgsPorId={orgsPorId}
-          transportistas={transportistas}
-          viaje={viajePorDespacho.get(d.id) || null}
-          asignando={asignando}
-          setAsignando={setAsignando}
-          editando={editando}
-          setEditando={setEditando}
-          ocupado={ocupado}
-          onAsignar={onAsignar}
-          onEditar={onEditar}
-          onCancelar={onCancelar}
-          onCerrarManual={onCerrarManual}
-          setError={setError}
-        />
-      ))}
-
-      {despachosMuertos > 0 && (
-        <div style={styles.notaHistorial}>
-          {despachosMuertos} despacho{despachosMuertos > 1 ? 's' : ''} anterior{despachosMuertos > 1 ? 'es' : ''} (rechazado o cancelado) -- ver historial arriba.
-        </div>
-      )}
-
-      {/* Sin cubrir: el alta queda siempre a la vista, no escondida detras
-          de un boton. Fecha y horario a la izquierda, el selector de
-          transportista a la derecha. */}
-      {sinCubrir && (
-        <div style={styles.altaDespachoWrap}>
-          <div style={styles.altaDespachoGrid}>
-            <div style={styles.altaDespachoColumna}>
-              <Campo
-                label="Fecha de carga *" type="date" min={hoyISO()} max={entrega.fecha_solicitada}
-                value={form.fecha}
-                onChange={e => setForm({ ...form, fecha: e.target.value })}
-                ayuda={`Entre hoy y el ${entrega.fecha_solicitada}.`}
-              />
-              <Campo
-                // Input nativo de hora: el valor siempre queda en formato
-                // 24hs (HH:MM), sin AM/PM que puedan confundirse -- antes
-                // era texto libre tipo "08:00hs".
-                label="Horario" type="time"
-                value={form.horario}
-                onChange={e => setForm({ ...form, horario: e.target.value })}
-              />
-              <Boton disabled={ocupado || !form.fecha} onClick={crear} style={{ alignSelf: 'flex-start' }}>
-                {ocupado ? 'Guardando...' : 'Crear despacho'}
-              </Boton>
-            </div>
-
-            <div style={styles.altaDespachoColumna}>
-              <SelectorTransportista
-                transportistas={transportistas}
-                valor={form.transportistaId}
-                onElegir={(id) => setForm({ ...form, transportistaId: id })}
-                permitirVacio
-                notaVacio="Opcional. Sin transportista, el despacho queda esperando."
-              />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * Un despacho existente -- asignar / reasignar / editar / cancelar
- * -------------------------------------------------------------------------- */
-
-function DespachoBloque({
-  despacho: d, orgsPorId, transportistas, viaje,
-  asignando, setAsignando, editando, setEditando,
-  ocupado, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
-}) {
-  const styles = useEstilos();
-  const col = COLOR_DESPACHO[d.estado] || COLOR_DESPACHO.CANCELADO;
-  const org = d.transportista_org_id ? orgsPorId.get(d.transportista_org_id) : null;
-  const vivo = despachoVivo(d);
-  // El viaje quedó abierto -- RECIBIDO (nunca arrancó, para el chofer) o
-  // EN_VIAJE (arrancó y nadie lo cerró) -- sin que nadie lo haya cerrado. No
-  // depende de `puedeCancelar` ni de las otras acciones -- es su propio
-  // caso. Antes exigía EN_VIAJE nada más, y por eso el botón nunca aparecía
-  // para un despacho nominado cuyo viaje se quedó en RECIBIDO -- ver el
-  // encabezado v2 de `finalizarViaje()` en `logica-viajes.js`.
-  const puedeCerrarManual = d.estado === DESPACHO.NOMINADO && viajeAbierto(viaje);
-
-  const asignandoEste = asignando && asignando.despachoId === d.id;
-  const editandoEste = editando && editando.despachoId === d.id;
-
-  return (
-    <div style={{ ...styles.despacho, opacity: vivo ? 1 : 0.6 }}>
-      <div style={styles.despachoFila}>
-        <span style={styles.despachoNro}>{d.numero}</span>
-        <Pastilla chico colores={col}>{ETIQUETA_DESPACHO[d.estado] || d.estado}</Pastilla>
-        <span style={styles.despachoDato}>carga {d.fecha_carga}</span>
-        {d.horario_carga && <span style={styles.despachoDato}>{d.horario_carga}</span>}
-        <span style={styles.despachoTransporte}>
-          {org ? org.razon_social : (vivo ? 'sin transportista' : '')}
-        </span>
-      </div>
-
-      {vivo && !asignandoEste && !editandoEste && (
-        <div style={styles.despachoAcciones}>
-          {(puedeAsignar(d) || puedeReasignar(d)) && (
-            <Boton
-              chico variante="secundario"
-              onClick={() => { setError(''); setAsignando({ despachoId: d.id, transportistaId: d.transportista_org_id || '' }); }}
-            >
-              {puedeAsignar(d) ? 'Asignar' : 'Reasignar'}
-            </Boton>
-          )}
-          {puedeEditar(d) && (
-            <Boton
-              chico variante="secundario"
-              style={styles.btnEditarFecha}
-              onClick={() => { setError(''); setEditando({ despachoId: d.id, fecha: d.fecha_carga, horario: d.horario_carga || '' }); }}
-            >
-              Editar
-            </Boton>
-          )}
-          {puedeCancelar(d, viaje) && (
-            <Boton chico variante="peligro" onClick={() => onCancelar(d)}>Cancelar</Boton>
-          )}
-          {puedeCerrarManual && (
-            <Boton chico variante="peligro" onClick={() => onCerrarManual(d, viaje)}>Cerrar viaje a mano</Boton>
-          )}
-        </div>
-      )}
-
-      {/* El chofer y el camión, cuando está nominado */}
-      {d.chofer_dni && (
-        <div style={styles.despachoDetalle}>
-          Chofer {d.chofer_dni}
-          {d.patente_tractor && <> · {d.patente_tractor}</>}
-          {d.patente_semi && <> + {d.patente_semi}</>}
-          {viaje && <> · viaje {viaje.estado}</>}
-        </div>
-      )}
-
-      {d.rechazo_motivo && (
-        <div style={styles.motivo}>Rechazado: {d.rechazo_motivo}</div>
-      )}
-      {d.cancelacion_motivo && (
-        <div style={styles.motivo}>Cancelado: {d.cancelacion_motivo}</div>
-      )}
-
-      {/* Asignar / reasignar */}
-      {asignandoEste && (
-        <div style={styles.formInline}>
-          <SelectorTransportista
-            transportistas={transportistas}
-            valor={asignando.transportistaId}
-            onElegir={(id) => setAsignando({ ...asignando, transportistaId: id })}
-            permitirVacio={false}
-            notaVacio={puedeReasignar(d) ? 'Se puede cambiar hasta que el transportista responde. Después, el camino es que rechace o pida la baja.' : ''}
-          />
-          <div style={styles.accionesFila}>
-            <Boton disabled={ocupado} onClick={() => onAsignar(d)}>
-              {ocupado ? 'Guardando...' : 'Confirmar'}
-            </Boton>
-            <Boton variante="secundario" onClick={() => setAsignando(null)}>Cancelar</Boton>
-          </div>
-        </div>
-      )}
-
-      {/* Editar fecha y horario */}
-      {editandoEste && (
-        <div style={styles.formInline}>
-          <div style={styles.altaDespachoGrid}>
-            <Campo
-              label="Fecha de carga *" type="date" min={hoyISO()}
-              value={editando.fecha}
-              onChange={e => setEditando({ ...editando, fecha: e.target.value })}
-            />
-            <Campo
-              label="Horario" type="time"
-              value={editando.horario}
-              onChange={e => setEditando({ ...editando, horario: e.target.value })}
-            />
-          </div>
-          <div style={styles.accionesFila}>
-            <Boton disabled={ocupado} onClick={() => onEditar(d)}>
-              {ocupado ? 'Guardando...' : 'Guardar'}
-            </Boton>
-            <Boton variante="secundario" onClick={() => setEditando(null)}>Cancelar</Boton>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * Selector de transportista -- desplegable buscable, no una nube de chips
- * (esa no escala con muchos transportistas) ni el <select> de siempre.
- * Mismo patron de posicionamiento y cierre-al-clickear-afuera que
- * Buscador.js, pero con el avatar de iniciales para que tenga onda.
- * -------------------------------------------------------------------------- */
-
-function SelectorTransportista({ transportistas, valor, onElegir, permitirVacio = true, notaVacio }) {
-  const styles = useEstilos();
-  const { colores } = useTema();
-  const [abierto, setAbierto] = useState(false);
-  const [busqueda, setBusqueda] = useState('');
-  const contenedorRef = useRef(null);
-
-  const elegido = transportistas.find(t => t.id === valor) || null;
-
-  const filtrados = useMemo(() => {
-    const texto = claveNormalizada(busqueda);
-    if (!texto) return transportistas;
-    return transportistas.filter(t => claveNormalizada(t.razon_social).includes(texto));
-  }, [busqueda, transportistas]);
-
-  useEffect(() => {
-    function alClickearFuera(e) {
-      if (contenedorRef.current && !contenedorRef.current.contains(e.target)) {
-        setAbierto(false);
-        setBusqueda('');
-      }
-    }
-    document.addEventListener('mousedown', alClickearFuera);
-    return () => document.removeEventListener('mousedown', alClickearFuera);
-  }, []);
-
-  function elegir(id) {
-    onElegir(id);
-    setAbierto(false);
-    setBusqueda('');
-  }
-
-  return (
-    <div ref={contenedorRef} style={styles.selectorTransportista}>
-      <label style={styles.label}>Transportista{permitirVacio ? '' : ' *'}</label>
-
-      {/* El panel se posiciona relativo a ESTE div, no al bloque entero --
-          antes `selectorTransportista` era el contenedor posicionado, y como
-          "notaVacio" (el texto de ayuda de abajo) tambien vivia ahi adentro,
-          el `top: 100%` del panel se calculaba contra la altura de TODO el
-          bloque (boton + ayuda), no solo contra el boton -- por eso el
-          desplegable aparecia pegado debajo del texto en vez de debajo del
-          boton. */}
-      <div style={styles.selectorAncla}>
-        {/* El control cerrado muestra SIEMPRE lo que hay elegido de verdad --
-            nada de "parece que sin transportista sigue marcado": si `valor`
-            tiene un id, se ve el avatar y el nombre de ESE transportista, no
-            una pastilla generica. */}
-        <button type="button" style={styles.selectorControl} onClick={() => setAbierto(v => !v)}>
-          {elegido ? (
-            <>
-              <span style={{ ...styles.selectorAvatar, background: colorAvatarDe(elegido.razon_social) }}>
-                {inicialesDe(elegido.razon_social)}
-              </span>
-              <span style={styles.selectorTexto}>{elegido.razon_social}</span>
-            </>
-          ) : (
-            <span style={styles.selectorPlaceholder}>Sin transportista</span>
-          )}
-          <span style={styles.selectorFlecha}>{abierto ? '▲' : '▼'}</span>
-        </button>
-
-        {abierto && (
-          <div style={styles.selectorPanel}>
-            <input
-              autoFocus
-              style={styles.selectorBusqueda}
-              value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar transportista..."
-            />
-            <div style={styles.selectorLista}>
-              {permitirVacio && (
-                <button
-                  type="button" onClick={() => elegir('')}
-                  style={{ ...styles.selectorFila, ...(!valor ? styles.selectorFilaActiva : {}) }}
-                  onMouseEnter={e => { if (valor) e.currentTarget.style.background = colores.fondo; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = !valor ? colores.fondoAlterno : 'transparent'; }}
-                >
-                  <span style={{ ...styles.selectorAvatarChico, background: colores.fondoAlterno, color: colores.textoTenue }}>—</span>
-                  <span style={styles.selectorFilaTexto}>Sin transportista</span>
-                  {!valor && <span style={styles.selectorCheck}>✓</span>}
-                </button>
-              )}
-              {filtrados.map(t => {
-                const activo = t.id === valor;
-                return (
-                  <button
-                    key={t.id} type="button" onClick={() => elegir(t.id)}
-                    style={{ ...styles.selectorFila, ...(activo ? styles.selectorFilaActiva : {}) }}
-                    onMouseEnter={e => { if (!activo) e.currentTarget.style.background = colores.fondo; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = activo ? colores.fondoAlterno : 'transparent'; }}
-                  >
-                    <span style={{ ...styles.selectorAvatarChico, background: colorAvatarDe(t.razon_social), color: '#fff' }}>
-                      {inicialesDe(t.razon_social)}
-                    </span>
-                    <span style={styles.selectorFilaTexto}>{t.razon_social}</span>
-                    {activo && <span style={styles.selectorCheck}>✓</span>}
-                  </button>
-                );
-              })}
-              {filtrados.length === 0 && <div style={styles.selectorVacio}>Sin resultados.</div>}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {notaVacio && <span style={styles.ayuda}>{notaVacio}</span>}
-    </div>
   );
 }
 
@@ -1304,139 +1132,45 @@ function traducirError(err) {
 }
 
 /* -----------------------------------------------------------------------------
- * Estilos -- crearEstilos(colores) + useEstilos(), mismo patron que
- * Pedidos.js (ver el comentario de REDISENO ahi arriba de por que ya no es
- * un objeto fijo).
+ * Estilos -- crearEstilos(colores, oscuro) + useEstilos(), mismo patrón que
+ * el resto del portal. Este archivo ya solo necesita los estilos de la
+ * página y de la lista -- el modal tiene los suyos propios en
+ * `programacion/ModalDetallePedido.js`.
  * -------------------------------------------------------------------------- */
 
 function crearEstilos(colores, oscuro) {
-  const pal = paletaTexto(oscuro);
+  const paleta = paletaProgramacion(oscuro);
 
   return {
     wrap: { maxWidth: 960, margin: '0 auto', padding: '1.5rem 1rem', background: colores.fondo, color: colores.texto },
-    panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' },
-    titulo: { fontSize: 18, fontWeight: 500, color: colores.texto },
+    panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: espacio.lg },
+    titulo: { fontSize: tipografia.tamano.titulo, fontWeight: tipografia.peso.fuerte, color: colores.texto },
 
-    controlesFila: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' },
-    buscador: { flex: '1 1 260px', fontSize: 13, padding: '8px 12px', borderRadius: 8, border: `0.5px solid ${colores.borde}`, color: colores.texto, background: colores.superficie },
-
-    pastillasGrupo: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' },
-
-    filaContenido: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-    filaCliente: { fontSize: 13, fontWeight: 500, color: colores.texto, flex: 2, minWidth: 110 },
-    // Nada de gris: datos reales en tonos de rojo, referencias (numero de
-    // pedido) en azul.
-    filaProducto: { fontSize: 12, color: pal.rojo, flex: 1, minWidth: 70 },
-    filaVolumen: { fontSize: 12, color: pal.rojo, fontWeight: tipografia.peso.medio, flexShrink: 0 },
-    filaNumero: { fontSize: 11, color: pal.azul, fontFamily: 'monospace', flexShrink: 0, marginLeft: 'auto' },
-
-    modalDosColumnas: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 24 },
-    modalColumna: { display: 'flex', flexDirection: 'column' },
-    modalGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 10 },
-    franjaEstadoModal: { height: 4, borderRadius: '10px 10px 0 0', margin: '-1.5rem -1.5rem 1rem' },
-    estadoModalFila: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 },
-    volumenModal: { fontSize: 15, fontWeight: tipografia.peso.negrita, color: colores.texto },
-    field: { display: 'flex', flexDirection: 'column', gap: 3 },
-    // Labels de campo: azul -- son "chrome" (identifican un dato), no el
-    // dato en si.
-    label: { fontSize: 11, color: pal.azul, fontWeight: tipografia.peso.medio },
-    valorCompleto: { fontSize: 13, color: colores.texto, fontWeight: tipografia.peso.medio },
-    // "Sin dato": rojo -- es una falta, tiene sentido que llame la atencion
-    // un poco mas que un gris apagado.
-    valorVacio: { fontSize: 13, color: pal.rojo, fontStyle: 'italic' },
-    obsBox: { fontSize: 12, color: pal.rojo, padding: '8px 10px', background: colores.fondoAlterno, borderRadius: 8, marginBottom: 10 },
-    accionesColumna: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 },
-
-    entregasTitulo: { fontSize: 11, color: pal.azul, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: tipografia.peso.medio, marginBottom: 8 },
-    entregaCard: { border: `0.5px solid ${colores.borde}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10 },
-    entregaHeader: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-    entregaNroChico: { color: pal.azul, fontFamily: 'monospace', fontSize: 12, fontWeight: tipografia.peso.medio },
-    // La fecha completa es el dato mas importante del bloque -- va en texto
-    // pleno, ni gris ni de color, y un toque mas grande que el resto.
-    entregaFechaCompleta: { color: colores.texto, fontSize: 14, fontWeight: tipografia.peso.medio, marginBottom: 6 },
-    entregaVolFila: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-    entregaVol: { color: colores.texto, fontSize: 13, fontWeight: tipografia.peso.negrita },
-    entregaDestino: { color: pal.rojo, fontSize: 12 },
-
-    despacho: { marginTop: 10, paddingTop: 10, borderTop: `0.5px solid ${colores.borde}` },
-    despachoFila: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-    despachoNro: { fontSize: 12, fontWeight: 500, color: colores.texto, fontFamily: 'monospace' },
-    // Fecha/horario del despacho: dato operativo central de esta pantalla,
-    // texto pleno.
-    despachoDato: { fontSize: 12, color: colores.texto },
-    despachoTransporte: { fontSize: 12, color: pal.rojo, fontWeight: tipografia.peso.medio },
-    despachoAcciones: { display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' },
-    despachoDetalle: { fontSize: 12, color: pal.rojo, marginTop: 4 },
-    motivo: { fontSize: 12, color: colorEstado.advertenciaTexto, marginTop: 4, fontWeight: tipografia.peso.medio },
-    // Aviso de que hay despachos viejos: azul -- es un puntero a otro lado
-    // (el historial), no un dato en si, mismo criterio que las labels.
-    notaHistorial: { fontSize: 11, color: pal.azul, marginTop: 8, fontStyle: 'italic' },
-
-    formInline: { marginTop: 10, padding: 12, background: colores.fondoAlterno, borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 },
-    altaDespachoWrap: { marginTop: 10, padding: 12, background: colores.fondoAlterno, borderRadius: 10 },
-    // Dos columnas de verdad: izquierda fecha/horario/boton, derecha el
-    // selector de transportista -- no una grilla que fluye sola.
-    altaDespachoGrid: { display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 280px)', gap: 16, alignItems: 'start' },
-    altaDespachoColumna: { display: 'flex', flexDirection: 'column', gap: 2 },
-    accionesFila: { display: 'flex', gap: 8 },
-    ayuda: { fontSize: 11, color: pal.azul, lineHeight: 1.4 },
-
-    // Boton "Editar" del despacho, mismo acento que el de Pedidos.js para
-    // "Editar fecha" -- consistencia entre pantallas para la misma accion.
-    btnEditarFecha: { borderColor: '#3B82F6', color: '#3B82F6' },
-
-    bannerError: { padding: '10px 14px', borderRadius: 8, background: colorEstado.peligroFondo, border: `0.5px solid ${colorEstado.peligroBordeAlterno}`, fontSize: 13, color: colorEstado.peligroTexto, marginBottom: 12, whiteSpace: 'pre-line' },
-
-    /* --- Selector de transportista: desplegable, no chips --- */
-    selectorTransportista: { display: 'flex', flexDirection: 'column', gap: 6 },
-    selectorAncla: { position: 'relative' },
-    selectorControl: {
-      display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box',
-      textAlign: 'left', padding: '9px 12px', borderRadius: radio.xl,
-      border: `1px solid ${colores.borde}`, background: colores.superficie, cursor: 'pointer',
-      fontSize: 13, color: colores.texto, fontFamily: tipografia.familia,
+    bannerError: {
+      padding: '10px 14px', borderRadius: radio.md, background: '#FEF2F2', border: '0.5px solid #FCA5A5',
+      fontSize: tipografia.tamano.md, color: '#B91C1C', marginBottom: espacio.md, whiteSpace: 'pre-line',
     },
-    selectorAvatar: {
-      width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 10, fontWeight: tipografia.peso.negrita, color: '#fff', flexShrink: 0,
+
+    // Paso 2: el panel en sí (fondo blanco, borde, radio 16, overflow
+    // hidden) se extrajo a `ui/PanelLista.js` -- mismos valores de siempre,
+    // ahora vía `radioProgramacion.panel` (también 16). Acá se queda el
+    // estilo de cada fila (`fila`/`filaEstado`/...), que PanelLista no
+    // conoce.
+    fila: {
+      display: 'flex', alignItems: 'center', gap: espacio.lg, padding: '16px 20px',
+      borderBottom: `1px solid ${colores.borde}`, cursor: 'pointer',
     },
-    selectorTexto: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: tipografia.peso.medio },
-    // Placeholder "Sin transportista": rojo -- es una eleccion pendiente,
-    // mismo criterio que "Sin dato" en valorVacio.
-    selectorPlaceholder: { flex: 1, color: pal.rojo },
-    selectorFlecha: { fontSize: 10, color: pal.azul, flexShrink: 0 },
-    selectorPanel: {
-      position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 30,
-      background: colores.superficie, border: `1px solid ${colores.borde}`, borderRadius: radio.xl,
-      boxShadow: '0 10px 30px rgba(0,0,0,0.18)', overflow: 'hidden',
-    },
-    selectorBusqueda: {
-      width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: 12, border: 'none',
-      borderBottom: `1px solid ${colores.borde}`, background: 'transparent', color: colores.texto, outline: 'none',
-      fontFamily: tipografia.familia,
-    },
-    selectorLista: { maxHeight: 220, overflowY: 'auto' },
-    selectorFila: {
-      display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left',
-      padding: '9px 12px', border: 'none', background: 'transparent', cursor: 'pointer',
-      fontSize: 13, color: colores.texto, fontFamily: tipografia.familia,
-    },
-    selectorFilaActiva: { background: colores.fondoAlterno, fontWeight: tipografia.peso.medio },
-    selectorAvatarChico: {
-      width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 9, fontWeight: tipografia.peso.negrita, flexShrink: 0,
-    },
-    selectorFilaTexto: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-    selectorCheck: { color: marca, fontWeight: tipografia.peso.negrita, flexShrink: 0 },
-    selectorVacio: { padding: '10px 12px', fontSize: 12, color: pal.rojo },
+    filaEstado: { minWidth: 120, flexShrink: 0 },
+    // Cliente: bold -- tabla del diseño.
+    filaCliente: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: colores.texto, flex: 2, minWidth: 120 },
+    // Producto: rojo marca, semibold -- tabla del diseño.
+    filaProducto: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: paleta.producto, flex: 1, minWidth: 90 },
+    filaCantidad: { fontSize: tipografia.tamano.md, color: colores.texto, flexShrink: 0 },
+    // OV/OC: rojo marca, bold, alineada a la derecha -- tabla del diseño.
+    filaOv: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.fuerte, color: paleta.ovOc, marginLeft: 'auto', textAlign: 'right', flexShrink: 0 },
   };
 }
 
-/**
- * Mismo patron que Pedidos.js y que ya usan Tarjeta/Boton/Campo/Pastilla:
- * cada componente de este archivo llama a este hook, sin pasar `colores` a
- * mano de padre a hijo.
- */
 function useEstilos() {
   const { colores, oscuro } = useTema();
   return useMemo(() => crearEstilos(colores, oscuro), [colores, oscuro]);
