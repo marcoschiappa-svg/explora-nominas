@@ -619,6 +619,26 @@ export async function cancelarDespacho({
     }
 
     if (viajeActual) {
+      // Segundo aviso, ahora al CHOFER: el de arriba va solo a la organización
+      // (`destinatario_chofer_dni: null`) y el chofer, que es quien tiene el viaje
+      // en la app, no se enteraba. Solo si el viaje ya tiene chofer. Lo recoge el
+      // emisor de push (`PushAvisos.gs`) y la bandeja de la app. Sin lecturas
+      // nuevas: usa `viajeActual`, ya leído arriba.
+      if (viajeActual.chofer_dni) {
+        tx.set(doc(collection(db, 'avisos')), {
+          destinatario_org_id: null,
+          destinatario_chofer_dni: viajeActual.chofer_dni,
+          tipo: 'despacho_cancelado',
+          titulo: 'Se canceló tu viaje',
+          mensaje: `Se canceló el despacho ${actual.numero}. Motivo: ${motivo}`,
+          pedido_id: pedido.id,
+          despacho_id: despacho.id,
+          viaje_id: viajeActual.id,
+          leido: false,
+          creado_en: serverTimestamp(),
+        });
+      }
+
       const cambiosViaje = {
         estado: 'CANCELADO',
         estado_ts: serverTimestamp(),

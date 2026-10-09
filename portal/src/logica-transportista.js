@@ -412,6 +412,28 @@ export async function nominar({
 
     tx.set(refViaje, datosViaje);
 
+    /* ── Aviso al chofer ─────────────────────────────────────────────────── */
+
+    // Se escribe en la MISMA transacción que el viaje: las reglas de `avisos`
+    // validan con `getAfter()` que el viaje exista y sea de esta organización,
+    // así que un aviso sin su viaje se rechaza. Lo recoge el emisor de push
+    // (Apps Script, `PushAvisos.gs`) y lo muestra la bandeja de la app. No lleva
+    // `anotar()`: el límite de anotaciones de esta transacción sigue en 3.
+    const fechaCargaAviso = actual.fecha_carga;
+    tx.set(doc(collection(db, 'avisos')), {
+      destinatario_org_id: null,
+      destinatario_chofer_dni: chofer.datos_chofer.dni,
+      tipo: 'viaje_nominado',
+      titulo: 'Tenés un viaje nuevo',
+      mensaje: `${datosViaje.producto_nombre} · ${datosViaje.cliente_razon_social}`
+        + (fechaCargaAviso ? `. Carga: ${fechaCargaAviso}` : ''),
+      pedido_id: pedido.id,
+      despacho_id: despacho.id,
+      viaje_id: refViaje.id,
+      leido: false,
+      creado_en: serverTimestamp(),
+    });
+
     /* ── Historial ───────────────────────────────────────────────────────── */
 
     anotar({
