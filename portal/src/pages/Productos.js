@@ -73,7 +73,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { crear, actualizar, desactivar, reactivar } from '../datos';
+import { crear, actualizar, desactivar, reactivar } from '../shared/datos';
 import { esComercial, motivoSinAcceso } from '../sesion';
 import { rolesDe } from '../modulos';
 import { claveNormalizada } from '../mapa-normalizacion';
@@ -182,6 +182,7 @@ export default function Productos({ usuario, onVolver }) {
         }
 
         await actualizar({
+          db,
           coleccion: 'productos',
           id: editando.id,
           cambios: datos,
@@ -191,6 +192,7 @@ export default function Productos({ usuario, onVolver }) {
         });
       } else {
         await crear({
+          db,
           coleccion: 'productos',
           datos: {
             ...datos,
@@ -237,6 +239,7 @@ export default function Productos({ usuario, onVolver }) {
       }
 
       await desactivar({
+        db,
         coleccion: 'productos',
         id: p.id,
         accion: 'desactivar_producto',
@@ -253,7 +256,7 @@ export default function Productos({ usuario, onVolver }) {
   async function volverAActivar(p) {
     setGuardando(true);
     try {
-      await reactivar({ coleccion: 'productos', id: p.id, usuario });
+      await reactivar({ db, coleccion: 'productos', id: p.id, usuario });
     } catch (err) {
       console.error(err);
       window.alert(traducirError(err));

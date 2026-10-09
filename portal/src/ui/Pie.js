@@ -33,7 +33,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { tipografia } from './tokens';
+import { tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Pie() {

@@ -37,7 +37,7 @@
 
 import { useMemo } from 'react';
 import { useTema } from '../../ui/TemaContext';
-import { espacio, radio, tipografia, colorEstado, paletaTexto } from '../../ui/tokens';
+import { espacio, radio, tipografia, colorEstado, paletaTexto } from '../../shared/tokens';
 
 export function crearEstilos(colores, oscuro) {
   const pal = paletaTexto(oscuro);

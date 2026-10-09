@@ -26,7 +26,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { marca, tipografia } from './tokens';
+import { marca, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Tabla({ columnas, filas, obtenerId, onFilaClick }) {

@@ -32,11 +32,11 @@ import {
 } from 'firebase/firestore';
 
 import { db } from './firebase';
-import { enTransaccion, calcularDiferencias } from './datos';
+import { enTransaccion, calcularDiferencias } from './shared/datos';
 import {
   DESPACHO, despachoVivo, estadoEntrega, deltaContadores,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
-} from './estados';
+} from './shared/estados';
 import { leerCalendario, evaluarFechaCarga } from './logica-calendario';
 
 /* -----------------------------------------------------------------------------
@@ -271,7 +271,7 @@ export async function aceptarEntrega({
   // v1.2.0 (RF-10) -- ver `verificarFechaCargaOCancelar()` más arriba.
   await verificarFechaCargaOCancelar(fechaCarga, pedido.tipo);
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     /* ── Lecturas ────────────────────────────────────────────────────────── */
 
     const refPedido = doc(db, 'pedidos', pedido.id);
@@ -404,7 +404,7 @@ export async function asignarTransportista({
 }) {
   const esReasignacion = despacho.estado === DESPACHO.ASIGNADO;
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refDespacho = doc(db, 'despachos', despacho.id);
     const refPedido = doc(db, 'pedidos', pedido.id);
 
@@ -495,7 +495,7 @@ export async function editarDespacho({
   // v1.2.0 (RF-10) -- ver `verificarFechaCargaOCancelar()` más arriba.
   await verificarFechaCargaOCancelar(fechaCarga, tipoPedido);
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const ref = doc(db, 'despachos', despacho.id);
     const snap = await tx.get(ref);
 
@@ -554,7 +554,7 @@ export async function editarDespacho({
 export async function cancelarDespacho({
   pedido, despacho, viaje, entregas, despachos, motivo, usuario, appsScriptUrl = null,
 }) {
-  const resultado = await enTransaccion(async (tx, anotar) => {
+  const resultado = await enTransaccion(db, async (tx, anotar) => {
     const refDespacho = doc(db, 'despachos', despacho.id);
     const refPedido = doc(db, 'pedidos', pedido.id);
     const refViaje = viaje ? doc(db, 'viajes', viaje.id) : null;

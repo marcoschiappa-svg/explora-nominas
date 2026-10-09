@@ -33,7 +33,7 @@
 
 import React from 'react';
 import { useTema } from './TemaContext';
-import { marca, radio, tipografia } from './tokens';
+import { marca, radio, tipografia } from '../shared/tokens';
 
 export default function PastillaGrupo({ activo, onClick, label, colores }) {
   const { colores: coloresTema } = useTema();

@@ -99,8 +99,8 @@ import {
   signOut,
 } from 'firebase/auth';
 
-import { CONFIG_ACTIVA } from './firebase';
-import { crear } from './datos';
+import { CONFIG_ACTIVA, db } from './firebase';
+import { crear } from './shared/datos';
 import { normalizarCuit } from './mapa-normalizacion';
 
 /* -----------------------------------------------------------------------------
@@ -394,6 +394,7 @@ export async function darDeAltaUsuario({ datos, usuario }) {
 
   try {
     await crear({
+      db,
       coleccion: 'usuarios',
       id: uid,                       // el ID ES el UID de Auth
       datos: { ...datos, estado: 'activo' },

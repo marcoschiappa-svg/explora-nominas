@@ -46,7 +46,7 @@
 
 import React, { useMemo } from 'react';
 import { useTema } from './TemaContext';
-import { marca, tipografia, radio, paletaPedidos } from './tokens';
+import { marca, tipografia, radio, paletaPedidos } from '../shared/tokens';
 
 /**
  * @param {Object} props

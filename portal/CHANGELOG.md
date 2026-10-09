@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.0
+VERSION_ACTUAL: 1.2.1
 
 # Changelog — Portal Explora
 
@@ -14,6 +14,17 @@ Cada versión, además de esta entrada, se marca con un tag de git con el
 formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 
 Las versiones más nuevas van arriba.
+
+---
+## v1.2.1 — 5/10/2026
+
+**Reorganización interna, sin cambios visibles.** `estados.js`, `datos.js`,
+`logica-viajes.js` y `ui/tokens.js` (con el test de `logica-viajes`) se mudan
+a `src/shared/`, el código que va a compartir la app TrackEx. Los archivos de
+`shared/` ya no importan `./firebase`: `crear`, `actualizar`, `desactivar`,
+`reactivar`, `enTransaccion(db, fn)`, `iniciarViaje`, `reportarDemora`,
+`finalizarViaje` y `registrarPuntos(db, ...)` reciben `db` por parámetro y
+fallan con un mensaje claro si falta. Todos los llamadores se actualizaron.
 
 ---
 ## v1.2.0 — 2/10/2026

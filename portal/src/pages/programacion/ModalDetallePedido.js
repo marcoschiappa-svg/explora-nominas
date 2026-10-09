@@ -83,7 +83,7 @@ import {
   DESPACHO, ETIQUETA_DESPACHO, ETIQUETA_ENTREGA, ETIQUETA_PEDIDO, COLOR_PEDIDO,
   despachoVivo, entregaSinCubrir, viajeAbierto, viajeVencido,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
-} from '../../estados';
+} from '../../shared/estados';
 import { evaluarFechaCarga, evaluarFechaEntrega } from '../../logica-calendario';
 import {
   ordenarEntregasPorNumero, estiloEstadoDespacho, separarDespachosPorVida, formatearFechaLarga,
@@ -91,7 +91,7 @@ import {
 import SelectorTransportista from './SelectorTransportista';
 import {
   marca, colorEstado, espacio, radio, tipografia, paletaProgramacion, radioProgramacion,
-} from '../../ui/tokens';
+} from '../../shared/tokens';
 import { useTema } from '../../ui/TemaContext';
 import Boton from '../../ui/Boton';
 import Pastilla from '../../ui/Pastilla';

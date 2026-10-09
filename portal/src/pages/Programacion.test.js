@@ -20,7 +20,7 @@ import { agruparTransportistasPorProducto, migrarSoloVencidosLegacy } from './Pr
 import {
   contarEntregasSinCubrir, ordenarEntregasPorNumero, estiloEstadoDespacho,
 } from './programacion/logica-vista';
-import { DESPACHO } from '../estados';
+import { DESPACHO } from '../shared/estados';
 
 const GLICERINA = { id: 'p1', nombre: 'Glicerina', es_generico: false };
 const OTRO = { id: 'p9', nombre: 'Otro', es_generico: true };

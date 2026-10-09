@@ -113,7 +113,7 @@ import {
   leerPreferencias, guardarPreferencias, timestampAFechaISO,
 } from '../filtros-listado';
 
-import { espacio } from '../ui/tokens';
+import { espacio } from '../shared/tokens';
 import Boton from '../ui/Boton';
 import Modal from '../ui/Modal';
 import Segmentado from '../ui/Segmentado';

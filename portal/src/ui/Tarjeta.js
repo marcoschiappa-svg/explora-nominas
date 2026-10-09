@@ -15,7 +15,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { radio, sombra } from './tokens';
+import { radio, sombra } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Tarjeta({ acento, onClick, style, children, ...resto }) {

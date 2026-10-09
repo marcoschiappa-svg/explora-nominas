@@ -34,7 +34,7 @@
 import React, { useState, useMemo } from 'react';
 import Vacio from '../../ui/Vacio';
 import Pastilla from '../../ui/Pastilla';
-import { espacio, colorEstado } from '../../ui/tokens';
+import { espacio, colorEstado } from '../../shared/tokens';
 import { formatoMoneda, formatoPorcentaje, formatoFechaLarga } from '../../formatos';
 import { ORIGENES_TARIFA } from '../../logica-tarifario';
 

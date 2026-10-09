@@ -65,7 +65,7 @@ import Boton from '../../ui/Boton';
 import Pastilla from '../../ui/Pastilla';
 import Campo from '../../ui/Campo';
 import Vacio from '../../ui/Vacio';
-import { colorEstado } from '../../ui/tokens';
+import { colorEstado } from '../../shared/tokens';
 import { useEstilos } from './estilos';
 
 const FORM_VACIO = { nombre: '', email: '', telefono: '', dni: '', cuit: '', rol: 'transportista' };

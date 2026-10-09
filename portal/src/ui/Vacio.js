@@ -18,7 +18,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { espacio, tipografia } from './tokens';
+import { espacio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Vacio({ emoji, titulo, nota }) {

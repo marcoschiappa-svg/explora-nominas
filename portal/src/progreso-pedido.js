@@ -56,7 +56,7 @@
  *   `CI=true npm test -- progreso-pedido` -- ver `progreso-pedido.test.js`.
  * ========================================================================== */
 
-import { ENTREGA } from './estados';
+import { ENTREGA } from './shared/estados';
 
 // 1. Aporte de cada etapa DISPONIBLE (ver ALCANCE arriba: colapso de 5 a 3).
 export const APORTE_ETAPA = {

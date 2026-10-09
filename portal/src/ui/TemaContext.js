@@ -34,7 +34,7 @@
  * ========================================================================== */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { temaClaro, temaOscuro } from './tokens';
+import { temaClaro, temaOscuro } from '../shared/tokens';
 
 const TemaContext = createContext({
   oscuro: false,

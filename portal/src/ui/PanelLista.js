@@ -43,7 +43,7 @@
 
 import React, { useMemo } from 'react';
 import { useTema } from './TemaContext';
-import { radioProgramacion } from './tokens';
+import { radioProgramacion } from '../shared/tokens';
 
 /**
  * @param {Object} props

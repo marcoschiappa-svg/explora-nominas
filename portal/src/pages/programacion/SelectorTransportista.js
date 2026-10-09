@@ -35,7 +35,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { claveNormalizada } from '../../mapa-normalizacion';
-import { marca, colorEstado, radio, tipografia, paletaTexto } from '../../ui/tokens';
+import { marca, colorEstado, radio, tipografia, paletaTexto } from '../../shared/tokens';
 import { useTema } from '../../ui/TemaContext';
 
 /** Iniciales para el avatar del selector: "Transportes ABC" -> "TA". */

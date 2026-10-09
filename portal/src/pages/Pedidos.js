@@ -261,7 +261,7 @@
  *     `logica-pedidos.js`. Lo que cambia es CÓMO se ve.
  *
  *   ALCANCE
- *     1. `ui/tokens.js` -- `paletaPedidos(oscuro)` con los colores del
+ *     1. `shared/tokens.js` -- `paletaPedidos(oscuro)` con los colores del
  *        diseño (fondo, panel, 5 estados de pedido, panel "Entregas", tres
  *        acentos de botón), con equivalente en modo oscuro. Ver el
  *        encabezado de ese archivo para el porqué de cada decisión.
@@ -326,7 +326,7 @@
  *       `tipografia.familia` en 'DM Sans' -- **superado por el rediseño de
  *       Programación (v1.2.0), que sí la cambia a Montserrat para todo el
  *       portal, este archivo incluido** (Paso 0 de esa tarea, ver
- *       `ui/tokens.js`). Este párrafo queda para que se entienda por qué
+ *       `shared/tokens.js`). Este párrafo queda para que se entienda por qué
  *       existió la duda -- ya no aplica.
  *     - Radio de panel: el diseño pide 18px para el panel y 14px para la
  *       fila de la lista -- agregado como `radioPedidos.panel`/`.fila` en
@@ -350,7 +350,7 @@ import { claveNormalizada } from '../mapa-normalizacion';
 import { textoDomicilio } from '../buscar-domicilios';
 import {
   estadoPedido, ETIQUETA_PEDIDO, COLOR_PEDIDO, ETIQUETA_ENTREGA,
-} from '../estados';
+} from '../shared/estados';
 import {
   aplicarFiltros, comparador, filtrosActivos, filtrosVacios,
   leerPreferencias, guardarPreferencias, timestampAFechaISO,
@@ -375,7 +375,7 @@ import {
 import { llamarAppsScript, coordinadoresActivos, armarDestinatarios } from '../logica-despachos';
 import { evaluarFechaEntrega } from '../logica-calendario';
 import { proximaFechaPendiente, formatoFechaTs } from '../extractores-pedidos';
-import { marca, colorEstado, espacio, radio, tipografia, paletaPedidos, radioPedidos } from '../ui/tokens';
+import { marca, colorEstado, espacio, radio, tipografia, paletaPedidos, radioPedidos } from '../shared/tokens';
 import { progresoPedido } from '../progreso-pedido';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
@@ -2432,7 +2432,7 @@ function Resuelto({ etiqueta, dato }) {
 
 function crearEstilos(colores, oscuro) {
   // v1.2.0 (rediseño Pedidos) -- paleta cálida del diseño "Portal Pedidos",
-  // ver el encabezado de `ui/tokens.js`.
+  // ver el encabezado de `shared/tokens.js`.
   const paleta = paletaPedidos(oscuro);
 
   return {

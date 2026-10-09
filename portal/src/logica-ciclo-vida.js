@@ -88,7 +88,7 @@
  *   de reactivación. `CI=true npm run build` sin warnings.
  * ========================================================================== */
 
-import { DESPACHOS_MUERTOS, despachoVivo } from './estados';
+import { DESPACHOS_MUERTOS, despachoVivo } from './shared/estados';
 
 /* -----------------------------------------------------------------------------
  * Utilidades

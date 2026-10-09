@@ -76,7 +76,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { crear, actualizar, desactivar, reactivar } from '../datos';
+import { crear, actualizar, desactivar, reactivar } from '../shared/datos';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
 import { claveNormalizada, normalizarCuit } from '../mapa-normalizacion';
 import {
@@ -85,7 +85,7 @@ import {
   emailDeChofer,
   traducirErrorAuth,
 } from '../alta-usuarios';
-import { colorEstado, espacio, tipografia, paletaTexto } from '../ui/tokens';
+import { colorEstado, espacio, tipografia, paletaTexto } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';
@@ -339,6 +339,7 @@ export default function Usuarios({ usuario, onVolver }) {
         }
 
         await actualizar({
+          db,
           coleccion: 'usuarios',
           id: editando.id,
           cambios,
@@ -373,6 +374,7 @@ export default function Usuarios({ usuario, onVolver }) {
    */
   async function crearInvitacion(email, datosPerfil) {
     await crear({
+      db,
       coleccion: 'invitaciones',
       id: email,                 // el ID es el email: así se lee sin consultar nada más
       datos: {
@@ -480,6 +482,7 @@ export default function Usuarios({ usuario, onVolver }) {
       }
 
       await desactivar({
+        db,
         coleccion: 'usuarios',
         id: u.id,
         accion: 'desactivar_usuario',
@@ -497,7 +500,7 @@ export default function Usuarios({ usuario, onVolver }) {
   async function volverAActivar(u) {
     setGuardando(true);
     try {
-      await reactivar({ coleccion: 'usuarios', id: u.id, usuario });
+      await reactivar({ db, coleccion: 'usuarios', id: u.id, usuario });
     } catch (err) {
       console.error(err);
       window.alert(traducirError(err));

@@ -75,7 +75,7 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { marca, colorEstado, espacio, radio, tipografia } from './tokens';
+import { marca, colorEstado, espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 import Modal from './Modal';
 import Boton from './Boton';
