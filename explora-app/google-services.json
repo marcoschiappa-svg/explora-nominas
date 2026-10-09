@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "871895783017",
+    "project_id": "explora-portal",
+    "storage_bucket": "explora-portal.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:871895783017:android:d6211a76006435b84774f8",
+        "android_client_info": {
+          "package_name": "com.explora.trackex"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "871895783017-oof4khitrqgvpispfh44avjsim7ouea7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3_8FwrM27jLcqe8se0oGLMRHaDRNFJn8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "871895783017-oof4khitrqgvpispfh44avjsim7ouea7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

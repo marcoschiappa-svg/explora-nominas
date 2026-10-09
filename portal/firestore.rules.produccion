@@ -317,6 +317,23 @@ service cloud.firestore {
               'datos_chofer', 'actualizado_en'];
     }
 
+    // Lo unico que un chofer puede modificar de SU PROPIO perfil: el token de
+    // notificaciones push de su telefono (lo registra la app TrackEx al entrar y
+    // lo borra al cerrar sesion) y la marca de actualizacion.
+    function camposDelChoferSobreSuPerfil() {
+      return ['push_token', 'actualizado_en'];
+    }
+
+    // El `push_token`, si queda en el documento, tiene que ser un token de Expo
+    // ("ExponentPushToken[...]"). Si el campo no esta (porque se borro), pasa:
+    // cerrar sesion tiene que poder borrarlo. Sin esto un chofer podria guardar
+    // texto arbitrario que el emisor de push (Apps Script) leeria despues.
+    function pushTokenValido() {
+      return !('push_token' in request.resource.data)
+             || (request.resource.data.push_token is string
+                 && request.resource.data.push_token.matches('ExponentPushToken\\[.+\\]'));
+    }
+
     // Lo que un invitado por Google puede escribir al aceptar su invitación:
     // exactamente los roles y la organización que la invitación ya decía, ni
     // uno más. Sin esto, cualquiera podría crearse un `usuarios/{propioUid}`
@@ -379,6 +396,14 @@ service cloud.firestore {
                       && resource.data.roles == ['chofer']
                       && cambia().hasOnly(camposDelTransportistaSobreChofer())
                       && noCambia('datos_chofer.dni')
+                    )
+                    // El chofer, sobre su propio documento y solo su push_token
+                    // (y `actualizado_en`). Borrar el campo esta permitido.
+                    || (
+                      tieneRol('chofer')
+                      && userId == request.auth.uid
+                      && cambia().hasOnly(camposDelChoferSobreSuPerfil())
+                      && pushTokenValido()
                     );
 
       allow delete: if false;   // se desactiva con estado
@@ -634,6 +659,20 @@ service cloud.firestore {
     // un aviso es algo que le informan, no algo que el mismo redacta.
     // -------------------------------------------------------------------------
 
+    // Los unicos campos que puede traer el aviso de nominacion que escribe el
+    // transportista. Cierra la puerta a campos extra.
+    function camposDelAvisoDeNominacion() {
+      return ['destinatario_org_id', 'destinatario_chofer_dni', 'tipo', 'titulo',
+              'mensaje', 'pedido_id', 'despacho_id', 'viaje_id', 'leido', 'creado_en'];
+    }
+
+    // El viaje que el aviso dice tener existe (en la MISMA transaccion), es de
+    // la organizacion del que escribe y su chofer es el destinatario del aviso.
+    function avisoDeNominacionTieneSuViaje() {
+      return getAfter(/databases/$(database)/documents/viajes/$(request.resource.data.viaje_id)).data.transportista_org_id == miOrganizacion()
+             && getAfter(/databases/$(database)/documents/viajes/$(request.resource.data.viaje_id)).data.chofer_dni == request.resource.data.destinatario_chofer_dni;
+    }
+
     match /avisos/{avisoId} {
       // Un aviso es para el transportista (por organizacion) O para un
       // chofer puntual (por DNI, igual que el resto del modelo identifica al
@@ -644,7 +683,24 @@ service cloud.firestore {
                   || (tieneRol('chofer')
                       && resource.data.destinatario_chofer_dni == miDni());
 
-      allow create: if esInterno();
+      // Dos ramas:
+      //   1. Un interno, cualquier aviso (cancelaciones, cambios de domicilio...).
+      //   2. El TRANSPORTISTA, SOLO el aviso 'viaje_nominado' al chofer que acaba
+      //      de nominar. Lo escribe `nominar()` en la misma transaccion que crea
+      //      el viaje, y la regla lo ata a ese viaje con `getAfter()`: ve el
+      //      estado del documento DESPUES de la transaccion, asi que un aviso sin
+      //      su viaje (o con el viaje de otra empresa, o de otro chofer) se
+      //      rechaza. Con `keys().hasOnly()` no se puede colar ningun campo extra.
+      allow create: if esInterno()
+                    || (
+                      tieneRol('transportista')
+                      && request.resource.data.tipo == 'viaje_nominado'
+                      && request.resource.data.leido == false
+                      && request.resource.data.destinatario_org_id == null
+                      && request.resource.data.creado_en == request.time
+                      && request.resource.data.keys().hasOnly(camposDelAvisoDeNominacion())
+                      && avisoDeNominacionTieneSuViaje()
+                    );
 
       // Lo unico que el destinatario puede tocar de su propio aviso es
       // marcarlo leido.
@@ -824,8 +880,21 @@ service cloud.firestore {
 
     match /historial/{eventoId} {
       allow read: if esInterno();
-      allow create: if activo()
-                    && request.resource.data.usuario_uid == request.auth.uid;
+      allow create: if request.resource.data.usuario_uid == request.auth.uid
+                    && (
+                      activo()
+                      // Alta por invitación: el invitado todavía no tiene perfil
+                      // (las reglas ven el estado previo a la transacción), así que
+                      // activo() da falso. Se acepta solo el registro de ese alta,
+                      // y solo si existe la invitación de su propio email.
+                      || (
+                        logueado()
+                        && request.resource.data.accion == 'crear_usuario_por_invitacion'
+                        && request.resource.data.entidad_tipo == 'usuario'
+                        && request.resource.data.entidad_id == request.auth.uid
+                        && exists(/databases/$(database)/documents/invitaciones/$(request.auth.token.email.lower()))
+                      )
+                    );
       allow update, delete: if false;
     }
 
