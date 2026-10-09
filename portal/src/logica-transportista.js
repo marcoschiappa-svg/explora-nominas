@@ -61,11 +61,11 @@
 
 import { doc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { enTransaccion, calcularDiferencias } from './datos';
+import { enTransaccion, calcularDiferencias } from './shared/datos';
 import {
   DESPACHO, VIAJE, deltaContadores, despachoVivo,
   puedeAceptar, puedeRechazar, puedeNominar,
-} from './estados';
+} from './shared/estados';
 import { increment } from 'firebase/firestore';
 
 /* -----------------------------------------------------------------------------
@@ -144,7 +144,7 @@ function recalcularPorTransicionDeDespacho(tx, anotar, {
 export async function aceptarDespacho({
   pedido, despacho, miOrganizacionId, usuario,
 }) {
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refDespacho = doc(db, 'despachos', despacho.id);
 
     const snapD = await tx.get(refDespacho);
@@ -220,7 +220,7 @@ export async function rechazarDespacho({
     throw new Error('El motivo del rechazo es obligatorio.');
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refDespacho = doc(db, 'despachos', despacho.id);
 
     const snapD = await tx.get(refDespacho);
@@ -316,7 +316,7 @@ export async function nominar({
     );
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refDespacho = doc(db, 'despachos', despacho.id);
 
     const snapD = await tx.get(refDespacho);

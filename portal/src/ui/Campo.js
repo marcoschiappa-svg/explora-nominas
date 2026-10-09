@@ -26,7 +26,7 @@
  * ========================================================================== */
 
 import React from 'react';
-import { colorEstado, espacio, radio, tipografia } from './tokens';
+import { colorEstado, espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from './TemaContext';
 
 export default function Campo({ label, ayuda, error, as = 'input', children, style, ...resto }) {

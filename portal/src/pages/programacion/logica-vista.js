@@ -61,7 +61,7 @@
  *   ver el prompt de la tarea, Paso 4).
  * ========================================================================== */
 
-import { DESPACHO, despachoVivo, entregaSinCubrir } from '../../estados';
+import { DESPACHO, despachoVivo, entregaSinCubrir } from '../../shared/estados';
 
 const DIAS_SEMANA_COMPLETOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_COMPLETOS = [

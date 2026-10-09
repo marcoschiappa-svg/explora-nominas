@@ -1,5 +1,8 @@
 {
   "expo": {
+    "experiments": {
+      "onDemandFilesystem": false
+    },
     "name": "TrackEx",
     "slug": "explora-app-54",
     "version": "1.1.0",

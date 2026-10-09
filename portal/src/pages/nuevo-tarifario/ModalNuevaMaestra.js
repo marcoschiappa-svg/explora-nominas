@@ -35,7 +35,7 @@
 import React, { useState, useMemo } from 'react';
 import Modal from '../../ui/Modal';
 import Boton from '../../ui/Boton';
-import { espacio } from '../../ui/tokens';
+import { espacio } from '../../shared/tokens';
 import { formatoMoneda, formatoPorcentaje } from '../../formatos';
 import { brechaContraCatac } from '../../calculo-tarifario';
 import { validarRuta, crearRutaParametro, CATEGORIAS } from '../../logica-tarifario';

@@ -41,7 +41,6 @@
  * ========================================================================== */
 
 import { doc, collection, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
-import { db } from './firebase';
 import { enTransaccion, calcularDiferencias } from './datos';
 import { DESPACHO, VIAJE, deltaContadores, viajeAbierto } from './estados';
 
@@ -172,7 +171,8 @@ export function validarCierreManual({ finTs, fechaCarga, inicioTs, ahora }) {
  * @param {Object|null} params.posicion { lat, lng, precision, origen }
  * @param {Array} params.misViajes para verificar que no tenga otro en curso
  */
-export async function iniciarViaje({ viaje, posicion, misViajes, usuario }) {
+export async function iniciarViaje({ db, viaje, posicion, misViajes, usuario }) {
+  if (!db) throw new Error('iniciarViaje: falta db');
   // Hoy nada impide que un chofer tenga dos viajes iniciados a la vez. Con dos
   // en curso, los puntos de GPS de uno se mezclarían con los del otro.
   const otroEnCurso = (misViajes || []).find(v =>
@@ -184,7 +184,7 @@ export async function iniciarViaje({ viaje, posicion, misViajes, usuario }) {
     );
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const ref = doc(db, 'viajes', viaje.id);
     const snap = await tx.get(ref);
 
@@ -238,12 +238,13 @@ export async function iniciarViaje({ viaje, posicion, misViajes, usuario }) {
  * NO cambia el estado. Y queda marcado hasta el final: es información del
  * viaje, no un semáforo que se apaga cuando el camión se recupera.
  */
-export async function reportarDemora({ viaje, motivo, usuario }) {
+export async function reportarDemora({ db, viaje, motivo, usuario }) {
+  if (!db) throw new Error('reportarDemora: falta db');
   if (!motivo || !motivo.trim()) {
     throw new Error('Contá qué pasó para que el coordinador sepa.');
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const ref = doc(db, 'viajes', viaje.id);
     const snap = await tx.get(ref);
 
@@ -355,8 +356,9 @@ export async function reportarDemora({ viaje, motivo, usuario }) {
  * @param {string|null} params.finTsManual fecha y hora de fin, si es manual
  */
 export async function finalizarViaje({
-  viaje, despacho, posicion, cerradoPor = 'chofer', motivo = null, finTsManual = null, usuario,
+  db, viaje, despacho, posicion, cerradoPor = 'chofer', motivo = null, finTsManual = null, usuario,
 }) {
+  if (!db) throw new Error('finalizarViaje: falta db');
   if (cerradoPor === 'manual' && (!motivo || !motivo.trim())) {
     throw new Error('El motivo del cierre manual es obligatorio.');
   }
@@ -367,7 +369,7 @@ export async function finalizarViaje({
     throw new Error('La fecha y hora de fin son obligatorias.');
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     /* ── Lecturas ────────────────────────────────────────────────────────── */
 
     const refViaje = doc(db, 'viajes', viaje.id);
@@ -516,7 +518,8 @@ export async function finalizarViaje({
  * @param {Array} puntos [{ lat, lng, ts, precision, velocidad }]
  *   `ts` en milisegundos.
  */
-export async function registrarPuntos(viajeId, puntos) {
+export async function registrarPuntos(db, viajeId, puntos) {
+  if (!db) throw new Error('registrarPuntos: falta db');
   if (!puntos || puntos.length === 0) return;
 
   const lote = writeBatch(db);

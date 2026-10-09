@@ -42,7 +42,7 @@
  * CÓMO SE USA
  * -----------------------------------------------------------------------------
  *   import { useTema } from '../ui/TemaContext';
- *   import { marca, espacio, radio, tipografia } from '../ui/tokens';
+ *   import { marca, espacio, radio, tipografia } from '../shared/tokens';
  *
  *   const { colores } = useTema();   // superficie, texto, borde... del tema actual
  *   const estilo = { color: colores.texto, padding: espacio.md };

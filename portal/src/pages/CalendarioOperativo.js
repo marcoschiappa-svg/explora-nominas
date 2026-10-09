@@ -50,14 +50,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { crear, actualizar, desactivar } from '../datos';
+import { crear, actualizar, desactivar } from '../shared/datos';
 import { motivoSinAcceso } from '../sesion';
 import { rolesDe } from '../modulos';
-import { despachoVivo, ENTREGA } from '../estados';
+import { despachoVivo, ENTREGA } from '../shared/estados';
 import {
   tipoDelDia, TIPO_SIN_DESPACHO, TIPO_SIN_OPERACION, ETIQUETA_TIPO_DIA,
 } from '../logica-calendario';
-import { marca, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
+import { marca, colorEstado, espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';
@@ -176,12 +176,14 @@ export default function CalendarioOperativo({ usuario, onVolver }) {
 
       if (!existente) {
         await crear({
+          db,
           coleccion: 'calendario_operativo', id: fechaISO,
           datos: { tipo, motivo: motivoLimpio, estado: 'activo' },
           accion: 'marcar_dia_calendario', entidadTipo: 'calendario_operativo', usuario,
         });
       } else {
         await actualizar({
+          db,
           coleccion: 'calendario_operativo', id: fechaISO,
           cambios: { tipo, motivo: motivoLimpio, estado: 'activo' },
           accion: 'marcar_dia_calendario', entidadTipo: 'calendario_operativo', usuario,
@@ -197,6 +199,7 @@ export default function CalendarioOperativo({ usuario, onVolver }) {
     setError('');
     try {
       await desactivar({
+        db,
         coleccion: 'calendario_operativo', id: fechaISO,
         accion: 'desmarcar_dia_calendario', usuario,
       });
@@ -215,11 +218,13 @@ export default function CalendarioOperativo({ usuario, onVolver }) {
       const snap = await getDoc(refReglas);
       if (!snap.exists()) {
         await crear({
+          db,
           coleccion: 'calendario_reglas', id: 'semanal', datos: { dias: nuevoMapa },
           accion: 'editar_regla_semanal', entidadTipo: 'calendario_reglas', usuario,
         });
       } else {
         await actualizar({
+          db,
           coleccion: 'calendario_reglas', id: 'semanal', cambios: { dias: nuevoMapa },
           accion: 'editar_regla_semanal', entidadTipo: 'calendario_reglas', usuario,
         });

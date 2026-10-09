@@ -69,11 +69,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { crear, actualizar, desactivar, reactivar } from '../datos';
+import { crear, actualizar, desactivar, reactivar } from '../shared/datos';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
 import { normalizarPatente, mostrarPatente, validarUnidad, datosDeAltaUnidad } from '../logica-flota';
 import ImportarFlota from './ImportarFlota';
-import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../ui/tokens';
+import { marca, marcaHover, colorEstado, espacio, radio, tipografia } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Boton from '../ui/Boton';
 import Tarjeta from '../ui/Tarjeta';
@@ -237,6 +237,7 @@ export default function Camiones({ usuario, onVolver }) {
         // empresa ni de tipo. Si se vendio, se desactiva y se da de alta en
         // la otra; si en realidad es del otro tipo, es un alta nueva.
         await actualizar({
+          db,
           coleccion: 'camiones',
           id: editando.id,
           cambios: {
@@ -251,6 +252,7 @@ export default function Camiones({ usuario, onVolver }) {
         // RF-04: mismo documento que arma `datosDeAltaUnidad()` -- ver el
         // encabezado de `logica-flota.js`.
         await crear({
+          db,
           coleccion: 'camiones',
           datos: datosDeAltaUnidad({ tipo: seccion, patente, organizacion_id: form.organizacion_id, obs: form.obs }),
           accion: `crear_${defSeccion.nombreEntidad}`,
@@ -296,6 +298,7 @@ export default function Camiones({ usuario, onVolver }) {
       }
 
       await desactivar({
+        db,
         coleccion: 'camiones',
         id: c.id,
         accion: `desactivar_${c.tipo}`,
@@ -312,7 +315,7 @@ export default function Camiones({ usuario, onVolver }) {
   async function volverAActivar(c) {
     setGuardando(true);
     try {
-      await reactivar({ coleccion: 'camiones', id: c.id, usuario });
+      await reactivar({ db, coleccion: 'camiones', id: c.id, usuario });
     } catch (err) {
       console.error(err);
       window.alert(traducirError(err));

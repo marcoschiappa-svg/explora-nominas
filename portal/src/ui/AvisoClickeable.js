@@ -49,7 +49,7 @@
 
 import React, { useMemo } from 'react';
 import { useTema } from './TemaContext';
-import { colorEstado, radio, tipografia, paletaPedidos } from './tokens';
+import { colorEstado, radio, tipografia, paletaPedidos } from '../shared/tokens';
 
 /** Contenedor de la franja de avisos -- el padre decide si se muestra. */
 export function FranjaAvisos({ children }) {

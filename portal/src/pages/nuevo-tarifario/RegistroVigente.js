@@ -36,7 +36,7 @@ import Segmentado from '../../ui/Segmentado';
 import PanelLista from '../../ui/PanelLista';
 import Pastilla from '../../ui/Pastilla';
 import Vacio from '../../ui/Vacio';
-import { colorEstado, paletaTarifario } from '../../ui/tokens';
+import { colorEstado, paletaTarifario } from '../../shared/tokens';
 import { useTema } from '../../ui/TemaContext';
 import { formatoMoneda, formatoKm, formatoPorcentaje, formatoFechaLarga } from '../../formatos';
 

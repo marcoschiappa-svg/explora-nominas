@@ -72,8 +72,8 @@
 
 import { doc, collection, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { enTransaccion, calcularDiferencias } from './datos';
-import { despachoVivo, ENTREGA, VIAJE } from './estados';
+import { enTransaccion, calcularDiferencias } from './shared/datos';
+import { despachoVivo, ENTREGA, VIAJE } from './shared/estados';
 import { cancelarDespacho, leerContextoPedido } from './logica-despachos';
 import { textoDomicilio } from './buscar-domicilios';
 import { TIPOS } from './tipos-pedido';
@@ -294,7 +294,7 @@ async function siguienteNumero(tx) {
  * @returns {Promise<{id: string, numero: string}>}
  */
 export async function crearPedido({ pedido, entregas, usuario, origenCarga = 'manual' }) {
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     /* ── Lecturas primero: Firestore lo exige ────────────────────────────── */
 
     const { numero } = await siguienteNumero(tx);
@@ -625,7 +625,7 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
 
   // Ahora sí, la parte que cancelar despachos uno por uno no hace: marcar el
   // pedido y dejar `suspendida` a cada entrega que no llegó a cumplirse.
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refsEntregas = entregas.map(e => doc(db, 'entregas', e.id));
 
     // TODAS las lecturas antes que cualquier escritura — Firestore lo exige.
@@ -750,7 +750,7 @@ export async function editarDomicilioPedido({
   const vivos = despachos.filter(despachoVivo);
   const viajesRecibidos = viajes.filter(v => v.estado === VIAJE.RECIBIDO);
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refPedido = doc(db, 'pedidos', pedidoId);
     const refsDespachos = vivos.map(d => doc(db, 'despachos', d.id));
     const refsViajes = viajesRecibidos.map(v => doc(db, 'viajes', v.id));
@@ -912,7 +912,7 @@ export async function editarDestinoEntrega({
     );
   }
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refEntrega = doc(db, 'entregas', entregaId);
     const refDespacho = despachoDeEntrega ? doc(db, 'despachos', despachoDeEntrega.id) : null;
     const refViaje = (viaje && viaje.estado === VIAJE.RECIBIDO) ? doc(db, 'viajes', viaje.id) : null;
@@ -1103,7 +1103,7 @@ export async function editarFechaEntrega({
   }
 
   // El cambio de fecha en sí, en su propia transacción chica.
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refEntrega = doc(db, 'entregas', entregaId);
     const snap = await tx.get(refEntrega);
     if (!snap.exists()) throw new Error('La entrega ya no existe.');
@@ -1171,7 +1171,7 @@ export async function agregarEntregas({ pedidoId, entregasNuevas, usuario }) {
   const numerosExistentes = entregasSnap.docs.map(d => Number(d.data().numero) || 0);
   const proximoNumero = (numerosExistentes.length ? Math.max(...numerosExistentes) : 0) + 1;
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refPedido = doc(db, 'pedidos', pedidoId);
     const snapPedido = await tx.get(refPedido);
     if (!snapPedido.exists()) throw new Error('El pedido ya no existe.');
@@ -1266,7 +1266,7 @@ export async function suspenderEntregas({ pedidoId, entregaIds, motivo, usuario 
   }
   const motivoLimpio = motivo.trim();
 
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refPedido = doc(db, 'pedidos', pedidoId);
     const refsEntregas = entregaIds.map(id => doc(db, 'entregas', id));
 
@@ -1349,7 +1349,7 @@ export async function suspenderEntregas({ pedidoId, entregaIds, motivo, usuario 
  * @returns {Promise<{cambio: boolean}>}
  */
 export async function reactivarEntrega({ pedidoId, entregaId, usuario }) {
-  return enTransaccion(async (tx, anotar) => {
+  return enTransaccion(db, async (tx, anotar) => {
     const refPedido = doc(db, 'pedidos', pedidoId);
     const refEntrega = doc(db, 'entregas', entregaId);
 

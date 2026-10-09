@@ -35,7 +35,7 @@
 import React, { useState, useMemo } from 'react';
 import { doc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { enTransaccion, calcularDiferencias } from '../datos';
+import { enTransaccion, calcularDiferencias } from '../shared/datos';
 import { claveDomicilio } from '../mapa-normalizacion';
 import {
   buscarParecidos,
@@ -134,7 +134,7 @@ export default function ModalDomicilio({
   async function escribir(existente, nuevo) {
     setGuardando(true);
     try {
-      const id = await enTransaccion(async (tx, anotar) => {
+      const id = await enTransaccion(db, async (tx, anotar) => {
         let domicilioId;
 
         if (existente) {

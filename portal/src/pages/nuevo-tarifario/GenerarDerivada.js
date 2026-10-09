@@ -42,7 +42,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Boton from '../../ui/Boton';
 import Tarjeta from '../../ui/Tarjeta';
-import { espacio } from '../../ui/tokens';
+import { espacio } from '../../shared/tokens';
 import { formatoMoneda, formatoKm } from '../../formatos';
 import {
   CATEGORIAS, claveRuta, buscarPorClave, crearRutaDerivada,

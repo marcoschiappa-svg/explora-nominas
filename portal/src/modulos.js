@@ -81,7 +81,7 @@
  * ========================================================================== */
 
 import { tieneAlgunRol, tienePerfil } from './sesion';
-import { marca, colorEstado } from './ui/tokens';
+import { marca, colorEstado } from './shared/tokens';
 
 /**
  * 1. Roles/categoría/emoji/título/desc/acento: iguales a los que tenía cada

@@ -73,7 +73,7 @@ import PastillaGrupo from '../../ui/PastillaGrupo';
 import Pastilla from '../../ui/Pastilla';
 import Boton from '../../ui/Boton';
 import Vacio from '../../ui/Vacio';
-import { colorEstado } from '../../ui/tokens';
+import { colorEstado } from '../../shared/tokens';
 import { useEstilos } from './estilos';
 import ModalOrganizacion from './ModalOrganizacion';
 import ModalDomicilios from './ModalDomicilios';

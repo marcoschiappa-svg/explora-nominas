@@ -51,7 +51,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit, doc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { crear, actualizar, enTransaccion, calcularDiferencias } from '../../datos';
+import { crear, actualizar, enTransaccion, calcularDiferencias } from '../../shared/datos';
 import { claveDomicilio } from '../../mapa-normalizacion';
 import {
   buscarParecidos,
@@ -62,7 +62,7 @@ import {
 import Boton from '../../ui/Boton';
 import Pastilla from '../../ui/Pastilla';
 import Vacio from '../../ui/Vacio';
-import { colorEstado } from '../../ui/tokens';
+import { colorEstado } from '../../shared/tokens';
 import { useEstilos } from './estilos';
 
 const FORM_VACIO = {
@@ -247,6 +247,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
     setGuardando(true);
     try {
       await crear({
+        db,
         coleccion: 'organizacion_domicilios',
         datos: {
           organizacion_id: organizacion.id,
@@ -282,7 +283,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
     try {
       const clave = claveDomicilio(nuevo);
 
-      await enTransaccion(async (tx, anotar) => {
+      await enTransaccion(db, async (tx, anotar) => {
         const refDomicilio = doc(collection(db, 'domicilios'));
         const refVinculo   = doc(collection(db, 'organizacion_domicilios'));
 
@@ -364,7 +365,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
       const bloqueo = await buscarPedidosVivosCon(x.domicilio.id, organizacion.id);
       if (bloqueo) { window.alert(bloqueo); return; }
 
-      await enTransaccion(async (tx, anotar) => {
+      await enTransaccion(db, async (tx, anotar) => {
         tx.delete(doc(db, 'organizacion_domicilios', x.vinculo.id));
         anotar({
           entidadTipo: 'organizacion_domicilio',
@@ -390,6 +391,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
         const debeSer = otro.vinculo.id === x.vinculo.id;
         if (!!otro.vinculo.principal === debeSer) continue;
         await actualizar({
+          db,
           coleccion: 'organizacion_domicilios',
           id: otro.vinculo.id,
           cambios: { principal: debeSer },

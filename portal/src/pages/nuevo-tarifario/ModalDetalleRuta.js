@@ -51,7 +51,7 @@ import React from 'react';
 import Modal from '../../ui/Modal';
 import Boton from '../../ui/Boton';
 import Pastilla from '../../ui/Pastilla';
-import { espacio, tipografia, colorEstado, paletaTarifario } from '../../ui/tokens';
+import { espacio, tipografia, colorEstado, paletaTarifario } from '../../shared/tokens';
 import { useTema } from '../../ui/TemaContext';
 import { formatoMoneda, formatoKm, formatoPorcentaje, formatoFechaLarga } from '../../formatos';
 

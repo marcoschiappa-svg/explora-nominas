@@ -49,8 +49,9 @@
  * ========================================================================== */
 
 import React, { useState } from 'react';
-import { finalizarViaje, validarCierreManual } from '../logica-viajes';
-import { espacio, tipografia, colorEstado, paletaTexto } from '../ui/tokens';
+import { finalizarViaje, validarCierreManual } from '../shared/logica-viajes';
+import { db } from '../firebase';
+import { espacio, tipografia, colorEstado, paletaTexto } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Modal from '../ui/Modal';
 import Campo from '../ui/Campo';
@@ -137,6 +138,7 @@ export default function ModalCierreManual({ viaje, despacho, usuario, onCerrado,
 
     try {
       await finalizarViaje({
+        db,
         viaje,
         despacho: { id: despacho.id },
         posicion: null,

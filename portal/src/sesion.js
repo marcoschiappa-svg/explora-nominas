@@ -52,7 +52,7 @@
 
 import { doc, getDoc, getDocs, deleteDoc, collection, query, where } from 'firebase/firestore';
 import { db } from './firebase';
-import { crear } from './datos';
+import { crear } from './shared/datos';
 
 /* -----------------------------------------------------------------------------
  * Auxiliares de carga
@@ -137,6 +137,7 @@ async function consumirInvitacion(firebaseUser) {
 
   try {
     await crear({
+      db,
       coleccion: 'usuarios',
       id: firebaseUser.uid,
       datos: datosPerfil,

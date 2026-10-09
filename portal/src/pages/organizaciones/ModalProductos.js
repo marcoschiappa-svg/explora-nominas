@@ -46,8 +46,9 @@ import Modal from '../../ui/Modal';
 import Boton from '../../ui/Boton';
 import Pastilla from '../../ui/Pastilla';
 import Vacio from '../../ui/Vacio';
-import { actualizar } from '../../datos';
-import { colorEstado } from '../../ui/tokens';
+import { actualizar } from '../../shared/datos';
+import { db } from '../../firebase';
+import { colorEstado } from '../../shared/tokens';
 import { useEstilos } from './estilos';
 
 export default function ModalProductos({ org, productos, puedeEditar, usuario, onCerrar }) {
@@ -81,6 +82,7 @@ export default function ModalProductos({ org, productos, puedeEditar, usuario, o
     setError(null);
     try {
       await actualizar({
+        db,
         coleccion: 'organizaciones',
         id: org.id,
         cambios: { productos_ids: seleccion },

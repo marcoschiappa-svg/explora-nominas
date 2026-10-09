@@ -35,7 +35,7 @@ import React from 'react';
 import PanelLista from '../../ui/PanelLista';
 import Pastilla from '../../ui/Pastilla';
 import Vacio from '../../ui/Vacio';
-import { colorEstado } from '../../ui/tokens';
+import { colorEstado } from '../../shared/tokens';
 import { formatoMoneda, formatoKm, formatoPorcentaje } from '../../formatos';
 
 export default function RutasDerivadas({ S, filas, onAbrir, vacioDerivadas }) {
