@@ -682,7 +682,7 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
     });
 
     return { yaEstaba: false, avisosApps, despachosCancelados: vivos.length, fechaCarga };
-  }, 3);
+  }, 1 + entregas.length);
 }
 
 /* -----------------------------------------------------------------------------
@@ -856,7 +856,7 @@ export async function editarDomicilioPedido({
     });
 
     return { cambio: true };
-  }, 3);
+  }, 1 + vivos.length + viajesRecibidos.length);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1217,7 +1217,7 @@ export async function agregarEntregas({ pedidoId, entregasNuevas, usuario }) {
     });
 
     return { agregadas: entregasNuevas.length, volumenAgregado };
-  }, 1);
+  }, 1 + entregasNuevas.length);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1327,7 +1327,7 @@ export async function suspenderEntregas({ pedidoId, entregaIds, motivo, usuario 
     });
 
     return { suspendidas: entregasParaSuspender.length, volumenQuitado };
-  }, 3);
+  }, 1 + entregaIds.length);
 }
 
 /* -----------------------------------------------------------------------------
