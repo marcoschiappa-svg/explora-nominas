@@ -1,7 +1,32 @@
 /**
  * =============================================================================
- * organizaciones/ModalUsuarios.js — v1.2.0 (rediseño Organizaciones)
+ * organizaciones/ModalUsuarios.js — v1.2.2 (correos por organización)
  * =============================================================================
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.2 (correos por organización) -- TELÉFONO DE LOS USUARIOS, SOLO LECTURA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Al armar los avisos de una organización no había dónde ver los teléfonos
+ *     de su gente.
+ *
+ *   CAUSA RAÍZ
+ *     Los teléfonos son de los usuarios (`usuarios.telefonos`, array de
+ *     strings), pero la lista de este modal solo mostraba nombre, roles y
+ *     estado.
+ *
+ *   ALCANCE
+ *     10. Cada usuario de la lista muestra su `telefonos` (strings unidos con
+ *         " · ", "—" si no tiene). Sin edición. No se agregan campos ni
+ *         colecciones: los teléfonos siguen siendo del usuario.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna nueva.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Un usuario con dos teléfonos los
+ *     muestra separados por " · "; uno sin teléfonos muestra "—".
+ * -----------------------------------------------------------------------------
  *
  * SÍNTOMA
  *   El Paso 3 del rediseño pide un modal "Usuarios — <razón social>" en vez
@@ -294,6 +319,10 @@ export default function ModalUsuarios({ org, usuario, soyAdmin, onCerrar }) {
               <Pastilla key={r} chico colores={PILLS_ROL[r] || PILLS_ROL.transportista}>{r}</Pastilla>
             ))}
             {u.estado !== 'activo' && <Pastilla chico colores={PILLS_ROL.inactivo}>Inactivo</Pastilla>}
+            {/* 10. Teléfono, solo lectura. */}
+            <span style={{ ...styles.ayuda, marginLeft: 'auto' }}>
+              Tel.: {(u.telefonos || []).length > 0 ? u.telefonos.join(' · ') : '—'}
+            </span>
           </div>
         </div>
       ))}

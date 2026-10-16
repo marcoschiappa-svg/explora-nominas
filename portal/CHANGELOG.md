@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.1
+VERSION_ACTUAL: 1.2.2
 
 # Changelog — Portal Explora
 
@@ -14,6 +14,71 @@ Cada versión, además de esta entrada, se marca con un tag de git con el
 formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 
 Las versiones más nuevas van arriba.
+
+---
+## v1.2.2 — 15/10/2026
+
+**Correos múltiples por organización.** Una organización (cliente o
+transportista) puede tener uno o más correos, con alias y uno principal.
+Colección nueva `organizacion_emails` (un documento por correo, igual que
+`organizacion_domicilios`). **Requiere publicar las reglas de Firestore.**
+
+- Organizaciones: botón "Correos (n)" por fila y modal "Correos — <razón
+  social>" (agregar, quitar, hacer principal). Edita: admin siempre, comercial
+  solo clientes, coordinador solo transportistas; el resto lo ve en solo
+  lectura. La lista muestra el correo principal junto al CUIT. Toda alta, baja
+  y cambio queda en el historial (`agregar_email`, `quitar_email`,
+  `marcar_email_principal`).
+- Edición de una organización: se saca el input "Correo" y `organizaciones.email`
+  deja de escribirse (el campo viejo NO se borra de los documentos). En el alta
+  el correo es opcional y, si viene, se crea en la misma transacción como
+  principal. `telefono` de la organización no cambia.
+- Usuarios de la organización: cada usuario muestra su teléfono (solo lectura).
+  Los teléfonos siguen siendo del usuario.
+- Avisos por mail: los de Programación al transportista (aceptar, asignar,
+  editar) van a los correos de sus usuarios MÁS los de la organización, sin
+  repetidos. Si la consulta de los correos de la organización falla, se sigue
+  con los de los usuarios. Ya no se exige un usuario activo con correo para
+  asignar un transporte: alcanza con algún correo.
+- Script `scripts/migrar-emails-organizacion.js`: copia `organizaciones.email`
+  a `organizacion_emails` (simula por defecto, `--ejecutar` para escribir,
+  idempotente).
+- `package.json`: `"version"` pasa a `1.2.2` (figuraba `0.1.0`; nada lo lee, la
+  versión que se muestra sale del tag de git).
+
+**Rediseño del modal de organización.** Ahora tiene pestañas (Datos generales,
+Domicilios, Correos, Usuarios, Productos, con contadores) y una "Ficha completa"
+(porcentaje y checklist según el tipo de organización, con "Agregar →" que salta
+a la pestaña). Correos, domicilios, productos y baja se escriben al instante con
+un aviso breve; "Cambios sin guardar" y "Guardar cambios" aplican solo a Datos
+generales. La baja pide el motivo dentro del propio pie del modal (antes un
+cuadro del navegador). Usuarios lista a TODOS los usuarios con su teléfono y
+marca posibles duplicados (antes mostraba 4). Arreglo: "Última modificación"
+mostraba el `Timestamp` crudo de Firestore; ahora "hace N días · dd/mm/aaaa hh:mm".
+Solo interfaz: sin cambios en reglas ni en el modelo de datos.
+
+**Fix aparte — el aviso de "despacho editado" no le llegaba al transportista.**
+- Síntoma: al editar la fecha u horario de un despacho programado, el
+  transportista no recibía ningún mail (los coordinadores sí).
+- Causa raíz: `Programacion.js` mandaba `editar_despacho` con
+  `email_transportista` pero sin `destinatarios`, y `enviarEmailEditarDespacho`
+  (`Notificaciones.gs`) solo escribe al transportista si
+  `data.destinatarios.transportista` trae elementos.
+- Alcance: `editar_despacho` ahora manda `destinatarios` con
+  `armarDestinatarios()` y `correosDeTransportista()`, igual que aceptar y
+  asignar (efecto colateral: los coordinadores de ese mail pasan de la lista de
+  respaldo del script a la lista viva). Misma causa en `reprogramar_despacho`
+  de la pantalla vieja `Coordinador.js`: se manda `destinatarios.transportista`
+  con los correos que ya usaba, sin tocar a los coordinadores. La cancelación
+  de un despacho no manda mail (solo aviso interno y `borrar_despacho` al Plan)
+  y `suspender_pedido` no manda al transportista a propósito: sin cambios.
+  `Notificaciones.gs` no se modifica.
+
+**Orden de despliegue:**
+1. Publicar las reglas en staging y probar.
+2. Migración en staging: `--simular` y luego `--ejecutar`.
+3. Lo mismo en producción (reglas, migración `--simular`, `--ejecutar`).
+4. Recién ahí, mergear el portal.
 
 ---
 ## v1.2.1 — 5/10/2026

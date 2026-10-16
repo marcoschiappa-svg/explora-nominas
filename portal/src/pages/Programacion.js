@@ -286,6 +286,26 @@
  *     impedir nada.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.2 (correos por organización) -- AVISOS AL TRANSPORTISTA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA: los avisos por mail al transportista salían solo a los correos de
+ *   sus usuarios, no a los de la organización.
+ *   CAUSA RAÍZ: `correosDeOrganizacion(usuarios, id)` solo mira `usuarios`.
+ *   ALCANCE: en `confirmarAceptar`, `confirmarAsignar` y `confirmarEditar` se
+ *   usa `await correosDeTransportista(db, usuarios, id)` (usuarios + correos
+ *   de `organizacion_emails`, sin repetidos). Si la consulta de la organización
+ *   falla se avisa por consola y se sigue con los de los usuarios: el mail
+ *   nunca bloquea crear o editar un despacho. Ya no se exige "usuario activo
+ *   con correo": alcanza con que haya algún correo.
+ *   FIX APARTE: `editar_despacho` mandaba `email_transportista` pero no
+ *   `destinatarios`, y `enviarEmailEditarDespacho` (Notificaciones.gs) solo
+ *   escribe al transportista si `data.destinatarios.transportista` trae
+ *   elementos: el aviso de edición nunca le llegaba. Ahora lo manda con
+ *   `armarDestinatarios(...)`, igual que aceptar y asignar.
+ *   CÓMO SE VERIFICA: asignar un transporte con un correo de organización y
+ *   sin usuarios con correo ya no se rechaza, y el mail llega a ese correo.
+ * -------------------------------------------------------------------------- */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -299,8 +319,9 @@ import {
 } from '../shared/estados';
 import {
   aceptarEntrega, asignarTransportista, editarDespacho, cancelarDespacho,
-  correosDeOrganizacion, llamarAppsScript, coordinadoresActivos, armarDestinatarios,
+  llamarAppsScript, coordinadoresActivos, armarDestinatarios,
 } from '../logica-despachos';
+import { correosDeTransportista } from './organizaciones/logica-organizacion-emails';
 import {
   SIN_ASIGNAR, aplicarFiltros, comparador, filtrosActivos, filtrosVacios,
   leerPreferencias, guardarPreferencias,
@@ -694,12 +715,12 @@ export default function Programacion({ usuario, onVolver }) {
     if (!f || !f.fecha) { setError('Elegí la fecha de carga.'); return; }
 
     const transportista = f.transportistaId ? orgsPorId.get(f.transportistaId) : null;
-    const correosTransportista = transportista ? correosDeOrganizacion(usuarios, transportista.id) : [];
+    const correosTransportista = transportista ? await correosDeTransportista(db, usuarios, transportista.id) : [];
 
     if (transportista && correosTransportista.length === 0) {
       setError(
-        `${transportista.razon_social} no tiene ningún usuario activo con correo. `
-        + 'Cargalo desde Usuarios antes de asignarle despachos.'
+        `${transportista.razon_social} no tiene ningún correo cargado. `
+        + 'Cargalo desde Usuarios o desde Organizaciones → Correos antes de asignarle despachos.'
       );
       return;
     }
@@ -751,12 +772,12 @@ export default function Programacion({ usuario, onVolver }) {
     if (!f || !f.transportistaId) { setError('Elegí el transportista.'); return; }
 
     const transportista = orgsPorId.get(f.transportistaId);
-    const correos = correosDeOrganizacion(usuarios, transportista.id);
+    const correos = await correosDeTransportista(db, usuarios, transportista.id);
 
     if (correos.length === 0) {
       setError(
-        `${transportista.razon_social} no tiene ningún usuario activo con correo. `
-        + 'Cargalo desde Usuarios antes de asignarle despachos.'
+        `${transportista.razon_social} no tiene ningún correo cargado. `
+        + 'Cargalo desde Usuarios o desde Organizaciones → Correos antes de asignarle despachos.'
       );
       return;
     }
@@ -817,12 +838,15 @@ export default function Programacion({ usuario, onVolver }) {
       });
 
       if (cambio && despacho.transportista_org_id) {
-        const correos = correosDeOrganizacion(usuarios, despacho.transportista_org_id);
+        const correos = await correosDeTransportista(db, usuarios, despacho.transportista_org_id);
         const entrega = entregas.find(e => e.id === despacho.entrega_id);
         const rEdit = await llamarAppsScript(APPS_SCRIPT_URL, 'editar_despacho', {
           pedido_id: x.pedido.numero,
           despacho_id: despacho.numero,
           email_transportista: correos.join(','),
+          // v1.2.2 (fix aparte): `enviarEmailEditarDespacho` solo escribe al
+          // transportista si `data.destinatarios.transportista` trae elementos.
+          destinatarios: armarDestinatarios({ coordinadores: await coordinadoresActivos(), transportista: correos }),
           fecha_carga_anterior: despacho.fecha_carga,
           ...payloadDe(x.pedido, entrega, f, orgsPorId.get(despacho.transportista_org_id)),
         });

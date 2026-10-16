@@ -35,6 +35,7 @@ son referenciados por nada.
 organizaciones/{id}          clientes, transportes y Explora
 domicilios/{id}
 organizacion_domicilios/{id} qué domicilios usa cada organización
+organizacion_emails/{id}     v1.2.2 -- los correos de cada organización
 usuarios/{authUid}           el ID del documento ES el UID de Auth
 productos/{id}
 camiones/{id}
@@ -72,6 +73,12 @@ es_transportista    bool
 es_propia           bool        true solo para Explora
 
 productos_ids       string[]    solo si es_transportista -- v1.2.0 (RF-08)
+
+email               string | null   OBSOLETO desde v1.2.2: ya no se escribe ni
+                                    se lee; los correos viven en
+                                    `organizacion_emails`. Se deja en los
+                                    documentos viejos (no se borra).
+telefono            string | null   sin cambios
 
 creado_por_uid      string
 creado_en           Timestamp
@@ -154,6 +161,38 @@ Explora.
 
 Relación N a N: un domicilio puede tener varias organizaciones y una organización
 varios domicilios.
+
+---
+
+## `organizacion_emails` — v1.2.2
+
+```
+organizacion_id     string      → organizaciones
+email               string      normalizado (trim + minúsculas)
+alias               string | null   "Logística"
+principal           bool        uno por organización
+clave_normalizada   string      "<organizacion_id>|<email>", para deduplicar
+creado_por_uid      string
+creado_en           Timestamp
+actualizado_en      Timestamp
+```
+
+Un documento por correo, **sin arrays en la organización**: mismo criterio que
+`organizacion_domicilios`. El correo **se borra** al quitarlo (es una relación,
+nada lo referencia) y queda en `historial` (`agregar_email`, `quitar_email`,
+`marcar_email_principal`, `entidad_tipo: 'organizacion_email'`). Si se quita el
+principal y quedan otros, el más antiguo pasa a principal.
+
+Edita: admin siempre; comercial solo organizaciones cliente puras; coordinador
+solo transportes. Lee: internos y el transportista de esa organización.
+
+Los avisos por mail al transportista salen a los correos de sus usuarios más los
+de esta colección, sin repetidos. El alta de una organización con correo escribe
+las dos cosas en la misma transacción.
+
+**Los teléfonos NO van acá ni en la organización**: los teléfonos de contacto de
+las personas son de los usuarios (`usuarios.telefonos`). El `telefono` de la
+organización no cambia.
 
 ---
 
@@ -989,6 +1028,7 @@ función lo escribe.
 | `organizaciones` | todo | lectura | lectura |
 | `domicilios` | todo | lectura | lectura |
 | `organizacion_domicilios` | todo | lectura | lectura |
+| `organizacion_emails` | según tipo de organización (ver su sección) | lectura de los de su organización | — |
 | `usuarios` | todo | los de su organización; crea choferes | el suyo |
 | `productos` | admin escribe | lectura | lectura |
 | `camiones` | todo | los suyos, ABM completo | lectura |

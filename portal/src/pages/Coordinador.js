@@ -784,7 +784,13 @@ function Coordinador({ usuario, onVolver }) {
       // que `moverEnPlan()` (Apps Script) pueda sacar el bloque de la fila
       // vieja del Plan de Producción antes de escribirlo en la fila nueva
       // (`fecha_carga: rd.fecha_carga`, la que eligió el coordinador ahora).
-      const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, fecha_carga_anterior: despachoActual.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
+      // v1.2.2 (fix aparte): `enviarEmailReprogramacion` (Notificaciones.gs) solo
+      // escribe al transportista si `data.destinatarios.transportista` trae
+      // elementos. Se arma a mano SIN `coordinadores` a propósito: sin esa
+      // clave el script sigue usando su lista de respaldo, como hasta ahora
+      // (esta pantalla es del modelo viejo y no tiene organización).
+      const correosTransp = todosEmails.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+      const payload = { accion: 'reprogramar_despacho', pedido_id: p.id, despacho_id: despachoActual.id || ('D' + (despachoIdx + 1)), email_transportista: todosEmails, ...(correosTransp.length > 0 ? { destinatarios: { transportista: correosTransp } } : {}), transporte: despachoActual.transporte, producto: p.producto, volumen: despachoActual.volumen, cliente: p.cliente, ov: p.ov, lugar: p.lugar, fecha_carga: rd.fecha_carga, fecha_carga_anterior: despachoActual.fecha_carga, horario_carga: rd.horario_carga || '', reprogramado_por: usuario?.nombre || 'Coordinador' };
       await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), { mode: 'no-cors' });
       setReprogramando(prev => { const n = {...prev}; delete n[key]; return n; });
       alert('✓ Despacho reprogramado. Se notificó al transportista.');
