@@ -375,13 +375,24 @@ export async function finalizarViaje({
     const refViaje = doc(db, 'viajes', viaje.id);
     const refDespacho = doc(db, 'despachos', despacho.id);
 
-    const [snapV, snapD] = await Promise.all([tx.get(refViaje), tx.get(refDespacho)]);
+    // El chofer no tiene permiso de lectura sobre `despachos` (las reglas solo
+    // lo permiten a internos y al transportista), así que cuando cierra el
+    // chofer no se lee el despacho: solo el viaje. Si el despacho no existe,
+    // el tx.update de más abajo falla y la transacción entera se revierte.
+    const esChofer = cerradoPor === 'chofer';
+    const [snapV, snapD] = await Promise.all([
+      tx.get(refViaje),
+      esChofer ? Promise.resolve(null) : tx.get(refDespacho),
+    ]);
 
     if (!snapV.exists()) throw new Error('El viaje ya no existe. Actualizá la página.');
-    if (!snapD.exists()) throw new Error('El despacho ya no existe. Actualizá la página.');
+    if (!esChofer && !snapD.exists()) throw new Error('El despacho ya no existe. Actualizá la página.');
 
     const viajeActual = { id: viaje.id, ...snapV.data() };
-    const despachoActual = { id: despacho.id, ...snapD.data() };
+    // Las reglas garantizan que el chofer solo escribe NOMINADO -> ENTREGADO.
+    const despachoActual = esChofer
+      ? { id: despacho.id, estado: DESPACHO.NOMINADO }
+      : { id: despacho.id, ...snapD.data() };
 
     // El chofer solo puede cerrar lo que él mismo inició -- sigue exigiendo
     // EN_VIAJE, sin cambios. El cierre manual acepta también RECIBIDO: ver

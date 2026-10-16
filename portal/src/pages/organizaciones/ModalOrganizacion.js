@@ -1,72 +1,86 @@
 /**
  * =============================================================================
- * organizaciones/ModalOrganizacion.js — v1.2.0 (rediseño Organizaciones)
+ * organizaciones/ModalOrganizacion.js — v1.2.2 (rediseño del modal con pestañas)
  * =============================================================================
  *
  * SÍNTOMA
- *   El Paso 2 del rediseño pide que el alta/edición de una organización sea
- *   un modal (hasta 920px, dos columnas), con un panel "RESUMEN" a la
- *   derecha y enlaces que reemplazan el contenido del modal por el de
- *   Domicilios/Usuarios/Productos -- en vez de la "vista de formulario" a
- *   pantalla completa que tenía `Organizaciones.js`.
+ *   El modal de organización era un formulario con un panel "RESUMEN" que
+ *   cortaba la lista de usuarios en 4 nombres, mostraba el `Timestamp` de
+ *   Firestore crudo en la auditoría y mandaba a un modal distinto por cada
+ *   cosa (domicilios, correos, productos).
  *
  * CAUSA RAÍZ
- *   Esa vista vivía integrada al archivo monolítico, sin forma de abrirse
- *   como modal ni de ofrecer el panel de resumen.
+ *   El formulario y el resumen vivían en un solo componente, y cada gestión
+ *   (domicilios, correos, usuarios, productos) era un modal aparte.
  *
  * ALCANCE
- *   MISMA lógica de datos que tenía `Organizaciones.js` -- `validarFormulario`,
- *   `buscarDuplicado` (razón social y CUIT/identificación), `guardar()`
- *   (alta/edición), `darDeBaja()` (con `buscarDependenciasVivas`),
- *   `volverAActivar()` -- relocalizadas acá tal cual, sin tocar ninguna
- *   regla de RF-07 (banderas por rol) ni RF-03 (alta de transportista).
+ *   Orquestador del modal rediseñado: ARMAZÓN con pestañas
+ *   (`ArmazonModalOrganizacion`) + `PestanaGeneral` (formulario y
+ *   `PanelFichaCompleta`) + Domicilios y Correos (`GestionDomiciliosOrganizacion`
+ *   y `GestionEmailsOrganizacion` embebidos) + `PestanaUsuarios` +
+ *   `PestanaProductos`. La lógica de datos de siempre NO cambia:
+ *   `validarFormulario`, `buscarDuplicado` (razón social y CUIT),
+ *   `buscarDependenciasVivas`, `crear`/`actualizar`/`desactivar`/`reactivar`,
+ *   el alta con correo opcional en una transacción, y el paso RF-03 de crear
+ *   el usuario transportista (`PasoUsuarioTransportista`).
  *
- *   El checklist de productos (RF-08) SALE del formulario -- ahora vive en
- *   `ModalProductos.js` (Paso 5); acá solo queda el resto de los campos.
- *
- *   Columna derecha "RESUMEN" (solo al editar, no en el alta: todavía no
- *   hay domicilios/usuarios que resumir): domicilios cortos, usuarios
- *   (cantidad y nombres), productos si transportista, auditoría si el
- *   documento trae `creado_por`/`actualizado_en` (no se inventan campos que
- *   no existen hoy). Cada bloque tiene un enlace que llama a
- *   `onCambiarModal({tipo, org})` -- el orquestador reemplaza el modal
- *   abierto, nunca abre uno nuevo encima. Si hay cambios sin guardar, se
- *   confirma antes (mismo patrón `window.confirm` que ya usa el archivo
- *   para desvincular un domicilio).
- *
- *   RF-03: al guardar el ALTA de una organización `es_transportista`, el
- *   modal no se cierra -- pasa a un sub-paso interno "Crear usuario
- *   transportista" (mismo formulario/clave-una-vez que ya tenía
- *   `UsuariosDeOrganizacion`), con "Omitir". Ese paso sigue fijo en
- *   `roles:['transportista']` -- la opción de elegir Chofer es exclusiva
- *   del modal de Usuarios (`ModalUsuarios.js`), no de este atajo posterior
- *   al alta.
- *
- *   Solo lectura: si `!puedeEditarOrg(org)` para una organización existente,
- *   los campos quedan `disabled`, sin botón "Guardar", con la leyenda
- *   "Solo lectura".
+ *   1. GUARDADO: "Cambios sin guardar" y "Guardar cambios" aplican SOLO a los
+ *      campos de Datos generales. Correos, domicilios, productos y baja se
+ *      escriben al instante y muestran un toast; no cuentan como pendientes.
+ *   2. Tras guardar una edición el modal queda abierto (toast "Cambios
+ *      guardados"); antes se cerraba.
+ *   3. ALTA: las otras pestañas aparecen deshabilitadas ("Se habilitan después
+ *      de crear la organización").
+ *   4. BAJA: confirmación inline en el pie con motivo OBLIGATORIO (reemplaza
+ *      al `window.prompt`) y el bloqueo de `buscarDependenciasVivas` se
+ *      muestra ahí mismo. "Reactivar" aparece en el pie con la organización
+ *      dada de baja.
+ *   5. TIPO: Cliente / Transporte editables solo por admin
+ *      (`puedeElegirBanderas`); en el alta, `puedeElegirTipo` elige UNA, y un
+ *      rol único ve el tipo fijo deshabilitado. Las reglas prohíben cambiar
+ *      las banderas a los demás (`banderasSinCambios`).
+ *   6. Visibilidad: Usuarios = transporte y admin/coordinador; Productos =
+ *      transporte (mismas reglas que los botones de la lista).
+ *   7. Domicilios se edita con `soyAdmin || soyComercial`, como en
+ *      `ModalDomicilios`: las reglas de `organizacion_domicilios` son de
+ *      `esComercial()`, no dependen de `puedeEditarOrg`.
+ *   8. Productos: escritura inmediata con `cambiarProductoDeclarado()`.
+ *   9. `email` de la organización: solo existe el input en el ALTA (v1.2.2);
+ *      `telefono` se mantiene tal cual.
  *
  * LIMITACIONES CONOCIDAS
- *   Mismas que ya tenía RF-03/RF-07/RF-08 -- ninguna nueva.
+ *   Los modales sueltos `ModalDomicilios`, `ModalEmails` y `ModalProductos`
+ *   quedaron sin uso desde esta pantalla (no se borran). `ModalUsuarios` sigue
+ *   en uso: es el destino de "Gestionar usuarios →".
  *
  * CÓMO SE VERIFICA
- *   `CI=true npm run build` sin warnings. Alta de un transporte: el modal
- *   pasa a "Crear usuario transportista"; "Omitir" cierra el modal. Un
- *   comercial que abre un transporte lo ve en solo lectura. Cerrar con
- *   cambios sin guardar pide confirmación.
+ *   `CI=true npm run build` sin warnings. Editar un transporte: 5 pestañas con
+ *   contadores; agregar un correo muestra el toast sin marcar cambios sin
+ *   guardar; cambiar la razón social sí. Dar de baja exige motivo. Alta: solo
+ *   "Datos generales" habilitada.
  * ========================================================================== */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { crear, actualizar, desactivar, reactivar } from '../../shared/datos';
 import { claveNormalizada, normalizarCuit } from '../../mapa-normalizacion';
-import { darDeAltaUsuario, validarAltaUsuario, traducirErrorAuth } from '../../alta-usuarios';
 import { textoDomicilio } from '../../buscar-domicilios';
-import Modal from '../../ui/Modal';
 import Boton from '../../ui/Boton';
-import Campo from '../../ui/Campo';
-import { useEstilos } from './estilos';
+import { tipografia } from '../../shared/tokens';
+import { validarEmail, crearOrganizacionConEmail } from './logica-organizacion-emails';
+import { cambiarProductoDeclarado } from './logica-organizacion-productos';
+import {
+  iniciales, verificarCuit, formatearCuit, calcularFicha, formatearUltimaModificacion,
+} from './logica-ficha-organizacion';
+import ArmazonModalOrganizacion from './ArmazonModalOrganizacion';
+import PestanaGeneral from './PestanaGeneral';
+import PestanaUsuarios from './PestanaUsuarios';
+import PestanaProductos from './PestanaProductos';
+import PasoUsuarioTransportista from './PasoUsuarioTransportista';
+import GestionDomiciliosOrganizacion from './GestionDomiciliosOrganizacion';
+import GestionEmailsOrganizacion from './GestionEmailsOrganizacion';
+import { EstadoVacio, Icono, useTonos } from './piezas-modal-organizacion';
 
 function validarFormulario(form) {
   const errores = [];
@@ -75,20 +89,23 @@ function validarFormulario(form) {
   if (!form.es_exterior && form.cuit.trim() && !normalizarCuit(form.cuit)) {
     errores.push('El CUIT tiene que tener 11 dígitos.');
   }
-  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-    errores.push('El correo no parece válido.');
-  }
+  // Solo el alta tiene input de correo; en edición `form.email` va siempre vacío.
+  if (form.email.trim()) errores.push(...validarEmail(form.email));
   return errores;
 }
 
+const AYUDA_PESTANA_ALTA = 'Se habilitan después de crear la organización';
+
 export default function ModalOrganizacion({
-  org, usuario,
+  org, usuario, productos = [],
+  soyAdmin, soyComercial, soyCoordinador,
   puedeElegirBanderas, puedeElegirTipo, puedeEditarOrg,
   formVacioPorRol,
   onCerrar, onCambiarModal,
 }) {
-  const styles = useEstilos();
+  const { colores, pal, tonos } = useTonos();
   const editando = org || null;
+  const esAlta = !editando;
   const soloLectura = !!editando && !puedeEditarOrg(editando);
 
   const [form, setForm] = useState(() => editando ? {
@@ -96,25 +113,60 @@ export default function ModalOrganizacion({
     nombre_corto: editando.nombre_corto || '',
     cuit: editando.cuit || '',
     es_exterior: !!editando.es_exterior,
-    email: editando.email || '',
+    email: '', // 9. ya no se copia `organizaciones.email`
     telefono: editando.telefono || '',
     es_cliente: !!editando.es_cliente,
     es_transportista: !!editando.es_transportista,
     obs: editando.obs || '',
   } : formVacioPorRol());
-  const formInicial = useRef(JSON.stringify(form));
-  const hayCambiosSinGuardar = JSON.stringify(form) !== formInicial.current;
+  const [baseline, setBaseline] = useState(() => JSON.stringify(form));
+  const hayCambiosSinGuardar = JSON.stringify(form) !== baseline;
 
+  const [pestana, setPestana] = useState('general');
   const [errores, setErrores] = useState([]);
   const [guardando, setGuardando] = useState(false);
+  const [toast, setToast] = useState('');
+  const [confirmandoBaja, setConfirmandoBaja] = useState(false);
+  const [motivoBaja, setMotivoBaja] = useState('');
+  const [errorBaja, setErrorBaja] = useState('');
+  const [ocupadoProductos, setOcupadoProductos] = useState(false);
 
   // RF-03: organización recién creada, esperando el alta de su usuario
   // transportista (o "Omitir"). `null` mientras no se llegó a ese paso.
   const [orgRecienCreada, setOrgRecienCreada] = useState(null);
 
+  // Datos vivos para los contadores y las vistas previas (solo al editar).
+  const [emails, setEmails] = useState([]);
+  const [vinculos, setVinculos] = useState([]);
+  const [domicilios, setDomicilios] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [cargandoUsuarios, setCargandoUsuarios] = useState(true);
+
+  const idOrg = editando ? editando.id : null;
+  useEffect(() => {
+    if (!idOrg) return undefined;
+    const filtro = (col) => query(collection(db, col), where('organizacion_id', '==', idOrg));
+    const lista = (snap) => snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const unsubEmails = onSnapshot(filtro('organizacion_emails'), s => setEmails(lista(s)), e => console.error('Modal (correos):', e));
+    const unsubVin = onSnapshot(filtro('organizacion_domicilios'), s => setVinculos(lista(s)), e => console.error('Modal (vínculos):', e));
+    const unsubDom = onSnapshot(collection(db, 'domicilios'), s => setDomicilios(lista(s)), e => console.error('Modal (domicilios):', e));
+    const unsubUsu = onSnapshot(filtro('usuarios'), s => { setUsuarios(lista(s)); setCargandoUsuarios(false); }, e => { console.error('Modal (usuarios):', e); setCargandoUsuarios(false); });
+    return () => { unsubEmails(); unsubVin(); unsubDom(); unsubUsu(); };
+  }, [idOrg]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const id = setTimeout(() => setToast(''), 3500);
+    return () => clearTimeout(id);
+  }, [toast]);
+
   function pedirConfirmacionSiHaceFalta(accion) {
     if (!hayCambiosSinGuardar || window.confirm('Hay cambios sin guardar. ¿Descartarlos?')) accion();
   }
+
+  function cambiar(patch) { setForm(f => ({ ...f, ...patch })); }
+
+  /* ── Guardado (solo Datos generales) ────────────────────────────────────── */
 
   async function buscarDuplicado(campo, valor, idPropio) {
     const q = query(collection(db, 'organizaciones'), where(campo, '==', valor), limit(2));
@@ -124,7 +176,7 @@ export default function ModalOrganizacion({
 
   async function guardar() {
     const problemas = validarFormulario(form);
-    if (problemas.length > 0) { setErrores(problemas); return; }
+    if (problemas.length > 0) { setErrores(problemas); setPestana('general'); return; }
 
     setGuardando(true);
     setErrores([]);
@@ -159,7 +211,7 @@ export default function ModalOrganizacion({
         cuit,
         cuit_normalizado: cuitNormalizado,
         es_exterior: form.es_exterior,
-        email: form.email.trim() || null,
+        // 9. `email` ya no se escribe: vive en `organizacion_emails`.
         telefono: form.telefono.trim() || null,
         obs: form.obs.trim(),
         clave_normalizada: clave,
@@ -177,16 +229,22 @@ export default function ModalOrganizacion({
           entidadTipo: 'organizacion',
           usuario,
         });
-        onCerrar();
+        // 2. El modal queda abierto: lo guardado pasa a ser la nueva base.
+        setBaseline(JSON.stringify(form));
+        setToast('Cambios guardados');
       } else {
-        const nuevoId = await crear({
-          db,
-          coleccion: 'organizaciones',
-          datos: { ...datos, estado: 'activo', es_propia: false, productos_ids: [] },
-          accion: 'crear_organizacion',
-          entidadTipo: 'organizacion',
-          usuario,
-        });
+        const datosAlta = { ...datos, estado: 'activo', es_propia: false, productos_ids: [] };
+        // Con correo: organización + correo principal en UNA transacción.
+        const nuevoId = form.email.trim()
+          ? await crearOrganizacionConEmail({ db, datosOrganizacion: datosAlta, email: form.email, usuario })
+          : await crear({
+            db,
+            coleccion: 'organizaciones',
+            datos: datosAlta,
+            accion: 'crear_organizacion',
+            entidadTipo: 'organizacion',
+            usuario,
+          });
 
         // RF-03.
         if (datos.es_transportista) {
@@ -203,24 +261,26 @@ export default function ModalOrganizacion({
     }
   }
 
-  async function darDeBaja() {
-    const motivo = window.prompt(`¿Por qué se da de baja a ${editando.razon_social}?`);
-    if (motivo === null) return;
-    if (!motivo.trim()) { window.alert('El motivo es obligatorio.'); return; }
+  /* ── Baja y reactivación (al instante) ──────────────────────────────────── */
 
+  async function darDeBaja() {
+    if (!motivoBaja.trim()) return;
     setGuardando(true);
+    setErrorBaja('');
     try {
       const bloqueo = await buscarDependenciasVivas(editando);
-      if (bloqueo) { window.alert(bloqueo); return; }
+      if (bloqueo) { setErrorBaja(bloqueo); return; }
       await desactivar({
         db,
         coleccion: 'organizaciones', id: editando.id,
-        accion: 'desactivar_organizacion', usuario, razon: motivo.trim(),
+        accion: 'desactivar_organizacion', usuario, razon: motivoBaja.trim(),
       });
-      onCerrar();
+      setConfirmandoBaja(false);
+      setMotivoBaja('');
+      setToast('Organización dada de baja');
     } catch (err) {
       console.error(err);
-      window.alert(traducirError(err));
+      setErrorBaja(traducirError(err));
     } finally {
       setGuardando(false);
     }
@@ -230,380 +290,253 @@ export default function ModalOrganizacion({
     setGuardando(true);
     try {
       await reactivar({ db, coleccion: 'organizaciones', id: editando.id, usuario });
-      onCerrar();
+      setToast('Organización reactivada');
     } catch (err) {
       console.error(err);
-      window.alert(traducirError(err));
+      setErrores([traducirError(err)]);
+      setPestana('general');
     } finally {
       setGuardando(false);
     }
   }
+
+  /* ── Productos (al instante) ────────────────────────────────────────────── */
+
+  async function cambiarProducto(productoId, agregar) {
+    setOcupadoProductos(true);
+    try {
+      await cambiarProductoDeclarado({ db, organizacionId: editando.id, productoId, agregar, usuario });
+      setToast(agregar ? 'Producto agregado' : 'Producto quitado');
+    } catch (err) {
+      console.error(err);
+      setErrores([traducirError(err)]);
+      setPestana('general');
+    } finally {
+      setOcupadoProductos(false);
+    }
+  }
+
+  /* ── Derivados ──────────────────────────────────────────────────────────── */
+
+  const tipoVigente = editando || form;
+  const hayUsuarios = !!tipoVigente.es_transportista && !!(soyAdmin || soyCoordinador);
+  const hayProductos = !!tipoVigente.es_transportista;
+  const editaDomicilios = !!(soyAdmin || soyComercial);
+
+  const cantidades = {
+    domicilios: vinculos.length,
+    correos: emails.length,
+    usuarios: usuarios.length,
+    productos: ((editando && editando.productos_ids) || []).length,
+  };
+
+  const pestanas = [
+    { id: 'general', etiqueta: 'Datos generales' },
+    { id: 'domicilios', etiqueta: 'Domicilios', cantidad: esAlta ? undefined : cantidades.domicilios },
+    { id: 'correos', etiqueta: 'Correos', cantidad: esAlta ? undefined : cantidades.correos },
+    ...(hayUsuarios ? [{ id: 'usuarios', etiqueta: 'Usuarios', cantidad: esAlta ? undefined : cantidades.usuarios }] : []),
+    ...(hayProductos ? [{ id: 'productos', etiqueta: 'Productos', cantidad: esAlta ? undefined : cantidades.productos }] : []),
+  ].map(p => (esAlta && p.id !== 'general' ? { ...p, deshabilitada: true, ayuda: AYUDA_PESTANA_ALTA } : p));
+
+  const pestanaVigente = pestanas.some(p => p.id === pestana && !p.deshabilitada) ? pestana : 'general';
+
+  const cuit = form.es_exterior ? { estado: 'vacio', digitos: '' } : verificarCuit(form.cuit);
+  const ficha = useMemo(
+    () => calcularFicha({ form, cantidades, aplican: { usuarios: hayUsuarios, productos: hayProductos } }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, cantidades.domicilios, cantidades.correos, cantidades.usuarios, cantidades.productos, hayUsuarios, hayProductos]
+  );
+
+  const vistas = useMemo(() => {
+    const porId = new Map(domicilios.map(d => [d.id, d]));
+    const primerDomicilio = vinculos
+      .map(v => ({ v, d: porId.get(v.domicilio_id) }))
+      .filter(x => x.d)
+      .sort((a, b) => (a.v.principal === b.v.principal ? 0 : (a.v.principal ? -1 : 1)))[0];
+    const principal = emails.find(e => e.principal) || emails[0];
+    const prodsPorId = new Map(productos.map(p => [p.id, p]));
+    const nombresUsuarios = usuarios.map(u => u.nombre).filter(Boolean);
+    return {
+      domicilios: primerDomicilio ? textoDomicilio(primerDomicilio.d) : '',
+      correos: principal ? principal.email : '',
+      usuarios: nombresUsuarios.slice(0, 3).join(', ') + (nombresUsuarios.length > 3 ? '…' : ''),
+      productos: ((editando && editando.productos_ids) || []).map(id => (prodsPorId.get(id) || {}).nombre).filter(Boolean).join(', '),
+    };
+  }, [domicilios, vinculos, emails, usuarios, productos, editando]);
+
+  const tarjetas = [
+    { id: 'domicilios', etiqueta: 'Domicilios', cantidad: cantidades.domicilios, vista: vistas.domicilios },
+    { id: 'correos', etiqueta: 'Correos', cantidad: cantidades.correos, vista: vistas.correos },
+    ...(hayUsuarios ? [{ id: 'usuarios', etiqueta: 'Usuarios', cantidad: cantidades.usuarios, vista: vistas.usuarios }] : []),
+    ...(hayProductos ? [{ id: 'productos', etiqueta: 'Productos', cantidad: cantidades.productos, vista: vistas.productos }] : []),
+  ];
+
+  const tipos = esAlta
+    ? (puedeElegirBanderas
+      ? { editable: true, unico: false }
+      : (puedeElegirTipo
+        ? { editable: true, unico: true }
+        : { editable: false, unico: false, ayuda: 'Tu rol solo puede crear este tipo de organización.' }))
+    : { editable: !!puedeElegirBanderas && !soloLectura, unico: false, ayuda: 'Solo un admin puede cambiar el tipo de una organización existente.' };
+
+  const sinTipo = !form.es_cliente && !form.es_transportista;
+  const nombreVisible = form.nombre_corto.trim() || form.razon_social.trim() || 'Nueva organización';
+  const cuitCabecera = form.es_exterior
+    ? `Exterior${form.cuit.trim() ? ` · ${form.cuit.trim()}` : ''}`
+    : `CUIT ${formatearCuit(cuit.digitos)}`;
+
+  /* ── Render ─────────────────────────────────────────────────────────────── */
 
   if (orgRecienCreada) {
-    return (
-      <PasoUsuarioTransportista
-        org={orgRecienCreada}
-        usuario={usuario}
-        onTerminar={onCerrar}
-      />
-    );
+    return <PasoUsuarioTransportista org={orgRecienCreada} usuario={usuario} onTerminar={onCerrar} />;
   }
 
-  const titulo = editando ? editando.razon_social : 'Nueva organización';
+  const puedeDarDeBaja = !!editando && puedeEditarOrg(editando) && !editando.es_propia;
+  const estaDeBaja = !!editando && editando.estado !== 'activo';
 
-  return (
-    <Modal
-      titulo={titulo}
-      onCerrar={() => pedirConfirmacionSiHaceFalta(onCerrar)}
-      ancho={editando ? 920 : 560}
-    >
-      {soloLectura && <div style={styles.soloLectura}>Solo lectura — tu rol no puede editar esta organización.</div>}
-
-      {editando && editando.es_propia && (
-        <div style={styles.editandoBanner}>
-          Esta es la organización propia de Explora. Su razón social y sus
-          domicilios se usan como origen o destino de todos los pedidos.
-        </div>
-      )}
-
-      {errores.length > 0 && (
-        <div style={styles.bannerError}>
-          {errores.map((e, i) => <div key={i}>{e}</div>)}
-        </div>
-      )}
-
-      <div style={editando ? styles.modalDosColumnas : undefined}>
-        <div style={styles.modalColumna}>
-          <div style={styles.grid2}>
-            <Campo
-              label="Razón social *" disabled={soloLectura}
-              value={form.razon_social}
-              onChange={e => setForm({ ...form, razon_social: e.target.value })}
-              placeholder="PAN AMERICAN ENERGY"
-            />
-            <Campo
-              label="Nombre corto" disabled={soloLectura}
-              value={form.nombre_corto}
-              onChange={e => setForm({ ...form, nombre_corto: e.target.value })}
-              placeholder="PAE"
-              ayuda="Para mostrar en listados. Si se deja vacío, se usa la razón social."
-            />
-            <Campo
-              label={form.es_exterior ? 'Identificación fiscal' : 'CUIT'} disabled={soloLectura}
-              value={form.cuit}
-              onChange={e => setForm({ ...form, cuit: e.target.value })}
-              placeholder={form.es_exterior ? 'VAT, RUT, EIN...' : '30-60561644-1'}
-              ayuda={form.es_exterior ? 'Cliente del exterior: sin formato fijo.' : 'Con o sin guiones. Se guarda normalizado.'}
-            />
-            <Campo
-              label="Correo" type="email" disabled={soloLectura}
-              value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })}
-              placeholder="contacto@empresa.com"
-            />
-            <Campo
-              label="Teléfono" disabled={soloLectura}
-              value={form.telefono}
-              onChange={e => setForm({ ...form, telefono: e.target.value })}
-              placeholder="(0341) 456-7890"
-            />
-          </div>
-
-          <label style={{ ...styles.check, marginBottom: 16 }}>
-            <input
-              type="checkbox" disabled={soloLectura}
-              checked={form.es_exterior}
-              onChange={e => setForm({ ...form, es_exterior: e.target.checked })}
-            />
-            <span>Cliente del exterior — sin CUIT argentino</span>
-          </label>
-
-          {puedeElegirBanderas && (
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Qué es</div>
-              <label style={styles.check}>
-                <input type="checkbox" disabled={soloLectura} checked={form.es_cliente}
-                  onChange={e => setForm({ ...form, es_cliente: e.target.checked })} />
-                <span>Cliente — se le cargan pedidos</span>
-              </label>
-              <label style={styles.check}>
-                <input type="checkbox" disabled={soloLectura} checked={form.es_transportista}
-                  onChange={e => setForm({ ...form, es_transportista: e.target.checked })} />
-                <span>Transporte — se le asignan despachos</span>
-              </label>
-              <div style={styles.ayuda}>
-                Puede ser las dos cosas: un cliente que pone su propio camión
-                para llevarse el producto.
-              </div>
-            </div>
-          )}
-
-          {puedeElegirTipo && (
-            <div style={styles.seccion}>
-              <div style={styles.seccionTitulo}>Qué es</div>
-              <label style={styles.check}>
-                <input type="radio" name="tipo_organizacion" disabled={soloLectura}
-                  checked={form.es_cliente}
-                  onChange={() => setForm({ ...form, es_cliente: true, es_transportista: false })} />
-                <span>Cliente — se le cargan pedidos</span>
-              </label>
-              <label style={styles.check}>
-                <input type="radio" name="tipo_organizacion" disabled={soloLectura}
-                  checked={form.es_transportista}
-                  onChange={() => setForm({ ...form, es_cliente: false, es_transportista: true })} />
-                <span>Transporte — se le asignan despachos</span>
-              </label>
-              <div style={styles.ayuda}>
-                Solo un admin puede cargar una organización que sea las dos
-                cosas a la vez.
-              </div>
-            </div>
-          )}
-
-          <Campo
-            as="textarea" label="Observaciones" disabled={soloLectura}
-            style={{ minHeight: 60, resize: 'vertical' }}
-            value={form.obs}
-            onChange={e => setForm({ ...form, obs: e.target.value })}
-          />
-
-          <div style={{ ...styles.cardActions, marginTop: 16, flexWrap: 'wrap' }}>
-            {!soloLectura && (
-              <Boton disabled={guardando} onClick={guardar}>
-                {guardando ? 'Guardando...' : (editando ? 'Guardar' : 'Crear organización')}
-              </Boton>
-            )}
-            <Boton variante="secundario" onClick={() => pedirConfirmacionSiHaceFalta(onCerrar)}>Cancelar</Boton>
-
-            {editando && puedeEditarOrg(editando) && !editando.es_propia && (
-              editando.estado === 'activo' ? (
-                <Boton variante="peligro" disabled={guardando} onClick={darDeBaja} style={{ marginLeft: 'auto' }}>
-                  Dar de baja
-                </Boton>
-              ) : (
-                <Boton variante="secundario" disabled={guardando} onClick={volverAActivar} style={{ marginLeft: 'auto' }}>
-                  Reactivar
-                </Boton>
-              )
-            )}
-          </div>
-        </div>
-
-        {editando && (
-          <PanelResumen
-            styles={styles}
-            org={editando}
-            onCambiarModal={(tipo) => pedirConfirmacionSiHaceFalta(() => onCambiarModal({ tipo, org: editando }))}
-          />
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * Panel "RESUMEN" -- columna derecha, solo al editar.
- * -------------------------------------------------------------------------- */
-
-function PanelResumen({ styles, org, onCambiarModal }) {
-  const [vinculos, setVinculos] = useState([]);
-  const [domicilios, setDomicilios] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
-  const [productos, setProductos] = useState([]);
-
-  useEffect(() => {
-    const unsubVin = onSnapshot(
-      query(collection(db, 'organizacion_domicilios'), where('organizacion_id', '==', org.id)),
-      snap => setVinculos(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const unsubDom = onSnapshot(collection(db, 'domicilios'), snap => setDomicilios(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubUsu = onSnapshot(
-      query(collection(db, 'usuarios'), where('organizacion_id', '==', org.id)),
-      snap => setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const unsubProd = org.es_transportista
-      ? onSnapshot(collection(db, 'productos'), snap => setProductos(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
-      : () => {};
-    return () => { unsubVin(); unsubDom(); unsubUsu(); unsubProd(); };
-  }, [org.id, org.es_transportista]);
-
-  const domiciliosOrg = useMemo(() => {
-    const porId = new Map(domicilios.map(d => [d.id, d]));
-    return vinculos.map(v => porId.get(v.domicilio_id)).filter(Boolean);
-  }, [vinculos, domicilios]);
-
-  const prodsPorId = useMemo(() => new Map(productos.map(p => [p.id, p])), [productos]);
-
-  return (
-    <div style={{ ...styles.modalColumna, ...styles.panelResumen }}>
-      <div style={styles.panelResumenTitulo}>Resumen</div>
-
-      <div style={styles.panelResumenBloque}>
-        <div style={styles.panelResumenBloqueTitulo}>Domicilios ({domiciliosOrg.length})</div>
-        {domiciliosOrg.length === 0 ? (
-          <div style={styles.panelResumenValor}>Sin domicilios.</div>
-        ) : (
-          domiciliosOrg.slice(0, 4).map(d => (
-            <div key={d.id} style={styles.panelResumenValor}>{textoDomicilio(d)}</div>
-          ))
-        )}
-        <button type="button" style={styles.panelResumenEnlace} onClick={() => onCambiarModal('domicilios')}>
-          Gestionar domicilios →
-        </button>
-      </div>
-
-      <div style={styles.panelResumenBloque}>
-        <div style={styles.panelResumenBloqueTitulo}>Usuarios ({usuarios.length})</div>
-        {usuarios.length === 0 ? (
-          <div style={styles.panelResumenValor}>Sin usuarios.</div>
-        ) : (
-          usuarios.slice(0, 4).map(u => (
-            <div key={u.id} style={styles.panelResumenValor}>{u.nombre}</div>
-          ))
-        )}
-        <button type="button" style={styles.panelResumenEnlace} onClick={() => onCambiarModal('usuarios')}>
-          Gestionar usuarios →
-        </button>
-      </div>
-
-      {org.es_transportista && (
-        <div style={styles.panelResumenBloque}>
-          <div style={styles.panelResumenBloqueTitulo}>Productos</div>
-          {(org.productos_ids || []).length === 0 ? (
-            <div style={styles.panelResumenValor}>Sin declarar.</div>
-          ) : (
-            <div style={styles.panelResumenValor}>
-              {org.productos_ids.map(id => (prodsPorId.get(id) || {}).nombre).filter(Boolean).join(', ')}
-            </div>
-          )}
-          <button type="button" style={styles.panelResumenEnlace} onClick={() => onCambiarModal('productos')}>
-            Gestionar productos →
-          </button>
-        </div>
-      )}
-
-      {(org.creado_por || org.actualizado_en) && (
-        <div style={styles.panelResumenBloque}>
-          <div style={styles.panelResumenBloqueTitulo}>Auditoría</div>
-          {org.creado_por && <div style={styles.panelResumenValor}>Creada por {org.creado_por}</div>}
-          {org.actualizado_en && <div style={styles.panelResumenValor}>Última modificación: {String(org.actualizado_en)}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------------------------
- * RF-03 -- paso "Crear usuario transportista", fijo a ese rol (ver el
- * encabezado del archivo).
- * -------------------------------------------------------------------------- */
-
-function PasoUsuarioTransportista({ org, usuario, onTerminar }) {
-  const styles = useEstilos();
-  const [vista, setVista] = useState('form'); // form | clave
-  const [form, setForm] = useState({ nombre: '', email: '', telefono: '' });
-  const [errores, setErrores] = useState([]);
-  const [guardando, setGuardando] = useState(false);
-  const [claveGenerada, setClaveGenerada] = useState(null);
-
-  async function guardar() {
-    const datos = { nombre: form.nombre, email: form.email, roles: ['transportista'], organizacion_id: org.id };
-    const problemas = validarAltaUsuario(datos, { usuarios: [], soloInternos: false });
-    if (problemas.length > 0) { setErrores(problemas); return; }
-
-    setGuardando(true);
-    setErrores([]);
-    try {
-      const email = form.email.trim().toLowerCase();
-      const { clave } = await darDeAltaUsuario({
-        datos: {
-          nombre: form.nombre.trim(),
-          email,
-          roles: ['transportista'],
-          organizacion_id: org.id,
-          telefonos: form.telefono.trim() ? [form.telefono.trim()] : [],
-          emails_extra: [],
-          datos_chofer: null,
-        },
-        usuario,
-      });
-      setClaveGenerada({ nombre: form.nombre.trim(), email, clave });
-      setVista('clave');
-    } catch (err) {
-      console.error(err);
-      setErrores([err.fase === 'auth' ? traducirErrorAuth(err) : traducirError(err)]);
-    } finally {
-      setGuardando(false);
-    }
-  }
-
-  if (vista === 'clave' && claveGenerada) {
-    return (
-      <Modal titulo="Usuario creado" onCerrar={onTerminar}>
-        <div style={styles.bannerAviso}>
-          <strong>Anotá estos datos ahora.</strong> La contraseña no se guarda en
-          ningún lado y no se puede volver a ver.
-        </div>
-        <div style={styles.claveField}>
-          <span style={styles.label}>Usuario</span>
-          <span style={styles.claveValor}>{claveGenerada.nombre}</span>
-        </div>
-        <div style={styles.claveField}>
-          <span style={styles.label}>Correo de acceso</span>
-          <span style={styles.claveValorMono}>{claveGenerada.email}</span>
-        </div>
-        <div style={styles.claveField}>
-          <span style={styles.label}>Contraseña</span>
-          <span style={styles.claveValorMono}>{claveGenerada.clave}</span>
-        </div>
-        <div style={{ ...styles.cardActions, marginTop: 16 }}>
-          <Boton
-            onClick={() => navigator.clipboard.writeText(
-              `Usuario: ${claveGenerada.nombre}\nCorreo: ${claveGenerada.email}\nContraseña: ${claveGenerada.clave}`
-            )}
-          >
-            Copiar
-          </Boton>
-          <Boton variante="secundario" onClick={onTerminar}>Listo</Boton>
-        </div>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal titulo={`Crear usuario transportista — ${org.razon_social}`} onCerrar={onTerminar}>
-      {errores.length > 0 && (
-        <div style={styles.bannerError}>
-          {errores.map((e, i) => <div key={i}>{e}</div>)}
-        </div>
-      )}
-      <div style={styles.grid2}>
-        <Campo
-          label="Nombre *"
-          value={form.nombre}
-          onChange={e => setForm({ ...form, nombre: e.target.value })}
-          placeholder="Nombre de la persona de contacto"
-        />
-        <Campo
-          label="Correo *"
-          value={form.email}
-          onChange={e => setForm({ ...form, email: e.target.value })}
-          placeholder="nombre@empresa.com"
-        />
-        <Campo
-          label="Teléfono"
-          value={form.telefono}
-          onChange={e => setForm({ ...form, telefono: e.target.value })}
-          placeholder="(3476) 562372"
-        />
-      </div>
-      <div style={{ ...styles.cardActions, marginTop: 16 }}>
-        <Boton disabled={guardando} onClick={guardar}>
-          {guardando ? 'Guardando...' : 'Crear usuario'}
+  const pie = (
+    <>
+      {puedeDarDeBaja && !estaDeBaja && !confirmandoBaja && (
+        <Boton variante="peligro" disabled={guardando} onClick={() => { setConfirmandoBaja(true); setErrorBaja(''); }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icono nombre="basura" tamano={16} />Dar de baja</span>
         </Boton>
-        <Boton variante="secundario" onClick={onTerminar}>Omitir</Boton>
-      </div>
-    </Modal>
+      )}
+
+      {puedeDarDeBaja && !estaDeBaja && confirmandoBaja && (
+        <div
+          role="group" aria-label="Confirmar baja"
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: tonos.peligro.bg, border: `1px solid ${tonos.peligro.borde}`, borderRadius: 12, padding: '6px 6px 6px 14px', maxWidth: '100%' }}
+        >
+          <span style={{ fontSize: 13.5, color: tonos.peligro.color }}>¿Dar de baja a <b>{nombreVisible}</b>?</span>
+          <input
+            aria-label="Motivo de la baja" value={motivoBaja} autoFocus
+            onChange={e => setMotivoBaja(e.target.value)} placeholder="Motivo (obligatorio)"
+            style={{ height: 36, padding: '0 10px', borderRadius: 8, border: `1px solid ${tonos.peligro.borde}`, background: colores.superficie, color: colores.texto, fontFamily: tipografia.familia, fontSize: 13, minWidth: 200 }}
+          />
+          <Boton variante="secundario" chico disabled={guardando} onClick={() => { setConfirmandoBaja(false); setMotivoBaja(''); setErrorBaja(''); }}>No</Boton>
+          <Boton chico disabled={guardando || !motivoBaja.trim()} onClick={darDeBaja}>Sí, dar de baja</Boton>
+          {errorBaja && <span role="alert" style={{ flexBasis: '100%', fontSize: 12.5, color: tonos.peligro.color, padding: '0 8px 6px 0' }}>{errorBaja}</span>}
+        </div>
+      )}
+
+      {puedeDarDeBaja && estaDeBaja && (
+        <Boton variante="secundario" disabled={guardando} onClick={volverAActivar}>Reactivar</Boton>
+      )}
+
+      <div style={{ flexGrow: 1 }} />
+
+      {toast && (
+        <span
+          role="status"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: tonos.exito.color, background: tonos.exito.bg, border: `1px solid ${tonos.exito.borde}`, padding: '8px 12px', borderRadius: 10 }}
+        >
+          <Icono nombre="check" tamano={14} grosor={3} />{toast}
+        </span>
+      )}
+
+      <Boton variante="secundario" onClick={() => pedirConfirmacionSiHaceFalta(onCerrar)}>
+        {soloLectura ? 'Cerrar' : 'Cancelar'}
+      </Boton>
+      {!soloLectura && (
+        <Boton disabled={guardando || sinTipo || (!esAlta && !hayCambiosSinGuardar)} onClick={guardar}>
+          {guardando ? 'Guardando...' : (esAlta ? 'Crear organización' : 'Guardar cambios')}
+        </Boton>
+      )}
+    </>
+  );
+
+  const compactoVacio = (icono, titulo, texto, etiquetaBoton) => (abrirForm, editable) => (
+    <EstadoVacio icono={icono} titulo={titulo} texto={texto}>
+      {editable && <Boton onClick={abrirForm} style={{ marginTop: 8 }}>{etiquetaBoton}</Boton>}
+    </EstadoVacio>
+  );
+
+  return (
+    <ArmazonModalOrganizacion
+      cabecera={{
+        iniciales: iniciales(nombreVisible),
+        nombre: nombreVisible,
+        cuit: cuitCabecera,
+        activa: esAlta ? null : !estaDeBaja,
+        roles: [form.es_cliente && 'Cliente', form.es_transportista && 'Transporte'].filter(Boolean),
+        sinGuardar: hayCambiosSinGuardar,
+      }}
+      pestanas={pestanas}
+      pestanaActiva={pestanaVigente}
+      onElegirPestana={setPestana}
+      onCerrar={() => pedirConfirmacionSiHaceFalta(onCerrar)}
+      pie={pie}
+    >
+      {pestanaVigente === 'general' && (
+        <>
+          {(soloLectura || (editando && editando.es_propia) || errores.length > 0) && (
+            <div style={{ padding: '16px 28px 0' }}>
+              {soloLectura && <div style={{ padding: '8px 12px', borderRadius: 8, background: colores.fondoAlterno, color: pal.azul, fontSize: 12, marginBottom: 12 }}>Solo lectura — tu rol no puede editar esta organización.</div>}
+              {editando && editando.es_propia && (
+                <div style={{ padding: '10px 14px', borderRadius: 8, background: tonos.aviso.bg, border: `0.5px solid ${tonos.aviso.borde}`, fontSize: 13, color: tonos.aviso.color, marginBottom: 12 }}>
+                  Esta es la organización propia de Explora. Su razón social y sus
+                  domicilios se usan como origen o destino de todos los pedidos.
+                </div>
+              )}
+              {errores.length > 0 && (
+                <div role="alert" style={{ padding: '10px 14px', borderRadius: 8, background: tonos.peligro.bg, border: `0.5px solid ${tonos.peligro.borde}`, fontSize: 13, color: tonos.peligro.color, marginBottom: 12, whiteSpace: 'pre-line' }}>
+                  {errores.map((e, i) => <div key={i}>{e}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+          <PestanaGeneral
+            form={form} onCambiar={cambiar} soloLectura={soloLectura} esAlta={esAlta}
+            cuit={cuit} tipos={tipos} ficha={ficha} tarjetas={tarjetas}
+            ultimaModificacion={editando ? formatearUltimaModificacion(editando.actualizado_en) : null}
+            onIrA={setPestana}
+          />
+        </>
+      )}
+
+      {pestanaVigente === 'domicilios' && editando && (
+        <div style={{ padding: '24px 28px', maxWidth: 800 }}>
+          <GestionDomiciliosOrganizacion
+            usuario={usuario} organizacion={editando}
+            puedeEditar={editaDomicilios} soloLectura={!editaDomicilios}
+            onCambio={setToast}
+            renderVacio={compactoVacio('pin', 'Sin domicilios cargados', 'Agregá la dirección fiscal o la base operativa.', '+ Agregar domicilio')}
+          />
+        </div>
+      )}
+
+      {pestanaVigente === 'correos' && editando && (
+        <div style={{ padding: '24px 28px', maxWidth: 800 }}>
+          <GestionEmailsOrganizacion
+            usuario={usuario} organizacion={editando}
+            puedeEditar={puedeEditarOrg(editando)} soloLectura={soloLectura}
+            onCambio={setToast}
+            renderVacio={compactoVacio(
+              'correo', 'Todavía no hay correos',
+              editando.es_transportista
+                ? 'Los despachos asignados se notifican a estas direcciones.'
+                : 'Podés cargar los correos de contacto de la organización.',
+              '+ Agregar correo'
+            )}
+          />
+        </div>
+      )}
+
+      {pestanaVigente === 'usuarios' && editando && (
+        <PestanaUsuarios
+          usuarios={usuarios} cargando={cargandoUsuarios}
+          onGestionar={() => pedirConfirmacionSiHaceFalta(() => onCambiarModal({ tipo: 'usuarios', org: editando }))}
+        />
+      )}
+
+      {pestanaVigente === 'productos' && editando && (
+        <PestanaProductos
+          org={editando} productos={productos}
+          puedeEditar={puedeEditarOrg(editando)} ocupado={ocupadoProductos}
+          onAgregar={id => cambiarProducto(id, true)} onQuitar={id => cambiarProducto(id, false)}
+        />
+      )}
+    </ArmazonModalOrganizacion>
   );
 }
 

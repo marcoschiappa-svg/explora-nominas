@@ -36,6 +36,11 @@
  *   coordinador sin comercial, la limitación conocida que dejó RF-07 (antes
  *   veía la pantalla entera bloqueada).
  *
+ * v1.2.2 -- props opcionales para el modal rediseñado: `onCambio(mensaje)`,
+ *   llamada tras cada alta, baja o cambio de principal (toast), y
+ *   `renderVacio(abrirForm, editable)`, que reemplaza el estado vacío. No
+ *   cambian ninguna lógica (sin las props, el comportamiento es el de siempre).
+ *
  * LIMITACIONES CONOCIDAS
  *   Mismas que `Domicilios.js` ya tenía -- ninguna nueva. La organización
  *   que entra por prop ya viene resuelta (no hay `onVolver`, la cierra el
@@ -91,7 +96,7 @@ const PILLS = {
  *   llama desde el modal -- ver el encabezado. Si se pasan los dos, manda
  *   `soloLectura`.
  */
-export default function GestionDomiciliosOrganizacion({ usuario, organizacion, puedeEditar = true, soloLectura = false }) {
+export default function GestionDomiciliosOrganizacion({ usuario, organizacion, puedeEditar = true, soloLectura = false, onCambio, renderVacio }) {
   const styles = useEstilos();
   const editable = puedeEditar && !soloLectura;
 
@@ -263,6 +268,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
         usuario,
       });
       cerrarForm();
+      if (onCambio) onCambio('Domicilio agregado');
     } catch (err) {
       console.error(err);
       setErrores([traducirError(err)]);
@@ -334,6 +340,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
       }, 2);
 
       cerrarForm();
+      if (onCambio) onCambio('Domicilio agregado');
     } catch (err) {
       console.error(err);
       setErrores([traducirError(err)]);
@@ -375,6 +382,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
           usuario,
         });
       }, 1);
+      if (onCambio) onCambio('Domicilio quitado');
     } catch (err) {
       console.error(err);
       window.alert(traducirError(err));
@@ -400,6 +408,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
           usuario,
         });
       }
+      if (onCambio) onCambio('Domicilio principal actualizado');
     } catch (err) {
       console.error(err);
       window.alert(traducirError(err));
@@ -412,7 +421,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
 
   return (
     <div>
-      {editable && !mostrandoForm && (
+      {editable && !mostrandoForm && !(renderVacio && !cargando && mios.length === 0) && (
         <div style={{ ...styles.cardActions, marginBottom: 12 }}>
           <Boton onClick={abrirForm}>+ Agregar</Boton>
         </div>
@@ -593,7 +602,9 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
         <>
           {cargando && <Vacio titulo="Cargando..." />}
 
-          {!cargando && mios.length === 0 && (
+          {!cargando && mios.length === 0 && renderVacio && renderVacio(abrirForm, editable)}
+
+          {!cargando && mios.length === 0 && !renderVacio && (
             <Vacio
               titulo={`${organizacion.razon_social} no tiene direcciones cargadas.`}
               nota={editable ? 'Agregá una para poder cargarle pedidos.' : undefined}

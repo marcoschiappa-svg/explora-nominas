@@ -1,7 +1,40 @@
 /**
  * =============================================================================
- * organizaciones/Organizaciones.js — v1.2.0 (rediseño Organizaciones)
+ * organizaciones/Organizaciones.js — v1.2.2 (correos por organización)
  * =============================================================================
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.2 (correos por organización) -- MODAL "CORREOS"
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Una organización solo podía tener un correo (`organizaciones.email`).
+ *
+ *   CAUSA RAÍZ
+ *     No había colección de correos; ver `logica-organizacion-emails.js`.
+ *
+ *   ALCANCE
+ *     5. Quinto tipo de modal: `'emails'` (`ModalEmails`), con un botón
+ *        "Correos (n)" por fila, siempre visible; `puedeEditar` sale de
+ *        `puedeEditarOrg(org)`, quien no edita lo ve en solo lectura.
+ *     6. Suscripción a `organizacion_emails` (colección completa: esta
+ *        pantalla es solo de roles internos, que son quienes pueden leerla
+ *        entera según las reglas) para contar correos por organización y
+ *        mostrar el PRINCIPAL junto al CUIT. El campo viejo
+ *        `organizaciones.email` ya no se lee ni se escribe.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ninguna nueva.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. "Correos (n)" abre el modal; nunca
+ *     hay dos modales a la vez.
+ *     7. Rediseño del modal de organización (pestañas + ficha): recibe la
+ *        organización VIVA (la del último `onSnapshot`, no la de cuando se
+ *        hizo clic, porque el modal sigue abierto tras guardar o dar de baja),
+ *        `productos` y los roles. `ModalDomicilios`, `ModalEmails` y
+ *        `ModalProductos` ya no se abren desde el modal de organización pero
+ *        siguen disponibles desde los botones de la fila.
+ * -----------------------------------------------------------------------------
  *
  * PROPÓSITO
  * Alta, edición y baja de las empresas con las que opera Explora: los clientes
@@ -79,6 +112,7 @@ import ModalOrganizacion from './ModalOrganizacion';
 import ModalDomicilios from './ModalDomicilios';
 import ModalUsuarios from './ModalUsuarios';
 import ModalProductos from './ModalProductos';
+import ModalEmails from './ModalEmails';
 
 const FORM_VACIO = {
   razon_social: '', nombre_corto: '', cuit: '', es_exterior: false,
@@ -121,6 +155,7 @@ export default function Organizaciones({ usuario, onVolver }) {
   const [productos, setProductos] = useState([]);
   const [vinculos, setVinculos] = useState([]);
   const [domicilios, setDomicilios] = useState([]);
+  const [emailsOrg, setEmailsOrg] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   const [filtro, setFiltro] = useState('');
@@ -129,7 +164,7 @@ export default function Organizaciones({ usuario, onVolver }) {
   );
   const [verInactivas, setVerInactivas] = useState(false);
 
-  // `modalAbierto: { tipo: 'organizacion'|'domicilios'|'usuarios'|'productos', org }`
+  // `modalAbierto: { tipo: 'organizacion'|'domicilios'|'emails'|'usuarios'|'productos', org }`
   // -- `org: null` es el alta. Nunca hay dos modales a la vez.
   const [modalAbierto, setModalAbierto] = useState(null);
 
@@ -153,7 +188,12 @@ export default function Organizaciones({ usuario, onVolver }) {
       setDomicilios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => console.error('Domicilios:', err));
 
-    return () => { unsub(); unsubProductos(); unsubVinculos(); unsubDomicilios(); };
+    // 6. Correos de todas las organizaciones -- ver el encabezado v1.2.2.
+    const unsubEmails = onSnapshot(collection(db, 'organizacion_emails'), (snap) => {
+      setEmailsOrg(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('Correos:', err));
+
+    return () => { unsub(); unsubProductos(); unsubVinculos(); unsubDomicilios(); unsubEmails(); };
   }, [sinAcceso]);
 
   // Preferencias -- ver el encabezado v1.2.0 (rediseño Organizaciones) de
@@ -177,6 +217,18 @@ export default function Organizaciones({ usuario, onVolver }) {
   }, [grupoActivo, verInactivas, usuario]);
 
   const prodsPorId = useMemo(() => new Map(productos.map(p => [p.id, p])), [productos]);
+
+  /** 6. Cantidad de correos y correo principal de cada organización. */
+  const correosPorOrg = useMemo(() => {
+    const mapa = new Map();
+    for (const e of emailsOrg) {
+      const actual = mapa.get(e.organizacion_id) || { cantidad: 0, principal: null };
+      actual.cantidad += 1;
+      if (e.principal) actual.principal = e.email;
+      mapa.set(e.organizacion_id, actual);
+    }
+    return mapa;
+  }, [emailsOrg]);
 
   /** Localidad del primer domicilio (por orden alfabético) de cada organización. */
   const localidadPorOrg = useMemo(() => {
@@ -283,7 +335,10 @@ export default function Organizaciones({ usuario, onVolver }) {
             <div style={styles.filaPrincipal}>
               <div style={{ minWidth: 180, flex: 2 }}>
                 <span style={styles.filaRazon}>{org.razon_social}</span>
-                <span style={styles.filaIdentificador}>{org.cuit || 'Sin CUIT'}</span>
+                <span style={styles.filaIdentificador}>
+                  {org.cuit || 'Sin CUIT'}
+                  {(correosPorOrg.get(org.id) || {}).principal ? ` · ${correosPorOrg.get(org.id).principal}` : ''}
+                </span>
               </div>
 
               {org.es_propia && <Pastilla chico colores={PILLS.propia}>Propia</Pastilla>}
@@ -295,6 +350,10 @@ export default function Organizaciones({ usuario, onVolver }) {
 
               <span style={styles.filaAcciones} onClick={e => e.stopPropagation()}>
                 <Boton chico variante="secundario" onClick={() => abrirModal('domicilios', org)}>Domicilios</Boton>
+
+                <Boton chico variante="secundario" onClick={() => abrirModal('emails', org)}>
+                  Correos ({(correosPorOrg.get(org.id) || { cantidad: 0 }).cantidad})
+                </Boton>
 
                 {org.es_transportista && (soyAdmin || soyCoordinador) && (
                   <Boton chico variante="secundario" onClick={() => abrirModal('usuarios', org)}>Usuarios</Boton>
@@ -326,8 +385,14 @@ export default function Organizaciones({ usuario, onVolver }) {
 
       {modalAbierto && modalAbierto.tipo === 'organizacion' && (
         <ModalOrganizacion
-          org={modalAbierto.org}
+          org={modalAbierto.org
+            ? (organizaciones.find(o => o.id === modalAbierto.org.id) || modalAbierto.org)
+            : null}
           usuario={usuario}
+          productos={productos}
+          soyAdmin={soyAdmin}
+          soyComercial={soyComercial}
+          soyCoordinador={soyCoordinador}
           puedeElegirBanderas={puedeElegirBanderas}
           puedeElegirTipo={puedeElegirTipo}
           puedeEditarOrg={puedeEditarOrg}
@@ -343,6 +408,15 @@ export default function Organizaciones({ usuario, onVolver }) {
           usuario={usuario}
           soyAdmin={soyAdmin}
           soyComercial={soyComercial}
+          onCerrar={cerrarModal}
+        />
+      )}
+
+      {modalAbierto && modalAbierto.tipo === 'emails' && (
+        <ModalEmails
+          org={modalAbierto.org}
+          usuario={usuario}
+          puedeEditar={puedeEditarOrg(modalAbierto.org)}
           onCerrar={cerrarModal}
         />
       )}

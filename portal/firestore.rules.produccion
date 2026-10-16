@@ -38,8 +38,9 @@ rules_version = '2';
 // -----------------------------------------------------------------------------
 //
 //   Parte 1  Ayudantes
-//   Parte 2  Entidades base      organizaciones, domicilios, usuarios,
-//                                productos, camiones, contadores
+//   Parte 2  Entidades base      organizaciones, domicilios,
+//                                organizacion_domicilios, organizacion_emails,
+//                                usuarios, productos, camiones, contadores
 //   Parte 3  Operacion           pedidos, entregas, despachos, viajes, gps
 //   Parte 4  Transversales       adjuntos, historial, app_logs
 //   Parte 5  Modelo viejo        sin cambios mientras conviven los dos
@@ -266,6 +267,78 @@ service cloud.firestore {
       // un domicilio de una organizacion no deja nada colgando, porque el
       // pedido apunta al domicilio directamente.
       allow delete: if esComercial();
+    }
+
+    // -------------------------------------------------------------------------
+    // v1.2.2 — CORREOS DE UNA ORGANIZACION (`organizacion_emails`)
+    //
+    //   SINTOMA: una organizacion solo tenia un campo `email`; los avisos al
+    //   transportista no llegaban a las casillas de la empresa.
+    //
+    //   CAUSA RAIZ: no habia donde guardar varios correos por organizacion.
+    //
+    //   ALCANCE: un documento por correo (como `organizacion_domicilios`).
+    //   Lectura: internos, o el transportista de ESA organizacion (el query
+    //   del portal va filtrado por `organizacion_id`). Escritura: admin
+    //   siempre; comercial solo organizaciones cliente puras; coordinador solo
+    //   transportes (misma semantica que `eraClientePuro()` /
+    //   `eraTransportistaPuro()`, pero sobre el documento de la organizacion
+    //   que se consulta por id, porque esos helpers miran el documento propio).
+    //   El correo SE BORRA (es una relacion). El historial no cambia: no
+    //   restringe `entidad_tipo` ni `accion`.
+    //
+    //   `create` usa `getAfter()`: el alta de una organizacion y de su primer
+    //   correo van en la MISMA transaccion, y con `get()` la organizacion
+    //   todavia no existe. Efecto buscado: no se puede crear un correo para una
+    //   organizacion inexistente. `update`/`delete` usan `get()`.
+    //
+    //   LIMITACIONES: no valida el formato del correo ni que `clave_normalizada`
+    //   corresponda al correo; lo hace el codigo (`logica-organizacion-emails.js`).
+    //   Cuesta 2 accesos (yo() + la organizacion), lejos del limite de 10.
+    //
+    //   COMO SE VERIFICA: un comercial no puede crear/borrar un correo de un
+    //   transporte; un coordinador no puede el de un cliente; crear un correo
+    //   para un `organizacion_id` inexistente se rechaza; cambiar
+    //   `organizacion_id` en un update se rechaza.
+    // -------------------------------------------------------------------------
+
+    function datosOrg(orgId) {
+      return get(/databases/$(database)/documents/organizaciones/$(orgId)).data;
+    }
+
+    function datosOrgDespues(orgId) {
+      return getAfter(/databases/$(database)/documents/organizaciones/$(orgId)).data;
+    }
+
+    function puedeEditarEmailsDe(org) {
+      return esAdmin()
+             || (tieneRol('comercial')
+                 && org.es_cliente == true
+                 && org.es_transportista == false
+                 && org.es_propia == false)
+             || (tieneRol('coordinador')
+                 && org.es_transportista == true
+                 && org.es_propia == false);
+    }
+
+    function camposDeEmailOrg() {
+      return ['organizacion_id', 'email', 'alias', 'principal',
+              'clave_normalizada', 'creado_por_uid', 'creado_en', 'actualizado_en'];
+    }
+
+    match /organizacion_emails/{emailId} {
+      allow read: if esInterno()
+                  || (tieneRol('transportista')
+                      && resource.data.organizacion_id == miOrganizacion());
+
+      allow create: if request.resource.data.keys().hasOnly(camposDeEmailOrg())
+                    && puedeEditarEmailsDe(datosOrgDespues(request.resource.data.organizacion_id));
+
+      allow update: if request.resource.data.keys().hasOnly(camposDeEmailOrg())
+                    && noCambia('organizacion_id')
+                    && puedeEditarEmailsDe(datosOrg(resource.data.organizacion_id));
+
+      allow delete: if puedeEditarEmailsDe(datosOrg(resource.data.organizacion_id));
     }
 
     // -------------------------------------------------------------------------
@@ -753,7 +826,8 @@ service cloud.firestore {
               'ultima_lat', 'ultima_lng', 'ultima_ts',
               'puntos_registrados',
               'demorado', 'demora_motivo', 'demora_ts',
-              'cerrado_por'];
+              'cerrado_por',
+              'actualizado_en'];
     }
 
     // El chofer arranca y cierra. CANCELADO lo escribe el coordinador cuando
