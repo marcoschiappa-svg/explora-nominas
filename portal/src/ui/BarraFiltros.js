@@ -116,7 +116,7 @@
  *     Este componente nunca tuvo chrome de panel propio (fondo, borde,
  *     sombra, radio) -- era solo `display:flex` con controles sueltos. Y el
  *     segmentado Mis/Todos + Tarjetas/Tabla es, a propósito, SOLO de
- *     `Pedidos.js`: `Programacion.js` y `CicloVida.js` no tienen "mis
+ *     `Pedidos.js`: `Programacion.js` (y hasta v1.2.3 `CicloVida.js`) no tienen "mis
  *     pedidos" ni una alternativa "tarjetas/tabla" -- meterlo ACÁ le daría a
  *     este componente conocimiento de una pantalla puntual, exactamente lo
  *     que el encabezado de arriba ya dice que no hace con `COLOR_PEDIDO`.
@@ -157,6 +157,29 @@
  *     oscuro. Programación y Ciclo de vida: la barra sigue funcionando
  *     igual, ahora con el mismo panel blanco (sin el segmentado, que nunca
  *     tuvieron).
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — SOLO COMENTARIOS: SE DA DE BAJA `CicloVida.js`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Los comentarios de este archivo nombran a `CicloVida.js` (pantalla del
+ *     módulo `ciclo_vida`) como si existiera.
+ *
+ *   CAUSA RAÍZ
+ *     En v1.2.3 esa pantalla se borra del repo: el ciclo de vida pasa a ser un
+ *     modal dentro del pedido (`pages/CicloVidaPedido.js`), sin lista propia,
+ *     sin filtros ni preferencias guardadas.
+ *
+ *   ALCANCE
+ *     Se aclara en el comentario de `Pedidos.js`/`Programacion.js` que `CicloVida.js` ya no existe. No cambia ninguna línea de código ni ningún comportamiento.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los textos históricos de versiones anteriores que hablan de
+ *     `CicloVida.js` se dejan como registro de por qué el código es como es.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- --watchAll=false` y `CI=true npm run build` sin
+ *     warnings.
  * ========================================================================== */
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';

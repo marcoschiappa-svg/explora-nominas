@@ -25,9 +25,40 @@
  *     el rol correspondiente cae a Home, igual que antes de esta tarea.
  *
  * v1.2.0 (RF-10 y RF-05) -- dos ramas nuevas, mismo patrón que el resto:
- *   `calendario` -> `CalendarioOperativo.js`, `ciclo_vida` -> `CicloVida.js`.
+ *   `calendario` -> `CalendarioOperativo.js`, `ciclo_vida` -> `CicloVida.js`
+ *   (esta última se da de baja en v1.2.3: ver el bloque de más abajo).
  *   Los roles salen de `modulos.js`, como siempre -- nada de roles propios
  *   acá.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 -- SIN RUTAS DEL MODELO ANTERIOR
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Seguían ruteadas seis pantallas que operaban sobre `pedidos_portal` y
+ *     `usuarios_portal` (o quedaron redundantes): Pedidos anteriores
+ *     (`PedidosLegacy`), Programación anterior (`Coordinador`), Despachos
+ *     anteriores (`Transportista`), Viajes anteriores (`Chofer`),
+ *     Administración (`Admin`) y la vista Ciclo de vida (`CicloVida`).
+ *
+ *   CAUSA RAÍZ
+ *     Después de v1.2.3 todos los pedidos del modelo viejo están migrados al
+ *     modelo nuevo y cerrados (`scripts/migrar-pedidos-legacy.js`): esas
+ *     pantallas no tienen nada que operar. El ciclo de vida pasa a ser un modal
+ *     dentro del pedido (`pages/CicloVidaPedido.js`, desde `Pedidos.js`).
+ *
+ *   ALCANCE
+ *     Se sacan los seis `import` y sus ramas de ruteo; los seis archivos se
+ *     borran del repo. Un valor de `modulo` que ya no existe sigue cayendo a
+ *     Home, igual que cualquier módulo al que el usuario no puede entrar.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     `cargarSesion()` sigue leyendo `usuarios_portal` como respaldo del login
+ *     (`sesion.js` no se toca en esta versión).
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Ningún tile de Home lleva a una de
+ *     las seis pantallas, y `grep` de sus nombres sobre `src/` solo encuentra
+ *     comentarios que explican la baja.
  *
  * -----------------------------------------------------------------------------
  * v1.2.0 (RF-09) -- SE DESHACE EL PASO A `usuario`: `Tarifario` QUEDA LEGACY
@@ -70,21 +101,15 @@ import { moduloPorId, puedeVerModulo } from './modulos';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Pedidos from './pages/Pedidos';
-import PedidosLegacy from './pages/PedidosLegacy';
-import Coordinador from './pages/Coordinador';
 import Programacion from './pages/Programacion';
-import Transportista from './pages/Transportista';
 import MisDespachos from './pages/MisDespachos';
-import Chofer from './pages/Chofer';
 import MisViajes from './pages/MisViajes';
 import Seguimiento from './pages/Seguimiento';
-import Admin from './pages/Admin';
 import Organizaciones from './pages/Organizaciones';
 import Usuarios from './pages/Usuarios';
 import Productos from './pages/Productos';
 import Camiones from './pages/Camiones';
 import CalendarioOperativo from './pages/CalendarioOperativo';
-import CicloVida from './pages/CicloVida';
 import Tarifario from './Tarifario';
 import NuevoTarifario from './pages/NuevoTarifario';
 import Pie from './ui/Pie';
@@ -211,26 +236,14 @@ function Contenido() {
 
     if (modulo === 'pedidos' && puede('pedidos')) {
       cuerpo = <Pedidos usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'pedidos_legacy' && puede('pedidos_legacy')) {
-      // Los pedidos que quedaron en `pedidos_portal`, en solo lectura. Este
-      // bloque se borra cuando no quede ninguno vivo.
-      cuerpo = <PedidosLegacy usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'coordinador' && puede('coordinador')) {
-      cuerpo = <Coordinador usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'programacion' && puede('programacion')) {
       cuerpo = <Programacion usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'transportista' && puede('transportista')) {
-      cuerpo = <Transportista usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'mis_despachos' && puede('mis_despachos')) {
       cuerpo = <MisDespachos usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'chofer' && puede('chofer')) {
-      cuerpo = <Chofer usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'mis_viajes' && puede('mis_viajes')) {
       cuerpo = <MisViajes usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'seguimiento' && puede('seguimiento')) {
       cuerpo = <Seguimiento usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'admin' && puede('admin')) {
-      cuerpo = <Admin usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'organizaciones' && puede('organizaciones')) {
       cuerpo = <Organizaciones usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'usuarios' && puede('usuarios')) {
@@ -242,9 +255,6 @@ function Contenido() {
     } else if (modulo === 'calendario' && puede('calendario')) {
       // v1.2.0 (RF-10)
       cuerpo = <CalendarioOperativo usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'ciclo_vida' && puede('ciclo_vida')) {
-      // v1.2.0 (RF-05)
-      cuerpo = <CicloVida usuario={usuario} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'tarifario' && puede('tarifario')) {
       // v1.2.0 (RF-09, comentario ALCANCE) — Tarifario legacy, sin tocar: recibe
       // los campos viejos de la sesión, no el objeto `usuario` completo.

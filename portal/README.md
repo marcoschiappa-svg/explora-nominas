@@ -22,11 +22,7 @@ Ver también: [Changelog](./CHANGELOG.md) · [Entorno de prueba](./ENTORNO_PRUEB
 | Login | `src/pages/Login.js` | Inicio de sesión con Google |
 | Home | `src/pages/Home.js` | Landing según rol |
 | Pedidos | `src/pages/Pedidos.js` | Carga y seguimiento de pedidos comerciales |
-| Coordinador | `src/pages/Coordinador.js` | Cronograma de entregas, asignación de transporte, mapa de unidades |
-| Transportista | `src/pages/Transportista.js` | Nominación de choferes/unidades por parte del transportista |
-| Chofer | `src/pages/Chofer.js` | Vista del chofer para su viaje asignado |
 | Seguimiento | `src/pages/Seguimiento.js` | Mapa en vivo del recorrido de cada viaje |
-| Admin | `src/pages/Admin.js` | Gestión de usuarios, import/export de choferes |
 | Tarifario | `src/Tarifario.js` | Consulta, edición y aprobación de tarifas de flete |
 
 ## Instalación

@@ -53,7 +53,9 @@
  *   - "Ver historial" dejo de superponerse con el modal de detalle: nunca se
  *     montan los dos <Modal> a la vez. Se guarda un solo pedidoAbiertoId y un
  *     flag mostrandoHistorial que alterna cual de los dos se ve. Cerrar el
- *     historial vuelve al detalle (no lo pisa).
+ *     historial vuelve al detalle (no lo pisa). (v1.2.3: lo mismo vale para
+ *     "Ver ciclo de vida", con `mostrandoCiclo`: ver el bloque v1.2.3 al final
+ *     de este encabezado.)
  *   - Agregar una entrega cuando la suma de entregas activas ya llego al
  *     volumen del pedido ahora avisa (banner + confirmacion): hay que
  *     agrandar la orden y avisar a los coordinadores antes de sumar mas.
@@ -340,6 +342,48 @@
  *     `CI=true npm test -- --watchAll=false` (incluye `progreso-pedido` y
  *     `filtros-listado`) y `CI=true npm run build` sin warnings. Pruebas
  *     manuales al pie del prompt de la tarea.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — "VER CICLO DE VIDA" DENTRO DEL PEDIDO Y MARCAS DE CIERRE
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El ciclo de vida de una entrega estaba en una pantalla aparte
+ *     (`CicloVida.js`, módulo `ciclo_vida`), con su propia lista de todas las
+ *     entregas: para ver el ciclo de un pedido había que salir de acá y
+ *     buscarlo de nuevo. Y el detalle del pedido no decía si el pedido se cerró
+ *     administrativamente ni si vino del modelo anterior.
+ *
+ *   CAUSA RAÍZ
+ *     El ciclo de vida es información de UN pedido y se llegaba por una lista
+ *     global. Los campos `cierre_administrativo`/`cierre_motivo`/`cierre_ts` y
+ *     `origen_carga: 'migracion_legacy'` son nuevos en v1.2.3 (ver
+ *     `MODELO_DATOS_TOBE.md`) y ninguna pantalla los leía.
+ *
+ *   ALCANCE
+ *     1. Botón "Ver ciclo de vida" en la columna de acciones de
+ *        `ModalDetallePedido`, debajo de "Ver historial", mismo estilo
+ *        secundario y ancho completo. Lo ven todos los que abren el detalle
+ *        (admin, coordinador y comercial: los mismos roles del módulo
+ *        `ciclo_vida` que se da de baja), también en pedidos cumplidos y
+ *        suspendidos: es de solo lectura.
+ *     2. Mismo patrón que el historial: un estado `mostrandoCiclo` junto a
+ *        `mostrandoHistorial`. El ciclo (`CicloVidaPedido.js`) REEMPLAZA al
+ *        detalle mientras está abierto, nunca se le superpone; cerrarlo vuelve
+ *        al detalle; cerrar el detalle limpia los tres estados. Nunca se montan
+ *        dos `<Modal>` a la vez.
+ *     3. En `autoriaBox`, dos líneas nuevas: "Cierre administrativo: <motivo> ·
+ *        <fecha>" si `pedido.cierre_administrativo`, y "Migrado del modelo
+ *        anterior" si `pedido.origen_carga === 'migracion_legacy'`.
+ *     Nada más cambia: ni filtros, ni listado, ni acciones.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Un pedido migrado muestra "Creado por: Sin registro" si su
+ *     `creado_por_uid` quedó en `null` (no había usuario nuevo con ese email).
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Manual: abrir un pedido vivo, uno
+ *     migrado y uno cerrado por corte; en cada uno "Ver ciclo de vida" abre el
+ *     modal, cerrarlo vuelve al detalle, y lo mismo con "Ver historial".
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -359,6 +403,7 @@ import BuscadorOrganizacion from './BuscadorOrganizacion';
 import ModalOrganizacion from './ModalOrganizacion';
 import ModalDomicilio from './ModalDomicilio';
 import HistorialPedido from './HistorialPedido';
+import CicloVidaPedido from './CicloVidaPedido';
 import * as XLSX from 'xlsx';
 import {
   COLUMNAS, PRIMERA_FILA_DATOS, MAXIMO_FILAS,
@@ -435,8 +480,9 @@ const COLOR_ENTREGA = {
 
 // v1.2.0 (RF-05) -- `formatoFechaTs` y `proximaFechaPendiente` se mudaron a
 // `extractores-pedidos.js` (import más arriba, sin cambiar su
-// implementación) para que `CicloVida.js` las reuse. Ver el encabezado de
-// ese archivo.
+// implementación) para que otras pantallas las reusen (hoy
+// `CicloVidaPedido.js` usa `formatoFechaTs`; antes la pantalla `CicloVida.js`,
+// dada de baja en v1.2.3). Ver el encabezado de ese archivo.
 
 function fechaSumarDias(fechaISO, dias) {
   const d = new Date(fechaISO + 'T00:00:00');
@@ -513,6 +559,8 @@ export default function Pedidos({ usuario, onVolver }) {
   );
   const [pedidoAbiertoId, setPedidoAbiertoId] = useState(null);
   const [mostrandoHistorial, setMostrandoHistorial] = useState(false);
+  // v1.2.3 -- el ciclo de vida alterna con el detalle igual que el historial.
+  const [mostrandoCiclo, setMostrandoCiclo] = useState(false);
   // 3. Aviso clickeable del encabezado (v1.2.0 rediseño) -- 'vencidas' |
   //    'sinCubrir' | null. En memoria, no se persiste, "Limpiar filtros" lo
   //    apaga.
@@ -1228,10 +1276,11 @@ export default function Pedidos({ usuario, onVolver }) {
         />
       )}
 
-      {/* Nunca se montan los dos modales juntos: el historial reemplaza al
-          detalle mientras esta abierto, no se le superpone. Cerrar el
-          historial vuelve al detalle; cerrar el detalle limpia los dos. */}
-      {pedidoAbierto && !mostrandoHistorial && (
+      {/* Nunca se montan dos modales juntos: el historial y el ciclo de vida
+          (v1.2.3) reemplazan al detalle mientras estan abiertos, no se le
+          superponen. Cerrar cualquiera de los dos vuelve al detalle; cerrar el
+          detalle limpia los tres estados. */}
+      {pedidoAbierto && !mostrandoHistorial && !mostrandoCiclo && (
         <ModalDetallePedido
           pedido={pedidoAbierto}
           entregas={entregasPorPedido.get(pedidoAbierto.id) || []}
@@ -1242,13 +1291,25 @@ export default function Pedidos({ usuario, onVolver }) {
           domiciliosDeCliente={domiciliosDeCliente}
           calendarioDias={calendarioDias} calendarioReglas={calendarioReglas}
           usuario={usuario}
-          onCerrar={() => { setPedidoAbiertoId(null); setMostrandoHistorial(false); }}
+          onCerrar={() => { setPedidoAbiertoId(null); setMostrandoHistorial(false); setMostrandoCiclo(false); }}
           onVerHistorial={() => setMostrandoHistorial(true)}
+          onVerCiclo={() => setMostrandoCiclo(true)}
         />
       )}
 
       {pedidoAbierto && mostrandoHistorial && (
         <HistorialPedido pedidoId={pedidoAbierto.id} onCerrar={() => setMostrandoHistorial(false)} />
+      )}
+
+      {pedidoAbierto && mostrandoCiclo && (
+        <CicloVidaPedido
+          pedido={pedidoAbierto}
+          entregas={entregasPorPedido.get(pedidoAbierto.id) || []}
+          org={orgsPorId.get(pedidoAbierto.cliente_org_id)}
+          prod={prodsPorId.get(pedidoAbierto.producto_id)}
+          usuario={usuario}
+          onCerrar={() => setMostrandoCiclo(false)}
+        />
       )}
     </div>
   );
@@ -1383,7 +1444,7 @@ function TablaPedidos({ pedidos, orgsPorId, prodsPorId, entregasPorPedido, onFil
 function ModalDetallePedido({
   pedido: p, entregas, org, prod, domsPorId, usuariosPorId, domiciliosDeCliente,
   calendarioDias, calendarioReglas,
-  usuario, onCerrar, onVerHistorial,
+  usuario, onCerrar, onVerHistorial, onVerCiclo,
 }) {
   const styles = useEstilos();
   const { oscuro } = useTema();
@@ -1748,6 +1809,17 @@ function ModalDetallePedido({
                 {' · '}{formatoFechaTs(ultimaModificacion.ts) || 'Sin registro'}
               </div>
             )}
+            {/* v1.2.3 -- campos nuevos del cierre administrativo y de la
+                migración del modelo anterior (MODELO_DATOS_TOBE.md). */}
+            {p.cierre_administrativo && (
+              <div style={styles.autoriaLinea}>
+                Cierre administrativo: {p.cierre_motivo || 'Sin motivo registrado'}
+                {' · '}{formatoFechaTs(p.cierre_ts) || 'Sin registro'}
+              </div>
+            )}
+            {p.origen_carga === 'migracion_legacy' && (
+              <div style={styles.autoriaLinea}>Migrado del modelo anterior</div>
+            )}
           </div>
 
           <div style={styles.accionesColumna}>
@@ -1764,6 +1836,12 @@ function ModalDetallePedido({
 
             <Boton variante="secundario" style={{ width: '100%' }} onClick={onVerHistorial}>
               Ver historial
+            </Boton>
+
+            {/* v1.2.3 -- el ciclo de vida de las entregas del pedido, de solo
+                lectura: se muestra también en cumplidos y suspendidos. */}
+            <Boton variante="secundario" style={{ width: '100%' }} onClick={onVerCiclo}>
+              Ver ciclo de vida
             </Boton>
 
             {/* 7. Acciones que el diseño no ubica -- ver el encabezado

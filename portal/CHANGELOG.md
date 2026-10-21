@@ -16,6 +16,155 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## v1.2.3 — 21/10/2026
+
+**Todos los pedidos del modelo anterior pasan al modelo nuevo, cerrados, y se
+dan de baja las pantallas viejas.** Sin cambios en reglas de Firestore, en el
+Apps Script ni en TrackEx. **Requiere correr dos scripts sobre los datos antes
+de mergear** (ver "Orden de despliegue").
+
+**Migración del modelo anterior.** Cada documento de `pedidos_portal` se traduce
+a `pedidos`, `entregas`, `despachos`, `viajes` (con su recorrido en
+`viajes/{id}/gps_puntos`, sin los puntos duplicados) e `historial`, con el número
+visible viejo en `numero` y `origen_carga: 'migracion_legacy'` (más
+`legacy_doc_id` y `legacy_numero`). **Todos quedan cerrados**, sin importar la
+fecha; los pedidos viejos suspendidos quedan suspendidos, con el mismo efecto en
+datos que "Suspender pedido" (despachos vivos y viajes abiertos cancelados,
+entregas suspendidas), sin avisos ni mails. El documento viejo se marca con
+`migrado_a` y `migrado_en` y **no se borra** ni se modifica nada más. Los
+clientes de prueba (los `null` de `mapa-normalizacion.js`) no se migran. Lo que
+no se puede resolver contra los catálogos (cliente, transporte, producto,
+domicilio, estado desconocido) **frena la corrida antes de escribir** y se
+informa agrupado, para resolverlo de una vez; los choferes sin usuario nuevo y
+los pedidos sin `creado_por_uid` solo se informan. El reporte lista además los
+usuarios activos de `usuarios_portal` sin perfil en `usuarios` (los que pierden
+su pantalla con esta baja).
+
+Lo que frenó la simulación contra producción se resuelve así:
+- **Tipos con nombre viejo:** "Retiro del cliente" se migra como "Entrega en
+  planta" y "Retiro de proveedor" como "Retiro de Proveedores" (tabla
+  `TIPOS_LEGACY`); el original queda en `legacy_tipo`.
+- **Despachos sin `entrega_nro`** (junio y julio de 2026, antes de que existiera
+  el campo): si el pedido tiene una sola entrega, todos van a la entrega 1 (la
+  entrega migrada puede quedar con varios despachos entregados); con varias,
+  `Dn` va a la entrega `n` si existe, con aviso; si no, frena.
+- **Entrega 1 sin `volumen_entrega1` con cronograma:** su volumen es el del pedido
+  menos la suma del cronograma, solo si da mayor que 0 (con aviso y la cuenta);
+  si no, frena.
+- **Domicilios, desde el relevamiento:** la migración usa las `variantes` de
+  `scripts/datos-domicilios.js` (los textos exactos de `lugar` del modelo viejo,
+  ya confirmados en `MAPA_DOMICILIOS.md`): una dirección vieja que coincide con
+  una variante resuelve al domicilio canónico, sin copiarla a mano.
+- **La dirección vieja es la planta de Explora** (pedidos de "Retiro del cliente" y
+  "Retiro de proveedor", hoy "Entrega en planta" y "Retiro de Proveedores"): la
+  dirección pasa a ser el destino y `origen_domicilio_id` queda en `null`, con un
+  aviso; no se inventa el origen. Con "Entrega al cliente" frena.
+- **Cronograma que ya cubre todo el pedido** (PED-260722-580, PED-260721-265): las
+  entregas salen solo del cronograma, con `numero = nro`, y `fecha_entrega` se
+  ignora con aviso.
+- **Domicilios que todavía no coinciden:** dos mapas explícitos en
+  `mapa-normalizacion.js`, `DOMICILIOS_LEGACY` (por dirección) y
+  `DOMICILIOS_LEGACY_POR_PEDIDO` (para los "(sin dirección)"), que se completan a
+  mano; el domicilio tiene que estar vinculado a la organización. El reporte
+  muestra, debajo de cada dirección sin resolver, los domicilios que la
+  organización ya tiene con su clave.
+- **Cliente fuera de `CLIENTES`** (INSUAGRO): se agrega la entrada al mapa a
+  mano; no cambia nada más.
+- Script `scripts/migrar-pedidos-legacy.js` (simula por defecto, `--ejecutar`
+  para escribir, idempotente: si una corrida se corta, la siguiente completa lo
+  que falta sin crear un segundo pedido). Lógica en
+  `src/logica-migracion-legacy.js`.
+- `scripts/cargar-entidades.js`: solo el encabezado — el criterio "NO migra
+  pedidos" quedó reemplazado.
+
+**Cierre administrativo de pedidos anteriores al corte.** Hay pedidos del modelo
+nuevo que ya se cumplieron en la realidad (todas sus entregas son anteriores al
+15/10/2026) pero quedaron abiertos. El cierre, en cascada: los viajes abiertos
+pasan a `FINALIZADO` como un cierre manual, pero con **`fin_ts` en `null`** (no se
+inventa una hora de llegada: el ciclo de vida muestra "Sin registro") y
+`cierre_administrativo: true`; **todo despacho vivo que no esté entregado pasa a
+`ENTREGADO`** (con `cierre_administrativo` y `cierre_motivo`), con viaje o sin
+él; las entregas, a `cumplida`; y los contadores del pedido se recuentan (queda
+`cumplido`). Un solo registro de historial `cierre_administrativo`. **No se
+mandan mails ni se toca el Plan de Producción.** No aplica a pedidos suspendidos, ya cumplidos ni a
+los que tienen todas sus entregas suspendidas.
+- Script `scripts/cerrar-pedidos-anteriores.js`, con `--corte AAAA-MM-DD`
+  obligatorio (se corre con `--corte 2026-10-15`): cierra solo los pedidos cuyas
+  entregas y despachos vivos son TODOS anteriores al corte, y lista aparte los
+  que quedan afuera y por qué. Lógica en `src/logica-cierre-administrativo.js`.
+- Campos nuevos documentados en `MODELO_DATOS_TOBE.md`: `cierre_administrativo`,
+  `cierre_motivo` y `cierre_ts` en el pedido; `cierre_administrativo` en
+  entregas y viajes; `cierre_administrativo` y `cierre_motivo` en el despacho;
+  y `legacy_tipo` en el pedido migrado.
+- Criterio: los despachos vivos pasan a `ENTREGADO`, no a `CANCELADO`. La
+  simulación en producción mostró que ninguno de los 61 pedidos a cerrar tenía
+  viaje (los despachos quedaron aceptados o asignados y nadie nominó en el
+  portal) y el camión fue; cancelarlos dejaba mal el ciclo de vida y los
+  reportes, y `estadoEntrega()` derivaba `pendiente`. Las entregas sin ningún
+  despacho siguen pasando a `cumplida`. La suspensión de los pedidos migrados no
+  cambia: ahí los despachos vivos sí se cancelan.
+
+**Home sin la marca "Nuevo".** Los módulos ya son el día a día. El mecanismo
+(barra punteada y pastilla) sigue disponible para un módulo nuevo de verdad.
+
+**Baja de seis pantallas del modelo anterior.** Salen de la vista y del repo:
+
+| Pantalla que se va | La reemplaza |
+| --- | --- |
+| Pedidos anteriores | Pedidos |
+| Programación anterior | Programación |
+| Despachos anteriores | Mis despachos |
+| Viajes anteriores | Mis viajes |
+| Administración | Usuarios, Importar flota, y el cierre manual de Programación y del ciclo de vida |
+| Ciclo de vida | el modal dentro del pedido |
+
+Se pueden recuperar desde el tag `Portal-v1.2.2`.
+
+**El ciclo de vida pasa a ser un modal dentro del pedido.** "Ver ciclo de vida"
+en el detalle de cada pedido (admin, coordinador y comercial; también en
+cumplidos y suspendidos), debajo de "Ver historial". Muestra un selector con las
+entregas del pedido y la línea de tiempo completa de la elegida; el cierre
+manual de un viaje abierto sigue disponible para admin y coordinador. Una entrega
+cerrada administrativamente lo dice, con el motivo y la fecha, y la etapa
+"Entregado" de un viaje cerrado así, o de un despacho cerrado sin viaje, aclara
+que no hay hora de llegada registrada en vez de mostrar "Sin registro" o la hora
+del cierre. El detalle del pedido también indica el cierre
+administrativo y si el pedido fue "Migrado del modelo anterior". Como el
+historial, el ciclo reemplaza al detalle mientras está abierto: nunca se montan
+dos modales a la vez.
+
+**Fix aparte — suspender un pedido con una entrega ya cumplida fallaba a mitad
+de camino.**
+- Síntoma: "Suspender pedido" sobre un pedido con alguna entrega entregada
+  tiraba error y dejaba despachos cancelados con el pedido sin suspender.
+- Causa raíz: `suspenderPedido()` (`logica-pedidos.js`) armaba `vivos` con
+  `despachoVivo()`, que solo excluye RECHAZADO y CANCELADO; un despacho
+  ENTREGADO entraba en la lista y `cancelarDespacho()` lo rechaza
+  (`puedeCancelar()`). Como cada cancelación es una transacción independiente,
+  los despachos anteriores ya habían quedado CANCELADOS y el pedido nunca se
+  marcaba suspendido.
+- Alcance: se excluye también `DESPACHO.ENTREGADO` al armar `vivos`.
+  `despachoVivo()` y `shared/` no cambian (el criterio es correcto para los
+  contadores y lo usa TrackEx). La fecha de carga del mail sigue saliendo de un
+  despacho que efectivamente se cancela. Un pedido que ya quedó a medias se
+  arregla volviendo a suspenderlo.
+
+**Sin cambios:** reglas de Firestore, Apps Script y TrackEx.
+
+**Pendientes conocidos:**
+- `sesion.js` sigue leyendo `usuarios_portal` como respaldo del login.
+- Las reglas del modelo viejo siguen publicadas.
+- La rama `usaModeloViejo` de `puedeVerModulo()` y la lista de módulos `legacy`
+  de Home quedan sin uso (se limpian junto con `sesion.js`).
+
+**Orden de despliegue:**
+1. En staging: migración (`--simular`, resolver los pendientes que informe,
+   `--ejecutar`), cierre (`--simular`, `--ejecutar`) y
+   `scripts/verificar-contadores.js`.
+2. Lo mismo en producción, **antes** de mergear, en la misma sesión.
+3. Mergear el portal.
+
+---
 ## v1.2.2 — 15/10/2026
 
 **Correos múltiples por organización.** Una organización (cliente o

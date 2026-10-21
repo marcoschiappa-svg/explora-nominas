@@ -22,8 +22,8 @@
  *   `extractoresPedidos` dentro de `Pedidos.js` (el `useMemo` con
  *   `clienteId`, `productoId`, `clienteNombre`...). Esos son closures sobre
  *   `orgsPorId`/`prodsPorId`/`usuariosPorId` — mapas que arma esa pantalla — y
- *   operan sobre un PEDIDO completo (`p => ...`). Los de `CicloVida.js` (ver
- *   ese archivo) operan sobre una fila "entrega" distinta (pedido + entrega +
+ *   operan sobre un PEDIDO completo (`p => ...`). Los de `CicloVida.js` (pantalla dada de baja en v1.2.3; ver
+ *   `Pedidos.js` para el patrón actual) operaban sobre una fila "entrega" distinta (pedido + entrega +
  *   cliente + producto + etapa actual), con su propio armado de mapas: no son
  *   el mismo objeto con otro nombre, forzarlos a compartir función habría
  *   sido más artificial que compartir las dos utilidades genuinamente puras
@@ -36,6 +36,29 @@
  *   `CI=true npm test` — todos los 131+ tests existentes en verde, incluidos
  *   los que dependían indirectamente de estas dos funciones. `CI=true npm
  *   run build` sin warnings.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — SOLO COMENTARIOS: SE DA DE BAJA `CicloVida.js`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Los comentarios de este archivo nombran a `CicloVida.js` (pantalla del
+ *     módulo `ciclo_vida`) como si existiera.
+ *
+ *   CAUSA RAÍZ
+ *     En v1.2.3 esa pantalla se borra del repo: el ciclo de vida pasa a ser un
+ *     modal dentro del pedido (`pages/CicloVidaPedido.js`), sin lista propia,
+ *     sin filtros ni preferencias guardadas.
+ *
+ *   ALCANCE
+ *     Se aclara en el comentario de los extractores que `CicloVida.js` ya no existe. No cambia ninguna línea de código ni ningún comportamiento.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los textos históricos de versiones anteriores que hablan de
+ *     `CicloVida.js` se dejan como registro de por qué el código es como es.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- --watchAll=false` y `CI=true npm run build` sin
+ *     warnings.
  * ========================================================================== */
 
 /** La fecha solicitada más próxima entre las entregas PENDIENTES de un
