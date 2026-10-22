@@ -1,6 +1,11 @@
 ﻿// SOLO PARA EL EMULADOR LOCAL — NUNCA desplegar esto a produccion.
 // Permite todo, para poder probar el diseno de datos sin friccion
 // mientras se define el esquema.
+//
+// v1.2.3: no hace falta agregar nada para la rama nueva de `entregas` (el
+// chofer deja la entrega `cumplida` al cerrar su viaje): este archivo ya
+// permite todo. La rama vive en `firestore.rules.produccion`, que es la que se
+// publica en staging y produccion, y ahi esta documentada.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

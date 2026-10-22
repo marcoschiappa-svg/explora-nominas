@@ -19,9 +19,11 @@ Las versiones más nuevas van arriba.
 ## v1.2.3 — 21/10/2026
 
 **Todos los pedidos del modelo anterior pasan al modelo nuevo, cerrados, y se
-dan de baja las pantallas viejas.** Sin cambios en reglas de Firestore, en el
-Apps Script ni en TrackEx. **Requiere correr dos scripts sobre los datos antes
-de mergear** (ver "Orden de despliegue").
+dan de baja las pantallas viejas.** Cambia una regla de Firestore (ver "Fix
+aparte — cerrar un viaje deja la entrega `cumplida`"); sin cambios en el Apps
+Script ni en TrackEx (el arreglo de TrackEx llega con su próxima build).
+**Requiere correr scripts sobre los datos antes de mergear** (ver "Orden de
+despliegue").
 
 **Migración del modelo anterior.** Cada documento de `pedidos_portal` se traduce
 a `pedidos`, `entregas`, `despachos`, `viajes` (con su recorrido en
@@ -149,9 +151,51 @@ de camino.**
   despacho que efectivamente se cancela. Un pedido que ya quedó a medias se
   arregla volviendo a suspenderlo.
 
-**Sin cambios:** reglas de Firestore, Apps Script y TrackEx.
+**Fix aparte — cerrar un viaje deja la entrega `cumplida`.**
+- Síntoma: `verificar-contadores.js --produccion` mostraba 6 pedidos con
+  `entregas_cumplidas = 1` y su única entrega en `programada`, con el despacho
+  `ENTREGADO` y el viaje `FINALIZADO`. Pedidos mostraba "Programada" (pastillas,
+  filtros "sin cubrir" y "esta semana", que leen `entrega.estado` guardado) en
+  entregas ya entregadas, y los contadores no cuadraban con las entregas.
+- Causa raíz: `finalizarViaje()` (`shared/logica-viajes.js`) pasaba el viaje a
+  `FINALIZADO`, el despacho a `ENTREGADO` y sumaba 1 a `entregas_cumplidas`, pero
+  nunca escribía la entrega (el chofer no puede leer ni escribir `entregas`).
+  Todo cierre —TrackEx, `MisViajes.js`, manual desde Programación o el ciclo de
+  vida— la dejaba en `programada`. Caso real: PED-2026-000007, cerrado a mano el
+  7/10, sin ningún `recalcular_estado` sobre la entrega.
+- Alcance:
+  - **Cierre manual:** lee la entrega dentro de la transacción y, si no está
+    `cumplida` ni `suspendida`, la pasa a `cumplida` (con `despacho_cumplido_id`
+    e historial `recalcular_estado` derivado). El contador sale de
+    `deltaContadores(estadoAnterior, 'cumplida')` con el estado real: una entrega
+    ya `cumplida` o `suspendida` no suma. La transacción pasa a 4 registros de
+    historial. Funciona apenas se publique el portal.
+  - **Cierre del chofer:** `nominar()` guarda `entrega_id` en el viaje y, al
+    cerrar, `finalizarViaje()` actualiza la entrega sin leerla. Viajes sin
+    `entrega_id` (anteriores a esta versión) cierran como antes.
+  - **Reglas (`firestore.rules.produccion`):** `match /entregas` suma una rama de
+    `update` para el chofer, solo para ese cambio (`estado: 'cumplida'`, con
+    `estado_ts`, `actualizado_en` y `despacho_cumplido_id`; no sobre una entrega
+    `suspendida`; validada con `getAfter()` contra un despacho de esa entrega,
+    `ENTREGADO` y del chofer por DNI). Además el chofer no puede modificar
+    `entrega_id` de su viaje. `firestore.rules.emulador` ya permite todo.
+  - **Script de reparación** `scripts/reparar-entregas-cumplidas.js` (simula por
+    defecto, `--ejecutar` escribe): pasa a `cumplida` las entregas trabadas (no
+    `cumplida` ni `suspendida`, con despachos vivos y todos `ENTREGADO`), con
+    historial `recalcular_estado`, y **recuenta** los contadores del pedido desde
+    las entregas; además completa `entrega_id` en los viajes abiertos que no lo
+    tienen. Lógica y tests en `logica-reparar-entregas.js`.
+- **TrackEx:** el arreglo para los cierres desde la app llega con su **próxima
+  build**. La app instalada sigue cerrando sin escribir la entrega y la regla
+  nueva no la afecta (es solo una rama extra de `update`); esas entregas quedan
+  trabadas hasta correr el script.
+
+**Sin cambios:** Apps Script y TrackEx. Reglas de Firestore: solo la rama
+nueva de `entregas` y `noCambia('entrega_id')` en `viajes`.
 
 **Pendientes conocidos:**
+- No hay tests de reglas contra el emulador en el repo: la rama nueva de
+  `entregas` se verifica a mano (ver el comentario en las reglas).
 - `sesion.js` sigue leyendo `usuarios_portal` como respaldo del login.
 - Las reglas del modelo viejo siguen publicadas.
 - La rama `usaModeloViejo` de `puedeVerModulo()` y la lista de módulos `legacy`
@@ -162,7 +206,14 @@ de camino.**
    `--ejecutar`), cierre (`--simular`, `--ejecutar`) y
    `scripts/verificar-contadores.js`.
 2. Lo mismo en producción, **antes** de mergear, en la misma sesión.
-3. Mergear el portal.
+3. Publicar las reglas (`firebase deploy --only firestore:rules`, ver el
+   encabezado de `firestore.rules.produccion`): primero staging, después
+   producción. Son inocuas sin el portal nuevo.
+4. Mergear el portal.
+5. Con el portal publicado: `scripts/reparar-entregas-cumplidas.js` (primero
+   `--simular`, después `--ejecutar`) y `scripts/verificar-contadores.js` sin
+   diferencias. Repetirlo cuando salga la build nueva de TrackEx, por los
+   cierres hechos desde la app instalada.
 
 ---
 ## v1.2.2 — 15/10/2026

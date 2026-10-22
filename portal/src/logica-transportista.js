@@ -57,6 +57,34 @@
  *   Producción y la app del chofer ya leen esos dos nombres de campo. Lo
  *   único que cambia es DE DÓNDE salen: antes de un solo objeto `camion`,
  *   ahora de dos objetos separados.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — EL VIAJE LLEVA `entrega_id`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Cerrar un viaje dejaba la entrega trabada en `programada` (ver el
+ *     encabezado v1.2.3 de `shared/logica-viajes.js`).
+ *
+ *   CAUSA RAÍZ
+ *     El chofer no lee despachos ni entregas, así que al cerrar su viaje no
+ *     tenía cómo saber qué entrega actualizar.
+ *
+ *   ALCANCE
+ *     `nominar()` escribe `entrega_id` en el documento del viaje (tomado del
+ *     despacho releído en la transacción) y, como el historial `crear_viaje`
+ *     usa `calcularDiferencias({}, datosViaje)`, también queda ahí. Las reglas
+ *     de `viajes` no limitan los campos al crear, así que no hizo falta
+ *     cambiarlas para la creación; sí se agregó `noCambia('entrega_id')` a la
+ *     rama de update del chofer.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los viajes creados antes de esta versión no tienen `entrega_id`:
+ *     `scripts/reparar-entregas-cumplidas.js` se lo completa a los abiertos.
+ *     Los ya cerrados no lo necesitan.
+ *
+ *   CÓMO SE VERIFICA
+ *     Nominar un despacho y mirar el viaje y su historial `crear_viaje`: tiene
+ *     `entrega_id` igual al `entrega_id` del despacho.
  * ========================================================================== */
 
 import { doc, collection, serverTimestamp } from 'firebase/firestore';
@@ -367,6 +395,11 @@ export async function nominar({
 
     const datosViaje = {
       despacho_id: despacho.id,
+      // v1.2.3: el chofer no lee despachos ni entregas, y al cerrar su viaje
+      // necesita el id de la entrega para dejarla `cumplida` (ver el
+      // encabezado v1.2.3 de `shared/logica-viajes.js`). Sale del despacho
+      // RELEÍDO, no del que traía la pantalla.
+      entrega_id: actual.entrega_id || (entrega ? entrega.id : null),
       pedido_id: pedido.id,
       chofer_uid: chofer.id,
       chofer_dni: chofer.datos_chofer.dni,

@@ -726,6 +726,46 @@ volver del pedido nuevo al viejo (`legacy_doc_id`) si hay que auditar.
 
 ---
 
+## Cerrar un viaje deja la entrega `cumplida` — v1.2.3
+
+Antes de v1.2.3, cerrar un viaje pasaba el viaje a `FINALIZADO`, el despacho a
+`ENTREGADO` y sumaba 1 a `pedidos.entregas_cumplidas`, pero **no escribía la
+entrega**: quedaba `programada` y los contadores no cuadraban con las entregas.
+Ahora **todo cierre de viaje deja la entrega `cumplida`**, en la misma
+transacción que el viaje, el despacho y el pedido.
+
+### Campos nuevos
+
+```
+viajes
+    entrega_id              string      → entregas. La escribe nominar(), copiada del
+                                        despacho. Existe para que el chofer, que no lee
+                                        despachos ni entregas, sepa qué entrega cerrar.
+                                        El chofer no puede modificarlo. Los viajes
+                                        anteriores a v1.2.3 pueden no tenerlo.
+
+entregas
+    despacho_cumplido_id    string      → despachos. El despacho cuya entrega cerró el
+                                        viaje. Solo existe en entregas que pasaron a
+                                        `cumplida` por un cierre de viaje; no lo escribe
+                                        el cierre administrativo ni la reparación.
+```
+
+### Cómo queda cada cierre
+
+| Cierre | Qué hace con la entrega |
+| --- | --- |
+| Manual (interno) | La lee en la transacción. Si no está `cumplida` ni `suspendida`, la pasa a `cumplida` y anota `recalcular_estado` (`derivado: true`). El contador sale de `deltaContadores(estadoAnterior, 'cumplida')`; si ya estaba `cumplida` o `suspendida`, no se toca el pedido. |
+| Chofer, viaje con `entrega_id` | La actualiza **sin leerla** (`estado`, `estado_ts`, `actualizado_en`, `despacho_cumplido_id`) bajo una regla propia de `entregas`. El historial lleva `antes: {}`. |
+| Chofer, viaje sin `entrega_id` | Cierra como antes, sin tocar la entrega. |
+| Cierre desde TrackEx instalada | Sin cambios hasta la próxima build de la app: la entrega queda en `programada`. |
+
+`scripts/reparar-entregas-cumplidas.js` arregla las ya trabadas (con todos sus
+despachos vivos `ENTREGADO`, recuenta los contadores del pedido) y completa
+`entrega_id` en los viajes abiertos que no lo tienen.
+
+---
+
 ## `gps_puntos` — subcolección de `viajes`
 
 ```
