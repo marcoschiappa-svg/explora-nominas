@@ -68,12 +68,48 @@
  *   CÓMO SE VERIFICA
  *     `CI=true npm test` y `CI=true npm run build` en verde, y en
  *     `logica-calendario.js` no queda ninguna referencia a `logica-pedidos`.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 (fix aparte) — SUSPENDER UN PEDIDO CON UNA ENTREGA YA CUMPLIDA FALLABA
+ * -----------------------------------------------------------------------------
+ *
+ *   SÍNTOMA
+ *     "Suspender pedido" sobre un pedido con alguna entrega ya entregada tiraba
+ *     un error ("El despacho ... ya no se puede cancelar: está en ENTREGADO") y
+ *     dejaba despachos CANCELADOS con el pedido sin suspender.
+ *
+ *   CAUSA RAÍZ
+ *     `suspenderPedido()` arma `vivos` con `despachos.filter(despachoVivo)`.
+ *     `despachoVivo()` (`shared/estados.js`) solo excluye RECHAZADO y CANCELADO,
+ *     así que un despacho ENTREGADO entra en la lista, y `cancelarDespacho()` lo
+ *     rechaza vía `puedeCancelar()`. Cada cancelación es una transacción
+ *     independiente: los despachos anteriores en la lista ya habían quedado
+ *     CANCELADOS cuando el ENTREGADO tiró el error, y la transacción final que
+ *     marca el pedido `suspendido` nunca llegaba a correr.
+ *
+ *   ALCANCE
+ *     Al armar `vivos` se excluye también `DESPACHO.ENTREGADO` (comentario
+ *     numerado 1 en `suspenderPedido()`). `despachoVivo()` y todo `shared/`
+ *     quedan como estaban: el criterio de "vivo" es correcto para los
+ *     contadores y lo usa TrackEx. `fechaCarga` (la que va en el mail al
+ *     transportista) también sale de `vivos`: sigue tomando un despacho que
+ *     efectivamente se cancela, y es '' si no se cancela ninguno.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Un pedido que ya quedó a medias por este error (despachos cancelados, sin
+ *     suspender) se arregla volviendo a suspenderlo: los ya cancelados no son
+ *     `despachoVivo`, así que la reintentada sigue donde se cortó.
+ *
+ *   CÓMO SE VERIFICA
+ *     Manual: suspender un pedido que tenga una entrega ENTREGADA y otra con
+ *     despacho vivo: el vivo se cancela, el entregado queda como estaba, la
+ *     entrega cumplida no se toca y el pedido queda suspendido.
  * ========================================================================== */
 
 import { doc, collection, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { enTransaccion, calcularDiferencias } from './shared/datos';
-import { despachoVivo, ENTREGA, VIAJE } from './shared/estados';
+import { despachoVivo, DESPACHO, ENTREGA, VIAJE } from './shared/estados';
 import { cancelarDespacho, leerContextoPedido } from './logica-despachos';
 import { textoDomicilio } from './buscar-domicilios';
 import { TIPOS } from './tipos-pedido';
@@ -600,7 +636,16 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
   // Cancela cada despacho vivo con la función de siempre. Uno por uno, no en
   // paralelo: son transacciones independientes sobre el mismo pedido, y
   // dispararlas todas juntas multiplicaría los reintentos por choque.
-  const vivos = despachos.filter(despachoVivo);
+  // 1. v1.2.3 (fix aparte) -- `despachoVivo()` solo excluye RECHAZADO y
+  //    CANCELADO, así que un despacho ENTREGADO entraba en esta lista y
+  //    `cancelarDespacho()` lo rechaza (`puedeCancelar()`: un camión que ya
+  //    entregó no se cancela). Como cada cancelación es su propia transacción,
+  //    los despachos anteriores de la lista ya quedaban CANCELADOS y el pedido
+  //    nunca llegaba a marcarse suspendido. Un ENTREGADO no se toca (ver el
+  //    comentario de más abajo: "esos camiones ya fueron"), así que se excluye
+  //    acá. `despachoVivo()` NO cambia: el criterio es correcto para los
+  //    contadores y lo comparte TrackEx.
+  const vivos = despachos.filter(d => despachoVivo(d) && d.estado !== DESPACHO.ENTREGADO);
   // La fecha de carga que va en el mail al transportista (Notificaciones.gs,
   // enviarEmailSuspenderPedido): es singular porque el mail lo es, y un
   // pedido puede tener despachos vivos con transportistas Y fechas

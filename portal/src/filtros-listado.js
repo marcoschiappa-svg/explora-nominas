@@ -121,6 +121,29 @@
  *   CÓMO SE VERIFICA
  *     `CI=true npm test -- filtros-listado` (ida y vuelta de `verInactivas`
  *     en `leerPreferencias`/`guardarPreferencias`).
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — SOLO COMENTARIOS: SE DA DE BAJA `CicloVida.js`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Los comentarios de este archivo nombran a `CicloVida.js` (pantalla del
+ *     módulo `ciclo_vida`) como si existiera.
+ *
+ *   CAUSA RAÍZ
+ *     En v1.2.3 esa pantalla se borra del repo: el ciclo de vida pasa a ser un
+ *     modal dentro del pedido (`pages/CicloVidaPedido.js`), sin lista propia,
+ *     sin filtros ni preferencias guardadas.
+ *
+ *   ALCANCE
+ *     Se saca `'ciclo_vida'` de los tipos documentales de `pantalla` (JSDoc) y se aclara que `CicloVida.js` ya no existe. No cambia ninguna línea de código ni ningún comportamiento.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los textos históricos de versiones anteriores que hablan de
+ *     `CicloVida.js` se dejan como registro de por qué el código es como es.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- --watchAll=false` y `CI=true npm run build` sin
+ *     warnings.
  * ========================================================================== */
 
 /* -----------------------------------------------------------------------------
@@ -255,7 +278,7 @@ export function filtrosVacios() {
     carga: { atajo: null, desde: null, hasta: null },
     soloSinCubrir: false,
     // v1.2.0 (nuevo_tarifario) -- campos nuevos, ADITIVOS: las pantallas que
-    // ya existen (Pedidos.js, Programacion.js, CicloVida.js) no pasan
+    // ya existen (Pedidos.js, Programacion.js y, hasta v1.2.3, CicloVida.js) no pasan
     // extractor para ellos, así que quedan inertes -- ver el criterio de
     // "extractor opcional" del comentario 7 más abajo.
     km: { desde: null, hasta: null },
@@ -591,7 +614,7 @@ function podarPreferencias(datos, validos) {
  * casos la pantalla arranca con sus valores por defecto de siempre, nunca
  * rompe.
  *
- * @param {'pedidos'|'programacion'|'ciclo_vida'|'nuevo_tarifario'|'organizaciones'} pantalla
+ * @param {'pedidos'|'programacion'|'nuevo_tarifario'|'organizaciones'} pantalla
  * @param {string} uid
  * @param {Object} [validos] Ver `podarPreferencias()`
  * @returns {Object|null}
@@ -616,7 +639,7 @@ export function leerPreferencias(pantalla, uid, validos = {}) {
  *
  * NO incluye el texto del buscador -- a propósito, ver el prompt.
  *
- * @param {'pedidos'|'programacion'|'ciclo_vida'|'nuevo_tarifario'|'organizaciones'} pantalla
+ * @param {'pedidos'|'programacion'|'nuevo_tarifario'|'organizaciones'} pantalla
  * @param {string} uid
  * @param {Object} preferencias `{ filtros, grupoActivo, ordenPor,
  *   ordenSentido, alcance? }`

@@ -42,7 +42,7 @@
 
 import { doc, collection, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
 import { enTransaccion, calcularDiferencias } from './datos';
-import { DESPACHO, VIAJE, deltaContadores, viajeAbierto } from './estados';
+import { DESPACHO, VIAJE, ENTREGA, deltaContadores, viajeAbierto } from './estados';
 
 /* -----------------------------------------------------------------------------
  * v1.2.0 (RF-02) — VALIDACIÓN DEL CIERRE MANUAL
@@ -151,6 +151,70 @@ export function validarCierreManual({ finTs, fechaCarga, inicioTs, ahora }) {
 
   return mensajes;
 }
+
+/* -----------------------------------------------------------------------------
+ * v1.2.3 — CERRAR UN VIAJE DEJA LA ENTREGA `cumplida`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `verificar-contadores.js --produccion` mostraba 6 pedidos con
+ *     `entregas_cumplidas = 1` y su única entrega en `programada`, con el
+ *     despacho `ENTREGADO` y el viaje `FINALIZADO`. La pantalla de Pedidos
+ *     (pastillas, filtros "sin cubrir" y "esta semana") lee `entrega.estado`
+ *     guardado, así que mostraba "Programada" en entregas ya entregadas.
+ *
+ *   CAUSA RAÍZ
+ *     `finalizarViaje()` pasaba el viaje a `FINALIZADO`, el despacho a
+ *     `ENTREGADO` y sumaba 1 a `entregas_cumplidas`, pero nunca escribía la
+ *     entrega: el chofer no puede leer ni escribir `entregas` en las reglas, y
+ *     nadie la actualizaba después. Todo cierre (TrackEx, `MisViajes.js`,
+ *     cierre manual desde Programación o el ciclo de vida) dejaba la entrega
+ *     trabada en `programada`. Caso real: PED-2026-000007, cerrado a mano el
+ *     7/10 con `cerrar_viaje_manual` + `entregar` + `recalcular_contadores`
+ *     (+1 cumplidas) y ningún `recalcular_estado` sobre la entrega.
+ *
+ *   ALCANCE
+ *     - Cierre MANUAL (siempre lo hace un interno, que puede leer y escribir
+ *       entregas): se lee la entrega (`despacho.entrega_id`) dentro de la
+ *       transacción, antes de cualquier escritura. Si no está `cumplida` ni
+ *       `suspendida`, pasa a `cumplida` (`estado_ts`, `actualizado_en`,
+ *       `despacho_cumplido_id`) con su historial `recalcular_estado`
+ *       (`derivado: true`). El incremento de contadores sale de
+ *       `deltaContadores(estadoAnterior, 'cumplida')` con el estado REAL: si la
+ *       entrega ya estaba `cumplida` o está `suspendida`, no se toca el pedido.
+ *     - Cierre del CHOFER: no puede leer la entrega, así que la conoce por
+ *       `viaje.entrega_id` (lo escribe `nominar()` desde esta versión) y la
+ *       actualiza SIN leerla, con `tx.update`, bajo la rama nueva de `update`
+ *       en `match /entregas` de `firestore.rules.produccion` (solo ese cambio,
+ *       validado con `getAfter()` contra el despacho que se está entregando).
+ *       Como no se lee, el historial lleva `antes: {}`.
+ *     - Viaje sin `entrega_id` (creado antes de esta versión): el chofer cierra
+ *       como antes, sin tocar la entrega. `scripts/reparar-entregas-cumplidas.js`
+ *       completa el `entrega_id` de los viajes abiertos y repara las entregas
+ *       ya trabadas.
+ *     - La transacción pasa de 3 a 4 registros de historial como máximo.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - El arreglo para los cierres desde TrackEx llega con la PRÓXIMA build de
+ *       la app: `ChoferScreen.js` llama a este archivo tal como quedó
+ *       empaquetado en su última build, que no escribe la entrega. Hasta
+ *       entonces esas entregas quedan trabadas en `programada` (como hoy) y se
+ *       arreglan corriendo el script de reparación. La regla nueva no afecta a
+ *       la app instalada: es solo una rama extra de `update`.
+ *     - En el cierre del chofer el delta de contadores asume la entrega
+ *       `programada` (un despacho vivo la cubre), igual que antes. Si estuviera
+ *       en otro estado vivo, los contadores podrían desviarse; la regla no
+ *       exige `programada` a propósito, para no hacer fallar el cierre entero.
+ *       `verificar-contadores.js` lo detecta.
+ *     - El cierre manual con la entrega ya `cumplida` o `suspendida` no la
+ *       toca ni mueve contadores.
+ *
+ *   CÓMO SE VERIFICA
+ *     `logica-viajes-cierre.test.js`: entrega `programada` -> `cumplida` en el cierre
+ *     manual; entrega ya `cumplida` no suma al contador; chofer con y sin
+ *     `entrega_id`. Manualmente: cerrar un viaje desde Programación y ver la
+ *     pastilla "Entregada" en Pedidos; `verificar-contadores.js` sin
+ *     diferencias.
+ * -------------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------------
  * Iniciar
@@ -388,6 +452,15 @@ export async function finalizarViaje({
     if (!snapV.exists()) throw new Error('El viaje ya no existe. Actualizá la página.');
     if (!esChofer && !snapD.exists()) throw new Error('El despacho ya no existe. Actualizá la página.');
 
+    // v1.2.3: en el cierre manual (un interno, que sí lee `entregas`) se lee
+    // también la entrega, ACÁ, antes de cualquier escritura. El chofer no la
+    // lee: ver el encabezado v1.2.3 de más arriba.
+    let entregaActual = null;
+    if (!esChofer && snapD.data().entrega_id) {
+      const snapE = await tx.get(doc(db, 'entregas', snapD.data().entrega_id));
+      if (snapE.exists()) entregaActual = { id: snapE.id, ...snapE.data() };
+    }
+
     const viajeActual = { id: viaje.id, ...snapV.data() };
     // Las reglas garantizan que el chofer solo escribe NOMINADO -> ENTREGADO.
     const despachoActual = esChofer
@@ -478,33 +551,105 @@ export async function finalizarViaje({
       derivado: true,
     });
 
-    /* ── El pedido: SOLO el contador de cumplidas ────────────────────────── */
+    /* ── La entrega (v1.2.3) ─────────────────────────────────────────────── */
 
-    // NOMINADO y ENTREGADO son los dos "vivo": la cobertura no cambia, así que
-    // `entregas_cubiertas` no se toca. Lo único que se mueve es `cumplidas`.
-    const delta = deltaContadores('programada', 'cumplida');
+    // Estado de la entrega ANTES del cierre, del que sale el delta de
+    // contadores. Si no se la pudo leer (chofer, o despacho sin entrega) se
+    // asume `programada`: es lo que dice un despacho vivo que la cubre.
+    let estadoEntregaAntes = ENTREGA.PROGRAMADA;
 
-    tx.update(doc(db, 'pedidos', viajeActual.pedido_id), {
-      entregas_cumplidas: increment(delta.cumplidas),
-      actualizado_en: serverTimestamp(),
-    });
+    if (entregaActual) {
+      estadoEntregaAntes = entregaActual.estado;
+      const pendienteDeCumplir = entregaActual.estado !== ENTREGA.CUMPLIDA
+        && entregaActual.estado !== ENTREGA.SUSPENDIDA;
 
-    anotar({
-      entidadTipo: 'pedido',
-      entidadId: viajeActual.pedido_id,
-      pedidoId: viajeActual.pedido_id,
-      accion: 'recalcular_contadores',
-      diferencias: {
-        campos: ['entregas_cumplidas'],
-        antes: {},
-        despues: { delta_cumplidas: delta.cumplidas },
-      },
-      usuario,
-      derivado: true,
-    });
+      if (pendienteDeCumplir) {
+        const cambiosEntrega = {
+          estado: ENTREGA.CUMPLIDA,
+          estado_ts: serverTimestamp(),
+          despacho_cumplido_id: despacho.id,
+          actualizado_en: serverTimestamp(),
+        };
+
+        tx.update(doc(db, 'entregas', entregaActual.id), cambiosEntrega);
+
+        anotar({
+          entidadTipo: 'entrega',
+          entidadId: entregaActual.id,
+          pedidoId: viajeActual.pedido_id,
+          accion: 'recalcular_estado',
+          diferencias: calcularDiferencias(entregaActual, cambiosEntrega),
+          usuario,
+          derivado: true,
+        });
+      }
+    } else if (esChofer && viajeActual.entrega_id) {
+      // El chofer no puede leer la entrega: la actualiza a ciegas, y la regla
+      // de `entregas` valida contra el despacho (`getAfter`). Sin `entrega_id`
+      // (viaje anterior a v1.2.3) no se toca: lo repara el script.
+      const cambiosEntrega = {
+        estado: ENTREGA.CUMPLIDA,
+        estado_ts: serverTimestamp(),
+        actualizado_en: serverTimestamp(),
+        despacho_cumplido_id: despacho.id,
+      };
+
+      tx.update(doc(db, 'entregas', viajeActual.entrega_id), cambiosEntrega);
+
+      anotar({
+        entidadTipo: 'entrega',
+        entidadId: viajeActual.entrega_id,
+        pedidoId: viajeActual.pedido_id,
+        accion: 'recalcular_estado',
+        diferencias: { campos: ['estado'], antes: {}, despues: { estado: ENTREGA.CUMPLIDA } },
+        usuario,
+        derivado: true,
+      });
+    }
+
+    /* ── El pedido: los contadores que realmente cambian ─────────────────── */
+
+    // El delta sale del cambio REAL de la entrega: una entrega ya `cumplida` o
+    // `suspendida` no mueve nada. NOMINADO -> ENTREGADO no cambia la cobertura
+    // de una entrega `programada`, así que en el caso común solo se mueve
+    // `cumplidas`.
+    const noCambiaEntrega = estadoEntregaAntes === ENTREGA.CUMPLIDA
+      || estadoEntregaAntes === ENTREGA.SUSPENDIDA;
+    const delta = noCambiaEntrega
+      ? { cubiertas: 0, cumplidas: 0 }
+      : deltaContadores(estadoEntregaAntes, ENTREGA.CUMPLIDA);
+
+    if (delta.cubiertas !== 0 || delta.cumplidas !== 0) {
+      const cambiosPedido = { actualizado_en: serverTimestamp() };
+      const camposContador = [];
+      if (delta.cubiertas !== 0) {
+        cambiosPedido.entregas_cubiertas = increment(delta.cubiertas);
+        camposContador.push('entregas_cubiertas');
+      }
+      if (delta.cumplidas !== 0) {
+        cambiosPedido.entregas_cumplidas = increment(delta.cumplidas);
+        camposContador.push('entregas_cumplidas');
+      }
+
+      tx.update(doc(db, 'pedidos', viajeActual.pedido_id), cambiosPedido);
+
+      anotar({
+        entidadTipo: 'pedido',
+        entidadId: viajeActual.pedido_id,
+        pedidoId: viajeActual.pedido_id,
+        accion: 'recalcular_contadores',
+        diferencias: {
+          campos: camposContador,
+          antes: {},
+          despues: { delta_cubiertas: delta.cubiertas, delta_cumplidas: delta.cumplidas },
+        },
+        usuario,
+        derivado: true,
+      });
+    }
 
     return { ok: true };
-  }, 3);
+  }, 4);
 }
 
 /* -----------------------------------------------------------------------------

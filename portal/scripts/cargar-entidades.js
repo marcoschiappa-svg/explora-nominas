@@ -3,6 +3,33 @@
  * cargar-entidades.js — Carga inicial del modelo nuevo
  * =============================================================================
  *
+ * v1.2.3 — EL CRITERIO "NO MIGRA PEDIDOS" SE REEMPLAZÓ
+ *
+ *   SÍNTOMA
+ *     Más abajo, en "QUE NO HACE", dice que este script no migra pedidos y que
+ *     "no hay puente" entre `pedidos_portal` y el modelo nuevo.
+ *
+ *   CAUSA RAÍZ
+ *     Ese criterio valía mientras los pedidos viejos terminaban su ciclo en
+ *     `pedidos_portal`. En v1.2.3 las pantallas del modelo viejo se dan de baja,
+ *     así que el histórico tiene que pasar al modelo nuevo.
+ *
+ *   ALCANCE
+ *     La migración de pedidos existe y está en `migrar-pedidos-legacy.js`
+ *     (lógica en `src/logica-migracion-legacy.js`). Este script sigue sin
+ *     migrar pedidos: es el que deja listos los catálogos (organizaciones,
+ *     domicilios, productos, usuarios) contra los que la migración resuelve.
+ *     Hay que correrlo ANTES. No cambió ninguna línea de código de este archivo.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     El resto del encabezado (incluido "NO migra pedidos") se dejó como estaba
+ *     y quedó desactualizado en ese punto; vale lo de este bloque.
+ *
+ *   CÓMO SE VERIFICA
+ *     `node scripts\migrar-pedidos-legacy.js --proyecto <proyecto>
+ *     --credencial <ruta>` (simulación) informa qué clientes, productos o
+ *     domicilios faltan en los catálogos que cargó este script.
+ *
  * QUE HACE
  *   Crea las entidades base del modelo nuevo:
  *

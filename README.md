@@ -81,7 +81,7 @@ Detalle en [`portal/ENTORNO_PRUEBA.md`](./portal/ENTORNO_PRUEBA.md).
 
 ## 🔀 Cómo se conectan portal y app
 
-Las dos escriben en la misma colección de Firestore: **`pedidos_portal`**.
+El portal y la app trabajan sobre las mismas colecciones de Firestore: pedidos, entregas, despachos y viajes (con su subcolección gps_puntos). La app TrackEx lee y escribe solo viajes. Desde la v1.2.3 no queda ningún pedido operativo en pedidos_portal: se migraron todos y la colección queda como registro histórico.
 
 ```
 El comercial carga un pedido             → portal
@@ -92,7 +92,7 @@ La app registra el recorrido GPS         → app TrackEx
 El coordinador sigue el viaje en el mapa → portal
 ```
 
-El estado del viaje que escribe la app (`estado_chofer`) y el estado administrativo del portal (`estado`) son **campos distintos** y hoy no se sincronizan automáticamente. Es una de las cosas que la migración del modelo de datos va a resolver.
+El estado del viaje lo escribe la app en viajes.estado. Al cerrarse el viaje, el despacho pasa a ENTREGADO y el pedido se actualiza en la misma transacción.
 
 ---
 
@@ -202,7 +202,7 @@ Cosas detectadas y **todavía no resueltas**. Están acá para que no se pierdan
 
 | Tema | Qué se sabe |
 | --- | --- |
-| **Apps Script del Plan de Producción** | El portal (`Coordinador.js`) llama a un Apps Script con payloads del tipo `accion: 'asignar_transportista'`. Ese script **no está en este repositorio** — vive solo en Google. Si se rompe o se borra, no hay copia. Es el mismo problema que tenían las reglas de Firestore antes de la v1.0.3. |
+| **Apps Script del Plan de Producción** | El portal (`Programacion.js`, y `Pedidos.js` para el aviso de pedido nuevo y la suspensión) llama a un Apps Script con payloads del tipo `accion: 'asignar_transportista'`. Ese script **no está en este repositorio** — vive solo en Google. Si se rompe o se borra, no hay copia. Es el mismo problema que tenían las reglas de Firestore antes de la v1.0.3. |
 | **Dos Google Sheets distintos** | El `Code.gs` de la raíz y el de `explora-nominas/` apuntan a planillas diferentes (misma pestaña `Mov Vehículos Carga y Desc`). Falta determinar cuál está en uso. |
 | **Carpeta `explora-nominas/`** | Copia anterior del formulario de nóminas (archivos más chicos, incluye el `logo.png` que falta en la raíz). Candidata a archivar, pero antes hay que confirmar que nada la referencia. |
 | **Vercel** | Nunca se relevó. Falta saber cuántos proyectos hay, cuál sirve el portal y cuál el formulario, y qué carpeta raíz tiene configurada cada uno. Esto condiciona cualquier reorganización de archivos. |

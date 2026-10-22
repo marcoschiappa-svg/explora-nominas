@@ -626,8 +626,48 @@ service cloud.firestore {
       allow delete: if false;   // se suspende, no se borra
     }
 
+    // -------------------------------------------------------------------------
+    // v1.2.3 — EL CHOFER DEJA LA ENTREGA `cumplida` AL CERRAR SU VIAJE
+    //
+    // SINTOMA: cerrar un viaje dejaba la entrega en `programada` para siempre.
+    // CAUSA RAIZ: el chofer no podia escribir `entregas` (solo `esInterno()`),
+    //   asi que `finalizarViaje()` no la tocaba.
+    // ALCANCE: una rama de `update` para el chofer, SOLO para ese cambio. No
+    //   puede leer entregas (la lectura sigue siendo interna) ni escribir
+    //   nada mas. La entrega la conoce por `viajes.entrega_id`.
+    //     - cambia solo estado, estado_ts, actualizado_en y despacho_cumplido_id
+    //     - el estado nuevo es `cumplida`
+    //     - la entrega no estaba `suspendida`. A proposito NO se exige que
+    //       estuviera `programada`: con una entrega en otro estado vivo, una
+    //       regla mas estricta haria fallar la transaccion entera y el chofer
+    //       no podria cerrar su viaje.
+    //     - `getAfter()` sobre el despacho que declara `despacho_cumplido_id`
+    //       (se evalua con la transaccion ya aplicada): es de esta entrega, ya
+    //       quedo ENTREGADO y es del chofer (por DNI) -- el mismo criterio que
+    //       `esMiDespachoDeChofer()`. Asi solo puede cerrar la entrega de un
+    //       despacho que el mismo esta entregando en esa transaccion.
+    // LIMITACIONES: si el chofer manda un `despacho_cumplido_id` inexistente,
+    //   `getAfter()` falla y la escritura se rechaza.
+    // COMO SE VERIFICA: no hay tests de reglas contra el emulador en el repo.
+    //   Manualmente, con un chofer: cerrar su viaje deja la entrega `cumplida`;
+    //   un `update` desde la consola del cliente con otro despacho, con un
+    //   campo de mas o sobre una entrega `suspendida` da permission-denied.
+    // LIMITACION DE TRACKEX: la app instalada no escribe la entrega; esta rama
+    //   no la afecta (es solo una alternativa extra de `update`).
+    // -------------------------------------------------------------------------
+    function esCierreDeEntregaPorChofer(entregaId) {
+      return tieneRol('chofer')
+          && cambia().hasOnly(['estado', 'estado_ts', 'actualizado_en', 'despacho_cumplido_id'])
+          && request.resource.data.estado == 'cumplida'
+          && resource.data.estado != 'suspendida'
+          && getAfter(/databases/$(database)/documents/despachos/$(request.resource.data.despacho_cumplido_id)).data.entrega_id == entregaId
+          && getAfter(/databases/$(database)/documents/despachos/$(request.resource.data.despacho_cumplido_id)).data.estado == 'ENTREGADO'
+          && getAfter(/databases/$(database)/documents/despachos/$(request.resource.data.despacho_cumplido_id)).data.chofer_dni == miDni();
+    }
+
     match /entregas/{entregaId} {
-      allow read, create, update: if esInterno();
+      allow read, create: if esInterno();
+      allow update: if esInterno() || esCierreDeEntregaPorChofer(entregaId);
       allow delete: if false;
     }
 
@@ -854,6 +894,9 @@ service cloud.firestore {
                       && noCambia('chofer_dni')
                       && noCambia('chofer_uid')
                       && noCambia('despacho_id')
+                      // v1.2.3: el chofer usa `entrega_id` para cerrar la
+                      // entrega, pero no puede cambiarlo en su viaje.
+                      && noCambia('entrega_id')
                       && noCambia('transportista_org_id')
                       && cambia().hasOnly(camposDelChofer())
                       && request.resource.data.estado in estadosDelChofer()

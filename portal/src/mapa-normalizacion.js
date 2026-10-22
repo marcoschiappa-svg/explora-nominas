@@ -37,6 +37,40 @@
  *
  *   Un valor `null` significa: NO migrar. Son datos de prueba o marcadores que
  *   no corresponden a ninguna empresa real.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 (prompt 3) — `DOMICILIOS_LEGACY` Y `DOMICILIOS_LEGACY_POR_PEDIDO`
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     La simulación de `migrar-pedidos-legacy.js` contra producción frenó con 27
+ *     direcciones que no coinciden con ningún domicilio vinculado al cliente:
+ *     casi todas son variantes de escritura de domicilios que ya existen
+ *     ("GRAL.RODRIGUEZ", "GENERAL RODRIGUEZ" y "GRAL RODRIGUEZ" para el mismo
+ *     lugar), y algunas no tienen dirección alguna.
+ *
+ *   CAUSA RAÍZ
+ *     El modelo viejo guardaba la dirección como texto libre en cinco campos
+ *     sueltos; `claveDomicilio()` solo iguala lo que se escribe igual (sin
+ *     acentos, mayúsculas ni puntuación).
+ *
+ *   ALCANCE
+ *     Dos mapas EXPLÍCITOS, con el mismo estilo que `CLIENTES`/`TRANSPORTES`,
+ *     que completa una persona (no un algoritmo de parecido):
+ *       - `DOMICILIOS_LEGACY`: dirección vieja (tal cual la imprime el reporte
+ *         de la migración) -> `clave_normalizada` del domicilio existente.
+ *       - `DOMICILIOS_LEGACY_POR_PEDIDO`: número de pedido viejo -> idem; para
+ *         los pedidos que el reporte marca como "(sin dirección)".
+ *     El orden de resolución está en `logica-migracion-legacy.js`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los dos arrancan VACÍOS. Una entrada con una clave que no existe en
+ *     `domicilios`, o cuyo domicilio no está vinculado a la organización del
+ *     pedido, no se ignora: el pedido sigue yendo a `sinResolver` con ese motivo.
+ *
+ *   CÓMO SE VERIFICA
+ *     Con los mapas vacíos la simulación informa las mismas direcciones que
+ *     antes; al completar una entrada, esa dirección deja de aparecer.
+ *     `logica-migracion-legacy.test.js` cubre los dos mapas.
  * ========================================================================== */
 
 /* -----------------------------------------------------------------------------
@@ -109,6 +143,7 @@ const CLIENTES = {
   'ECOFERTIL':                      'ECOFERTIL',
   'SERV QUIM':                      'SERV QUIM',
   'EL TOBIANO':                     'EL TOBIANO',
+  'INSUAGRO':                       'INSUMOS AGROQUIMICOS S.A.',
 
   // ── NO migrar: datos de prueba ───────────────────────────────────────────
 
@@ -152,6 +187,44 @@ const TRANSPORTES = {
 
   'Transprueba':                    null,   // dato de prueba, 105 usos
   '—':                              null,   // ver nota 4
+};
+
+/* -----------------------------------------------------------------------------
+ * DOMICILIOS DEL MODELO VIEJO (v1.2.3, prompt 3)
+ *
+ * Para los domicilios que `claveDomicilio()` no logra igualar. Los valores son
+ * la `clave_normalizada` de un domicilio que YA EXISTE en el portal y que está
+ * vinculado a la organización del pedido. El reporte de
+ * `scripts/migrar-pedidos-legacy.js` imprime, debajo de cada dirección sin
+ * resolver, los domicilios que esa organización ya tiene con su clave: se
+ * copia de ahí.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Dirección vieja -> clave del domicilio existente.
+ *
+ * La clave del mapa es la dirección TAL CUAL LA IMPRIME EL REPORTE (el mismo
+ * texto que arma `textoDomicilio()` con los cinco campos del pedido viejo):
+ *
+ *   'RIO PRIMERO 155, GRAL.RODRIGUEZ, Buenos Aires, 1748': 'general rodriguez rio primero 155',
+ */
+const DOMICILIOS_LEGACY = {
+  // "<dirección vieja, tal cual la imprime el reporte>": "<clave_normalizada del domicilio existente>",
+  'RUTA NAC. 9 KM 1307,5, LOS NOGALES, TUCUMAN, 4101': 'san miguel de tucuman ruta nacional nro 9 km 1307 5'
+};
+
+/**
+ * Número de pedido viejo -> clave del domicilio existente. Para los pedidos que
+ * el reporte marca "(sin dirección)": no hay texto que mapear, se decide por
+ * pedido. Tiene prioridad sobre cualquier otra resolución.
+ *
+ *   'PED-260819-165': 'puerto general san martin soberania nacional 2550',
+ */
+const DOMICILIOS_LEGACY_POR_PEDIDO = {
+  // "<número de pedido viejo>": "<clave_normalizada>",   // para los "(sin dirección)"
+  'PED-260810-823': 'puerto general san martin yrigoyen 2933',   // TECNICA QUIMICA ARGENTINA
+  'PED-260731-310': 'puerto general san martin yrigoyen 2933',   // OCTA RENEWABLES
+  'PED-260728-319': 'tortuguitas otto krause 4903',   // CDM, cargado como entrega con la dirección de la planta
 };
 
 /* -----------------------------------------------------------------------------
@@ -355,6 +428,8 @@ function organizacionesACrear() {
 module.exports = {
   CLIENTES,
   TRANSPORTES,
+  DOMICILIOS_LEGACY,
+  DOMICILIOS_LEGACY_POR_PEDIDO,
   claveNormalizada,
   claveDomicilio,
   normalizarCuit,

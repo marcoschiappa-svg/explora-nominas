@@ -53,6 +53,9 @@ app_logs/{id}
 
 calendario_operativo/{fechaISO}    v1.2.0 (RF-10) -- un documento por fecha
 calendario_reglas/{semanal}        v1.2.0 (RF-10) -- documento único
+
+pedidos_portal/{id}                v1.2.3 -- modelo anterior; se marca con
+                                   migrado_a / migrado_en, no se borra
 ```
 
 ---
@@ -622,6 +625,144 @@ saludGPS(viaje):
     si ultima_ts hace < 15 min         → intermitente
     si no                              → sin señal
 ```
+
+---
+
+## Cierre administrativo y migración del modelo anterior — v1.2.3
+
+Dos operaciones de datos que dejan pedidos **cerrados sin que el chofer ni el
+transportista hayan hecho nada**. Las hacen scripts (`cerrar-pedidos-anteriores.js`
+y `migrar-pedidos-legacy.js`) usando la lógica de
+`logica-cierre-administrativo.js` y `logica-migracion-legacy.js`.
+
+### Campos nuevos
+
+```
+pedidos
+    cierre_administrativo   bool            true si se cerró por cierre administrativo
+    cierre_motivo           string          por qué se cerró
+    cierre_ts               Timestamp       cuándo
+    legacy_doc_id           string          ID del documento de pedidos_portal (solo migrados)
+    legacy_numero           string          el `id` visible viejo, "PED-260819-165" (solo migrados)
+    legacy_tipo             string          el `tipo` con nombre viejo, si hubo equivalencia
+                                            ("Retiro del cliente", "Retiro de proveedor")
+
+entregas
+    cierre_administrativo   bool            true si pasó a `cumplida` por el cierre
+
+despachos
+    cierre_administrativo   bool            true si pasó a `ENTREGADO` por el cierre
+    cierre_motivo           string          por qué (el mismo del pedido)
+
+viajes
+    cierre_administrativo   bool            true si pasó a FINALIZADO por el cierre
+```
+
+Los tres `cierre_*` del pedido, el `cierre_administrativo` de entregas, despachos
+y viajes y el `cierre_motivo` del despacho **solo existen en lo que pasó por un
+cierre**: en el resto no están. No son `false` por defecto.
+
+### `origen_carga: migracion_legacy`
+
+Tercer valor de `origen_carga`, junto a `manual` y `carga_masiva`: el pedido viene
+de `pedidos_portal`. Su `numero` conserva el `id` visible viejo (no sale de
+`contadores/pedidos`, que no se toca) y `legacy_numero` lo repite. Todos quedan
+cerrados, salvo los suspendidos, que conservan el estado que tenían.
+
+**`origen_domicilio_id` puede ser `null` en un pedido migrado.** Los pedidos viejos
+de "Retiro del cliente" y "Retiro de proveedor" (hoy "Entrega en planta" y "Retiro
+de Proveedores") traían en los campos de dirección la **planta de Explora**, no la
+dirección del cliente (ver `MAPA_DOMICILIOS.md` §1.1). Como el destino de esos
+tipos ya es la planta, la dirección vieja pasa a ser el destino y el origen queda
+en `null`: la dirección del cliente no está registrada, y no se reemplaza por el
+domicilio principal del cliente (sería inventar). El `origen_texto` de sus viajes
+queda vacío.
+
+### Por qué `fin_ts` queda en `null`
+
+Un viaje cerrado administrativamente nunca tuvo una hora de llegada: nadie la
+registró. Poner `ahora` sería inventar un dato, y hacerlo pasar por una llegada
+real contaminaría los tiempos de viaje. `fin_ts` queda en `null` y el ciclo de
+vida de la entrega (`logica-ciclo-vida.js`) muestra "Sin registro", que es lo
+que corresponde. El resto de los campos son los de un cierre manual
+(`cerrado_por: 'manual'`, `cierre_motivo`, `estado_ts`), más
+`cierre_administrativo: true`.
+
+### El criterio con los despachos: vivos pasan a `ENTREGADO`, no a `CANCELADO`
+
+**Todo despacho vivo que no esté `ENTREGADO` pasa a `ENTREGADO`**, con `estado_ts`,
+`cierre_administrativo: true` y `cierre_motivo`: `PENDIENTE_ASIGNACION`,
+`ASIGNADO`, `ACEPTADO` y `NOMINADO`, con viaje o sin él. No se les inventa un
+viaje; los viajes abiertos se cierran como se describe arriba. `RECHAZADO` y
+`CANCELADO` no se tocan.
+
+El motivo: en los datos reales ningún pedido a cerrar tenía viaje (los despachos
+quedaron aceptados o asignados y nadie nominó en el portal) y el camión fue. Con
+los despachos `CANCELADO`, el ciclo de vida y cualquier reporte que cuente
+despachos quedaban mal, y `estadoEntrega()` derivaría `pendiente` en vez de
+`cumplida`. Con este criterio `estadoEntrega()` da `cumplida` para toda entrega que
+tenga algún despacho vivo. Las entregas sin ningún despacho también pasan a
+`cumplida`, con `cierre_administrativo: true`.
+
+Un despacho `ENTREGADO` con `cierre_administrativo` y sin viaje no tiene hora de
+llegada: su `estado_ts` es el instante del cierre. La interfaz lo aclara en vez de
+mostrarlo como una llegada.
+
+La **suspensión** de los pedidos migrados que estaban `Suspendido` en el modelo
+anterior es otra cosa y no cambia: ahí los despachos vivos sí pasan a `CANCELADO`.
+
+### El documento viejo no se borra
+
+Al migrar, el documento de `pedidos_portal` se marca con dos campos y **no se
+borra ni se modifica nada más**:
+
+```
+migrado_a     string      ID del pedido nuevo
+migrado_en    Timestamp
+```
+
+Con `migrado_a` el script lo saltea en la corrida siguiente, y sirve para
+volver del pedido nuevo al viejo (`legacy_doc_id`) si hay que auditar.
+
+---
+
+## Cerrar un viaje deja la entrega `cumplida` — v1.2.3
+
+Antes de v1.2.3, cerrar un viaje pasaba el viaje a `FINALIZADO`, el despacho a
+`ENTREGADO` y sumaba 1 a `pedidos.entregas_cumplidas`, pero **no escribía la
+entrega**: quedaba `programada` y los contadores no cuadraban con las entregas.
+Ahora **todo cierre de viaje deja la entrega `cumplida`**, en la misma
+transacción que el viaje, el despacho y el pedido.
+
+### Campos nuevos
+
+```
+viajes
+    entrega_id              string      → entregas. La escribe nominar(), copiada del
+                                        despacho. Existe para que el chofer, que no lee
+                                        despachos ni entregas, sepa qué entrega cerrar.
+                                        El chofer no puede modificarlo. Los viajes
+                                        anteriores a v1.2.3 pueden no tenerlo.
+
+entregas
+    despacho_cumplido_id    string      → despachos. El despacho cuya entrega cerró el
+                                        viaje. Solo existe en entregas que pasaron a
+                                        `cumplida` por un cierre de viaje; no lo escribe
+                                        el cierre administrativo ni la reparación.
+```
+
+### Cómo queda cada cierre
+
+| Cierre | Qué hace con la entrega |
+| --- | --- |
+| Manual (interno) | La lee en la transacción. Si no está `cumplida` ni `suspendida`, la pasa a `cumplida` y anota `recalcular_estado` (`derivado: true`). El contador sale de `deltaContadores(estadoAnterior, 'cumplida')`; si ya estaba `cumplida` o `suspendida`, no se toca el pedido. |
+| Chofer, viaje con `entrega_id` | La actualiza **sin leerla** (`estado`, `estado_ts`, `actualizado_en`, `despacho_cumplido_id`) bajo una regla propia de `entregas`. El historial lleva `antes: {}`. |
+| Chofer, viaje sin `entrega_id` | Cierra como antes, sin tocar la entrega. |
+| Cierre desde TrackEx instalada | Sin cambios hasta la próxima build de la app: la entrega queda en `programada`. |
+
+`scripts/reparar-entregas-cumplidas.js` arregla las ya trabadas (con todos sus
+despachos vivos `ENTREGADO`, recuenta los contadores del pedido) y completa
+`entrega_id` en los viajes abiertos que no lo tienen.
 
 ---
 

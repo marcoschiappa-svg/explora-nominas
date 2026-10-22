@@ -78,6 +78,45 @@
  *   CÓMO SE VERIFICA
  *     `CI=true npm run build` sin warnings. Admin, coordinador y comercial
  *     ven el tile "Nuevo Tarifario" en Home; transportista y chofer no.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.3 — SIN MARCA "NUEVO" Y SIN LOS MÓDULOS DEL MODELO ANTERIOR
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Home marcaba con "Nuevo" (barra punteada y pastilla) a todos los módulos
+ *     del modelo nuevo, que ya son el día a día; y seguían en la tabla seis
+ *     módulos que operaban sobre `pedidos_portal`/`usuarios_portal`, o que
+ *     quedaron redundantes.
+ *
+ *   CAUSA RAÍZ
+ *     Después de v1.2.3 todos los pedidos de `pedidos_portal` están migrados al
+ *     modelo nuevo y cerrados (`migrar-pedidos-legacy.js`), así que esas
+ *     pantallas ya no tienen nada que operar. Y la bandera `nuevo` se agregó cuando
+ *     los módulos eran novedad.
+ *
+ *   ALCANCE
+ *     1. Se saca la bandera `nuevo` de todos los módulos. El mecanismo de `Home.js`
+ *        (barra punteada y pastilla) no se toca: queda disponible para un
+ *        módulo nuevo de verdad.
+ *     2. Se sacan de `MODULOS`: `pedidos_legacy` (Pedidos anteriores),
+ *        `coordinador` (Programación anterior), `transportista` (Despachos
+ *        anteriores), `chofer` (Viajes anteriores), `admin` (Administración) y
+ *        `ciclo_vida` (ahora es un modal dentro del pedido: ver
+ *        `pages/CicloVidaPedido.js`). Las reemplazan Pedidos, Programación, Mis
+ *        despachos, Mis viajes, Usuarios/Importar flota y el modal.
+ *     3. Ya no queda ningún módulo con `usaModeloViejo: true` ni `legacy: true`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Quedan sin uso, a limpiar cuando `sesion.js` deje de leer
+ *     `usuarios_portal`: la rama `usaModeloViejo` de `puedeVerModulo()` (se deja
+ *     sin cambios, es inofensiva) y la lista angosta de módulos `legacy` de
+ *     `Home.js`, que ahora no tiene nada que mostrar. El comentario numerado 6
+ *     de más abajo todavía habla de "esas cinco".
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Home no muestra "Nuevo" ni las seis
+ *     tarjetas dadas de baja, con ningún rol. Buscar la bandera `nuevo` con valor true en este
+ *     archivo no devuelve nada.
  * ========================================================================== */
 
 import { tieneAlgunRol, tienePerfil } from './sesion';
@@ -91,20 +130,16 @@ import { marca, colorEstado } from './shared/tokens';
  *    `productos`.
  */
 export const MODULOS = [
-  { id: 'pedidos',        categoria: 'pedidos',     emoji: '📋', titulo: 'Pedidos',              desc: 'Crear y consultar pedidos',                            roles: ['admin', 'comercial', 'coordinador'], acento: marca, nuevo: true, usaModeloViejo: false },
-  { id: 'pedidos_legacy', categoria: 'pedidos',     emoji: '🗄️', titulo: 'Pedidos anteriores',    desc: 'Los que quedaron del modelo viejo. Solo consulta',     roles: ['admin', 'comercial', 'coordinador'], acento: '#6B7280', legacy: true, usaModeloViejo: true },
-  { id: 'programacion',   categoria: 'pedidos',     emoji: '📅', titulo: 'Programación',          desc: 'Convertir entregas en camiones concretos',             roles: ['admin', 'coordinador'],              acento: colorEstado.acentoVerde, nuevo: true, usaModeloViejo: false },
-  { id: 'coordinador',    categoria: 'pedidos',     emoji: '🗄️', titulo: 'Programación anterior', desc: 'Los pedidos que quedaron del modelo viejo',            roles: ['admin', 'coordinador'],              acento: '#6B7280', legacy: true, usaModeloViejo: true },
+  { id: 'pedidos',        categoria: 'pedidos',     emoji: '📋', titulo: 'Pedidos',              desc: 'Crear y consultar pedidos',                            roles: ['admin', 'comercial', 'coordinador'], acento: marca, usaModeloViejo: false },
+  { id: 'programacion',   categoria: 'pedidos',     emoji: '📅', titulo: 'Programación',          desc: 'Convertir entregas en camiones concretos',             roles: ['admin', 'coordinador'],              acento: colorEstado.acentoVerde, usaModeloViejo: false },
 
   // 2. `mis_despachos` suma `coordinador`: RF-07 le agrega un modo consulta
   //    de solo lectura sobre todos los transportistas (ver MisDespachos.js).
-  { id: 'mis_despachos',  categoria: 'transporte',  emoji: '🚛', titulo: 'Mis despachos',         desc: 'Aceptar, rechazar y nominar la unidad',                roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzulFuerte, nuevo: true, usaModeloViejo: false },
-  { id: 'transportista',  categoria: 'transporte',  emoji: '🗄️', titulo: 'Despachos anteriores',  desc: 'Los que quedaron del modelo viejo',                    roles: ['admin', 'transportista'],            acento: '#6B7280', legacy: true, usaModeloViejo: true },
-  { id: 'mis_viajes',     categoria: 'transporte',  emoji: '🗺️', titulo: 'Mis viajes',            desc: 'Iniciá, reportá y finalizá tus viajes',                roles: ['chofer'],                            acento: colorEstado.acentoVerde, nuevo: true, usaModeloViejo: false },
-  { id: 'chofer',         categoria: 'transporte',  emoji: '🗄️', titulo: 'Viajes anteriores',     desc: 'Los que quedaron del modelo viejo',                    roles: ['chofer'],                            acento: '#6B7280', legacy: true, usaModeloViejo: true },
-  { id: 'camiones',       categoria: 'transporte',  emoji: '🚚', titulo: 'Mi Flota',              desc: 'Las unidades de cada empresa de transporte',           roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoVerde, nuevo: true, usaModeloViejo: false },
+  { id: 'mis_despachos',  categoria: 'transporte',  emoji: '🚛', titulo: 'Mis despachos',         desc: 'Aceptar, rechazar y nominar la unidad',                roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzulFuerte, usaModeloViejo: false },
+  { id: 'mis_viajes',     categoria: 'transporte',  emoji: '🗺️', titulo: 'Mis viajes',            desc: 'Iniciá, reportá y finalizá tus viajes',                roles: ['chofer'],                            acento: colorEstado.acentoVerde, usaModeloViejo: false },
+  { id: 'camiones',       categoria: 'transporte',  emoji: '🚚', titulo: 'Mi Flota',              desc: 'Las unidades de cada empresa de transporte',           roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoVerde, usaModeloViejo: false },
 
-  { id: 'seguimiento',    categoria: 'seguimiento', emoji: '📡', titulo: 'Seguimiento',           desc: 'Mapa en tiempo real de choferes activos',              roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzul, nuevo: true, usaModeloViejo: false },
+  { id: 'seguimiento',    categoria: 'seguimiento', emoji: '📡', titulo: 'Seguimiento',           desc: 'Mapa en tiempo real de choferes activos',              roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzul, usaModeloViejo: false },
   // 3. `tarifario` deja de evaluarse contra el `rol` legacy (lo que hacía
   //    App.js hasta ahora, con `rol !== 'transportista'`, sin límite real de
   //    roles): pasa a `usaModeloViejo: false`, como cualquier módulo del
@@ -112,25 +147,21 @@ export const MODULOS = [
   { id: 'tarifario',      categoria: 'seguimiento', emoji: '💲', titulo: 'Tarifario',             desc: 'Consulta y gestión de tarifas de flete por ruta',      roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, usaModeloViejo: false },
   // 9. v1.2.0 (RF-09) -- registro maestro de rutas, en paralelo al Tarifario
   //    legacy. Ver `pages/NuevoTarifario.js`.
-  { id: 'nuevo_tarifario', categoria: 'seguimiento', emoji: '🧾', titulo: 'Nuevo Tarifario',       desc: 'Registro maestro de rutas y tarifas, con historial',   roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, nuevo: true, usaModeloViejo: false },
+  { id: 'nuevo_tarifario', categoria: 'seguimiento', emoji: '🧾', titulo: 'Nuevo Tarifario',       desc: 'Registro maestro de rutas y tarifas, con historial',   roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, usaModeloViejo: false },
 
-  { id: 'admin',          categoria: 'admin',       emoji: '⚙️', titulo: 'Administración',        desc: 'Gestión de usuarios, roles y configuración',           roles: ['admin'],                             acento: '#374151', usaModeloViejo: true },
   // 4. `organizaciones` suma `coordinador`: da de alta transportes (ver
   //    Organizaciones.js y las reglas nuevas de esa colección).
-  { id: 'organizaciones', categoria: 'admin',       emoji: '🏢', titulo: 'Organizaciones',        desc: 'Clientes, transportes y sus domicilios',               roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoPurpura, nuevo: true, usaModeloViejo: false },
-  { id: 'usuarios',       categoria: 'admin',       emoji: '👥', titulo: 'Usuarios',              desc: 'Altas, roles y bajas de las personas del sistema',     roles: ['admin', 'transportista'],            acento: colorEstado.acentoAzul, nuevo: true, usaModeloViejo: false },
+  { id: 'organizaciones', categoria: 'admin',       emoji: '🏢', titulo: 'Organizaciones',        desc: 'Clientes, transportes y sus domicilios',               roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoPurpura, usaModeloViejo: false },
+  { id: 'usuarios',       categoria: 'admin',       emoji: '👥', titulo: 'Usuarios',              desc: 'Altas, roles y bajas de las personas del sistema',     roles: ['admin', 'transportista'],            acento: colorEstado.acentoAzul, usaModeloViejo: false },
   // 5. `productos` suma `comercial`: puede dar de alta, editar y desactivar
   //    (no eliminar) — ver Productos.js.
-  { id: 'productos',      categoria: 'admin',       emoji: '🛢️', titulo: 'Productos',             desc: 'Lo que se transporta. Antes estaba fijo en el código', roles: ['admin', 'comercial'],                acento: colorEstado.acentoAmbar, nuevo: true, usaModeloViejo: false },
+  { id: 'productos',      categoria: 'admin',       emoji: '🛢️', titulo: 'Productos',             desc: 'Lo que se transporta. Antes estaba fijo en el código', roles: ['admin', 'comercial'],                acento: colorEstado.acentoAmbar, usaModeloViejo: false },
 
   // 7. v1.2.0 (RF-10) -- misma categoría que Organizaciones y Productos, solo
   //    admin y coordinador (el comercial no marca días del calendario). Ver
   //    `pages/CalendarioOperativo.js`.
-  { id: 'calendario',     categoria: 'admin',       emoji: '📅', titulo: 'Calendario operativo',  desc: 'Días sin despacho o sin operación',                    roles: ['admin', 'coordinador'],              acento: colorEstado.acentoVerde, nuevo: true, usaModeloViejo: false },
+  { id: 'calendario',     categoria: 'admin',       emoji: '📅', titulo: 'Calendario operativo',  desc: 'Días sin despacho o sin operación',                    roles: ['admin', 'coordinador'],              acento: colorEstado.acentoVerde, usaModeloViejo: false },
 
-  // 8. v1.2.0 (RF-05) -- junto a Pedidos y Programación, de solo lectura, con
-  //    el comercial además de admin/coordinador. Ver `pages/CicloVida.js`.
-  { id: 'ciclo_vida',     categoria: 'pedidos',     emoji: '🧭', titulo: 'Ciclo de vida',         desc: 'En qué etapa está cada entrega, y desde cuándo',       roles: ['admin', 'coordinador', 'comercial'], acento: colorEstado.acentoAzulFuerte, nuevo: true, usaModeloViejo: false },
 ];
 
 export function moduloPorId(id) {
