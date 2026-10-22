@@ -886,14 +886,46 @@ describe('domicilios: mapas explícitos de mapa-normalizacion.js', () => {
   const TEXTO_VARIANTE = 'AV .ING MITRE 574, CAMPANA BS AS, Buenos Aires, B2804';
   const SIN_DIRECCION = { calle: '', numero: '', ciudad: '', provincia: '', cp: '' };
 
-  afterEach(() => {
-    Object.keys(DOMICILIOS_LEGACY).forEach(k => delete DOMICILIOS_LEGACY[k]);
-    Object.keys(DOMICILIOS_LEGACY_POR_PEDIDO).forEach(k => delete DOMICILIOS_LEGACY_POR_PEDIDO[k]);
+  // v1.2.3: los mapas llevan las entradas REALES que carga Ivan en
+  // `mapa-normalizacion.js`. Cada test arranca con ellos vacíos (como cuando
+  // eran un esqueleto) y al terminar se restauran desde la copia, así los datos
+  // reales no se pierden entre tests.
+  let copiaLegacy;
+  let copiaPorPedido;
+
+  const vaciar = (mapa) => Object.keys(mapa).forEach(k => delete mapa[k]);
+
+  beforeEach(() => {
+    copiaLegacy = { ...DOMICILIOS_LEGACY };
+    copiaPorPedido = { ...DOMICILIOS_LEGACY_POR_PEDIDO };
+    vaciar(DOMICILIOS_LEGACY);
+    vaciar(DOMICILIOS_LEGACY_POR_PEDIDO);
   });
 
-  test('los dos mapas se exportan y arrancan vacíos', () => {
-    expect(DOMICILIOS_LEGACY).toEqual({});
-    expect(DOMICILIOS_LEGACY_POR_PEDIDO).toEqual({});
+  afterEach(() => {
+    vaciar(DOMICILIOS_LEGACY);
+    vaciar(DOMICILIOS_LEGACY_POR_PEDIDO);
+    Object.assign(DOMICILIOS_LEGACY, copiaLegacy);
+    Object.assign(DOMICILIOS_LEGACY_POR_PEDIDO, copiaPorPedido);
+  });
+
+  test('los dos mapas se exportan como objetos y todos sus valores son strings no vacíos', () => {
+    // Se mira la copia (los datos reales): durante el test los mapas están vacíos.
+    [[DOMICILIOS_LEGACY, copiaLegacy], [DOMICILIOS_LEGACY_POR_PEDIDO, copiaPorPedido]].forEach(([mapa, real]) => {
+      expect(typeof mapa).toBe('object');
+      expect(mapa).not.toBeNull();
+      expect(Array.isArray(mapa)).toBe(false);
+      Object.entries(real).forEach(([clave, valor]) => {
+        expect(typeof valor).toBe('string');
+        expect(valor.trim()).not.toBe('');
+        expect(clave.trim()).not.toBe('');
+      });
+    });
+  });
+
+  test('los datos reales se restauran entre tests', () => {
+    DOMICILIOS_LEGACY['dirección de prueba'] = 'clave';
+    expect(Object.keys(DOMICILIOS_LEGACY)).toEqual(['dirección de prueba']);
   });
 
   test('una variante de escritura sin mapa va a sinResolver, con la organización', () => {
