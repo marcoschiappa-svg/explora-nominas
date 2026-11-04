@@ -38,6 +38,37 @@ import {
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
 } from './shared/estados';
 import { leerCalendario, evaluarFechaCarga } from './logica-calendario';
+import { formatoFechaCorta } from './formatos';
+
+/* -----------------------------------------------------------------------------
+ * TrackEx v1.1.1 — Frente C: EL AVISO DE CANCELACIÓN AL CHOFER NO LLEVA NÚMEROS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El aviso al chofer decía "Se canceló el despacho 123. Motivo: ...". El
+ *     chofer no ve números de despacho en ningún lado de la app: no sabía de
+ *     qué viaje se hablaba.
+ *
+ *   CAUSA RAÍZ
+ *     El mensaje se armó con los datos del despacho (`actual.numero`) y no con
+ *     lo que el chofer sí ve de su viaje: producto, destino y fecha de carga.
+ *
+ *   ALCANCE
+ *     En `cancelarDespacho()`, SOLO el aviso con `destinatario_chofer_dni`: el
+ *     mensaje se arma con `producto_nombre` y `destino_texto` del viaje
+ *     (unidos con ' · ', omitiendo los vacíos), la fecha de carga en dd/mm/aaaa
+ *     si es válida, y el motivo. Ejemplo: "Glicerina · Planta MAPEI Escobar.
+ *     Carga: 28/10/2026. Motivo: Cliente sin espacio". Sin producto ni destino
+ *     queda "Motivo: ...". El título y los demás campos no cambian, ni el aviso
+ *     al transportista (que sí conoce los números).
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los avisos ya creados conservan el texto viejo. Si el viaje no tiene
+ *     producto, destino ni fecha, el mensaje es solo el motivo.
+ *
+ *   CÓMO SE VERIFICA
+ *     Cancelar un despacho nominado: la notificación del chofer no menciona el
+ *     número de despacho y sí producto, destino, fecha y motivo.
+ * -------------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------------
  * v1.2.0 (RF-10) — EL BLOQUEO POR CALENDARIO VIVE ACÁ, NO SOLO EN LA PANTALLA
@@ -625,12 +656,22 @@ export async function cancelarDespacho({
       // emisor de push (`PushAvisos.gs`) y la bandeja de la app. Sin lecturas
       // nuevas: usa `viajeActual`, ya leído arriba.
       if (viajeActual.chofer_dni) {
+        // (TrackEx v1.1.1, Frente C — ver el bloque de la cabecera) 1. El chofer
+        // no ve números de despacho: se identifica el viaje por producto y
+        // destino, que sí están en su app. 2. Los vacíos se omiten para no dejar
+        // un ' · ' suelto. 3. La fecha va en dd/mm/aaaa y solo si es válida.
+        // 4. Sin producto ni destino, el mensaje arranca en "Motivo:".
+        const partesViaje = [viajeActual.producto_nombre, viajeActual.destino_texto]
+          .filter(Boolean).join(' · ');
+        const fechaCargaViaje = formatoFechaCorta(viajeActual.fecha_carga);
+        const identificacionViaje = partesViaje
+          + (fechaCargaViaje ? `${partesViaje ? '. ' : ''}Carga: ${fechaCargaViaje}` : '');
         tx.set(doc(collection(db, 'avisos')), {
           destinatario_org_id: null,
           destinatario_chofer_dni: viajeActual.chofer_dni,
           tipo: 'despacho_cancelado',
           titulo: 'Se canceló tu viaje',
-          mensaje: `Se canceló el despacho ${actual.numero}. Motivo: ${motivo}`,
+          mensaje: (identificacionViaje ? `${identificacionViaje}. ` : '') + `Motivo: ${motivo}`,
           pedido_id: pedido.id,
           despacho_id: despacho.id,
           viaje_id: viajeActual.id,

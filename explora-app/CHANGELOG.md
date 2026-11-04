@@ -13,6 +13,62 @@ seguir viendo junto al semántico.
 
 ---
 
+## v1.1.1 — versionCode (lo asigna EAS al compilar) — sin publicar
+
+Los próximos frentes de v1.1.1 se suman a esta misma entrada.
+
+- **Frente D — avisos al coordinador por demora y finalización.** Los avisos
+  `chofer_demora` y `chofer_finalizo` nunca llegaban: el Apps Script no tenía
+  esas acciones y respondía "Acción no reconocida" con HTTP 200, que la app no
+  leía. Ahora el aviso manda un payload completo (viaje, pedido, despacho,
+  chofer y DNI, producto, cliente, volumen, origen, destino, fecha de carga,
+  patentes y motivo) y la app lee la respuesta: si el Apps Script la rechaza o
+  no contesta un JSON `ok`, se registra `aviso_coordinador_rechazado` en
+  `app_logs`. No se le muestra nada al chofer. Requiere el Apps Script nuevo
+  (portal, "Sin publicar"). Es un parche que se descarta en portal v1.2.4.
+- **Frente B — permiso de notificaciones visible.** Si el chofer no concedía el
+  permiso de notificaciones (o lo apagaba después), la app no avisaba y dejaba
+  solo el log `push_permiso_denegado`: no llegaban los push de viaje nuevo,
+  cancelación ni cambio de destino y el chofer no sabía por qué. Ahora la
+  pantalla muestra el aviso "🔔 Notificaciones desactivadas" (mismos estilos
+  que "Seguimiento incompleto"), con el botón "Activar notificaciones" si el
+  sistema todavía deja preguntar, o "Abrir ajustes de la app" si no. El permiso
+  se reevalúa cada vez que la app vuelve a primer plano: si el chofer lo
+  concede desde Ajustes, el aviso desaparece y se registra el token push. Nueva
+  `consultarPermisoNotificaciones` (solo consulta, nunca pide). Cada cambio de
+  estado queda en `app_logs` como `push_permiso_estado` (`concedido`,
+  `puede_preguntar`), para ver qué choferes las tienen apagadas. En Android 12 o
+  anterior el sistema informa el permiso como concedido y el aviso no aparece.
+- **Frente E — versión mínima obligatoria.** La lógica compartida del portal se
+  incluye al compilar, así que un teléfono con una versión vieja sigue ejecutando
+  la lógica anterior hasta que el chofer actualiza (caso real: portal v1.2.3
+  corrigió `finalizarViaje()` y la app publicada seguía cerrando viajes sin la
+  corrección). Ahora la app lee `configuracion_app/trackex.version_minima`
+  DESPUÉS del login (con la sesión restaurada o al ingresar) y cada vez que
+  vuelve a primer plano; si la instalada es anterior, muestra la pantalla
+  "Actualizá TrackEx" con un botón a Google Play, sin forma de saltearla. La
+  pantalla de login no se bloquea; ChoferScreen sí, y no se monta hasta que
+  termina la verificación (tope de 5 s). La lectura exige sesión: una primera
+  versión era pública y verificaba al montar, pero no pasaba el control del
+  Paso 8 de Procedimiento.md. Ante cualquier falla (sin red, tope de 5 s, documento
+  inexistente, valores inválidos) NO bloquea. Todos los logs de `app_logs`
+  registran ahora `version_app`. Archivos nuevos: `versiones.js`,
+  `versionMinima.js`, `screens/ActualizarScreen.js`.
+- **Versión:** `app.json` pasa de 1.1.0 a **1.1.1**.
+
+### Puesta en marcha de la versión mínima
+
+1. Desplegar la regla nueva (`configuracion_app`) en staging y en producción
+   (Procedimiento.md, Paso 8).
+2. Recién con la v1.1.1 publicada y actualizada por los choferes, crear o editar
+   `configuracion_app/trackex` con `version_minima: "1.1.1"`.
+3. Subirla cuando no haya viajes EN_VIAJE en teléfonos con versiones viejas,
+   porque el bloqueo impide finalizar un viaje en curso.
+4. La v1.1.0 no tiene esta verificación: a sus usuarios hay que pedirles que
+   actualicen. Los logs sin `version_app` identifican a quienes siguen con ella.
+
+---
+
 ## v1.1.0 — versionCode 8 — 06/10/2026
 ** TrackEx pasa al modelo de datos nuevo (colección `viajes`)**
 

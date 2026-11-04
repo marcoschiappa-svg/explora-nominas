@@ -72,6 +72,43 @@
 //   quede ningún "undefined" ni ningún "—" donde debería haber un dato.
 //   El destinatario de copia fijo garantiza que los nueve lleguen para
 //   revisarlos.
+//
+// ------------------------------------------------------------
+// v3 — TrackEx v1.1.1 — Frente D — DOS MAILS NUEVOS DEL CHOFER (PARCHE)
+// ------------------------------------------------------------
+//
+// SÍNTOMA
+//   Los avisos de demora y de finalización que el chofer dispara desde la app
+//   TrackEx nunca llegaron al coordinador.
+//
+// CAUSA RAÍZ
+//   Las acciones `chofer_demora` y `chofer_finalizo` no existían en la tabla
+//   `ACCIONES` de Codigo.gs ni había función de mail para ellas. El Apps Script
+//   respondía HTTP 200 con `{"status":"error","mensaje":"Acción no
+//   reconocida: ..."}` y la app no leía la respuesta, así que la falla nunca
+//   quedó registrada.
+//
+// QUÉ CAMBIA EN ESTA VERSIÓN
+//   Sección 8 (al final): `enviarEmailChoferDemora()` (mail 12),
+//   `enviarEmailChoferFinalizo()` (mail 13) y el auxiliar `bloqueViajeChofer()`.
+//   Con esto el total pasa a TRECE mails. Los "nueve" de la v2 de más arriba
+//   son el conteo histórico de esa versión y se dejan como estaban.
+//   Codigo.gs registra las dos acciones: se publican JUNTOS.
+//
+// LIMITACIONES CONOCIDAS
+//   1. La app no manda `data.destinatarios` (el chofer no puede leer la lista
+//      de coordinadores en `usuarios`), así que estos dos mails van a
+//      `DESTINATARIOS_RESPALDO` más `COPIA_FIJA`.
+//   2. El viaje no tiene la OV, así que el asunto sale con "[—]".
+//   3. La app v1.1.0 manda un payload más chico; sus mails salen con "—" en
+//      los campos que faltan.
+//   4. Es un parche que se descarta en portal v1.2.4, cuando los avisos pasen
+//      a la API de Vercel (fase 4).
+//
+// CÓMO SE VERIFICA
+//   Con la app v1.1.1, reportar una demora y finalizar un viaje de prueba: los
+//   dos mails llegan a la copia fija con los datos del viaje y la hora de
+//   recepción. Mirar los guiones, no solo la ausencia de errores.
 // ============================================================
 
 
@@ -81,9 +118,10 @@
 
 var URL_PORTAL = 'https://portal-ivory-zeta.vercel.app';
 
-// Copia fija en los NUEVE mails. Existe para que haya una persona que vea
-// todo lo que el sistema manda: de los nueve, hasta septiembre de 2026 el
-// único que alguien había mirado era el de pedido nuevo, y estaba roto.
+// Copia fija en TODOS los mails (los 13 de la tabla `ACCIONES`). Existe para
+// que haya una persona que vea todo lo que el sistema manda: de los nueve
+// originales, hasta septiembre de 2026 el único que alguien había mirado era
+// el de pedido nuevo, y estaba roto.
 var COPIA_FIJA = 'ivan.bianchi@explora.com.ar';
 
 // Se usa solo si el portal no manda `data.destinatarios`. Es la lista que
@@ -176,7 +214,7 @@ function enviarMail(destino, asunto, cuerpo) {
 }
 
 /**
- * El asunto, igual para los nueve:
+ * El asunto, igual para los trece:
  *
  *   [OV-2860] - Pedido nuevo - Glicerina - 28 tn - MAPEI
  *
@@ -186,7 +224,8 @@ function enviarMail(destino, asunto, cuerpo) {
  * asunto sigue siendo legible.
  *
  * El volumen es el de la unidad de la que habla el mail: el del pedido en los
- * mails 1 a 3, el del despacho en los mails 4 a 9.
+ * mails 1 a 3, el del despacho en los mails 4 a 13 (en los dos del chofer, el
+ * del viaje).
  */
 function asuntoMail(data, estado) {
   return '[' + v(data.ov) + '] - ' + estado + ' - ' + v(data.producto) +
@@ -904,4 +943,108 @@ function enviarEmailEditarDespacho(data) {
       URL_PORTAL
     ]));
   }
+}
+
+
+/* ============================================================
+ * 8. MAILS DEL CHOFER (12 y 13) — PARCHE
+ * ============================================================
+ *
+ * QUÉ SON
+ *   Los avisos que la app TrackEx le manda al coordinador cuando el chofer
+ *   reporta una demora (`chofer_demora`) o finaliza el viaje (`chofer_finalizo`).
+ *   Ver el bloque "v3 — TrackEx v1.1.1 — Frente D" de la cabecera.
+ *
+ * ES UN PARCHE: SE DESCARTA EN PORTAL v1.2.4
+ *   Cuando los avisos pasen a la API de Vercel (portal v1.2.4, fase 4), estas
+ *   dos funciones y sus dos líneas en `ACCIONES` (Codigo.gs) se borran.
+ * ========================================================= */
+
+/**
+ * Bloque "VIAJE" común a los dos mails del chofer. Está factorizado para que
+ * demora y finalización no diverjan: son el mismo viaje contado dos veces.
+ *
+ * Los nombres de campo son los que manda `avisarCoordinador()` en la app
+ * (`ChoferScreen.js`): `chofer`, `chofer_dni`, `patente_tractor`,
+ * `patente_semi`, `producto`, `volumen`, `cliente`, `origen`, `lugar` (destino),
+ * `fecha_carga` y `pedido_id`. Los que no vengan salen como "—".
+ *
+ * @param {Object} data el payload completo
+ * @returns {string} el bloque, sin separadores
+ */
+function bloqueViajeChofer(data) {
+  // La patente del semi solo se agrega si viene: un viaje sin acoplado es
+  // normal (ver `nominar()` en el portal) y no debe mostrar "ABC123 / —".
+  var unidad = v(data.patente_tractor) +
+               (data.patente_semi ? ' / ' + data.patente_semi : '');
+
+  return 'VIAJE\n' +
+    'Chofer:         ' + v(data.chofer) + '\n' +
+    'DNI:            ' + v(data.chofer_dni) + '\n' +
+    'Unidad:         ' + unidad + '\n' +
+    'Producto:       ' + v(data.producto) + '\n' +
+    'Volumen:        ' + v(data.volumen) + ' tn\n' +
+    'Cliente:        ' + v(data.cliente) + '\n' +
+    'Origen:         ' + v(data.origen) + '\n' +
+    'Destino:        ' + v(data.lugar) + '\n' +
+    'Fecha de carga: ' + v(data.fecha_carga) + '\n' +
+    'N° Pedido:      ' + v(data.pedido_id);
+}
+
+/**
+ * Hora de RECEPCIÓN del aviso, en hora de Buenos Aires.
+ *
+ * Es la hora en que este script recibe el pedido, no una mandada por el
+ * teléfono: el reloj de un celular puede estar mal, y el de acá no. El desfase
+ * respecto de la acción real es el de la llamada de red (segundos).
+ */
+function horaRecepcion() {
+  return Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'dd/MM/yyyy HH:mm');
+}
+
+/**
+ * 12. DEMORA REPORTADA POR EL CHOFER. Va a coordinadores.
+ *
+ * El viaje sigue en curso: el chofer reporta una demora, no un cierre. La app
+ * no manda `data.destinatarios` (ver la limitación 1 del bloque v3), así que
+ * `destinatarios()` cae en `DESTINATARIOS_RESPALDO` + `COPIA_FIJA`.
+ */
+function enviarEmailChoferDemora(data) {
+  var asunto = asuntoMail(data, 'Demora reportada por el chofer');
+
+  var cuerpo = armarCuerpo([
+    'El chofer reportó una demora. El viaje sigue en curso.',
+
+    bloqueViajeChofer(data),
+
+    'MOTIVO\n' + v(data.motivo),
+
+    'Reportado: ' + horaRecepcion(),
+
+    'Seguí el viaje en el portal (Seguimiento):\n' + URL_PORTAL
+  ]);
+
+  enviarMail(destinatarios(data, 'coordinadores'), asunto, cuerpo);
+}
+
+/**
+ * 13. VIAJE FINALIZADO POR EL CHOFER. Va a coordinadores.
+ *
+ * "Marcó el viaje como entregado": es lo que el chofer declara en la app; el
+ * cierre administrativo es otro paso, del portal.
+ */
+function enviarEmailChoferFinalizo(data) {
+  var asunto = asuntoMail(data, 'Viaje finalizado por el chofer');
+
+  var cuerpo = armarCuerpo([
+    'El chofer marcó el viaje como entregado.',
+
+    bloqueViajeChofer(data),
+
+    'Finalizado: ' + horaRecepcion(),
+
+    'Seguí el viaje en el portal (Seguimiento):\n' + URL_PORTAL
+  ]);
+
+  enviarMail(destinatarios(data, 'coordinadores'), asunto, cuerpo);
 }

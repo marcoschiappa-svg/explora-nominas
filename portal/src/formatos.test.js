@@ -4,7 +4,7 @@
  * LIMITACIONES/CÓMO SE VERIFICA.
  * ========================================================================== */
 
-import { formatoMoneda, formatoKm, formatoPorcentaje, formatoFechaLarga } from './formatos';
+import { formatoMoneda, formatoKm, formatoPorcentaje, formatoFechaLarga, formatoFechaCorta } from './formatos';
 
 describe('formatoMoneda', () => {
   test('formatea con símbolo de moneda y separador de miles', () => {
@@ -67,5 +67,32 @@ describe('formatoFechaLarga', () => {
   test('sin dato o inválido devuelve el guion', () => {
     expect(formatoFechaLarga(null)).toBe('—');
     expect(formatoFechaLarga('no es una fecha')).toBe('—');
+  });
+});
+
+/* TrackEx v1.1.1 — Frente C: fecha corta para los avisos al chofer. */
+describe('formatoFechaCorta', () => {
+  test('YYYY-MM-DD → dd/mm/aaaa', () => {
+    expect(formatoFechaCorta('2026-10-28')).toBe('28/10/2026');
+  });
+  test('conserva los ceros a la izquierda', () => {
+    expect(formatoFechaCorta('2026-01-05')).toBe('05/01/2026');
+  });
+  test('vacío, null o undefined devuelven cadena vacía (no el guion)', () => {
+    expect(formatoFechaCorta('')).toBe('');
+    expect(formatoFechaCorta(null)).toBe('');
+    expect(formatoFechaCorta(undefined)).toBe('');
+  });
+  test('otro formato devuelve cadena vacía', () => {
+    expect(formatoFechaCorta('28/10/2026')).toBe('');
+  });
+  test('mes fuera de 01–12 devuelve cadena vacía', () => {
+    expect(formatoFechaCorta('2026-13-01')).toBe('');
+  });
+  test('día fuera de 01–31 devuelve cadena vacía', () => {
+    expect(formatoFechaCorta('2026-10-32')).toBe('');
+  });
+  test('un Timestamp (no string) devuelve cadena vacía', () => {
+    expect(formatoFechaCorta({ toDate: () => new Date() })).toBe('');
   });
 });

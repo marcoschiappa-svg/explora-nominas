@@ -50,6 +50,7 @@ pedidos/{id}
 
 historial/{id}
 app_logs/{id}
+configuracion_app/{trackex}          TrackEx v1.1.1 -- versión mínima obligatoria
 
 calendario_operativo/{fechaISO}    v1.2.0 (RF-10) -- un documento por fecha
 calendario_reglas/{semanal}        v1.2.0 (RF-10) -- documento único
@@ -877,6 +878,38 @@ configura una vez en la consola, **sin Cloud Functions**.
 
 ---
 
+## `configuracion_app` — TrackEx v1.1.1
+
+Un solo documento, `configuracion_app/trackex`.
+
+```
+version_minima      string      "MAYOR.MENOR.PARCHE", por ejemplo "1.1.1"
+actualizado_en      Timestamp   informativo
+```
+
+**Quién escribe:** el administrador, a mano, desde la consola de Firebase
+(staging y producción). Las reglas cierran la escritura (`allow write: if false`):
+la consola y el Admin SDK no pasan por las reglas.
+
+**Quién lee:** la app TrackEx (`versionMinima.js`), con sesión iniciada: la
+verificación corre DESPUÉS del login (al restaurar la sesión o al ingresar) y
+cada vez que la app vuelve a primer plano. La pantalla de login no se bloquea;
+ChoferScreen sí. La lectura exige sesión (`allow read: if logueado()`).
+La primera versión tenía lectura pública y verificaba antes del login; se cambió
+porque esa regla no pasa el control del Paso 8 de Procedimiento.md.
+
+**Por qué existe:** TrackEx incluye la lógica compartida (`portal/src/shared/`)
+al compilar; cuando cambia, los teléfonos viejos siguen con la anterior hasta que
+el chofer actualiza. Si la versión instalada es anterior a `version_minima`, la
+app muestra una pantalla de bloqueo con un botón a Google Play.
+
+**Criterio: ante la duda, no bloquear.** Se bloquea SOLO si el documento existe,
+`version_minima` y la versión instalada tienen formato válido y la instalada es
+anterior. Documento inexistente, valores inválidos, error de lectura, sin red o
+tope de espera (5 s) → no bloquea. Un chofer sin señal tiene que poder operar.
+
+---
+
 ## `calendario_operativo` — v1.2.0 (RF-10)
 
 ```
@@ -1182,6 +1215,7 @@ función lo escribe.
 | `historial` | lectura | — | — |
 | `contadores` | interno | — | — |
 | `app_logs` | consola | — | crea |
+| `configuracion_app` | consola (escritura); lectura con sesión | — | lee (con sesión, después del login) |
 | `rutas` | admin escribe las parámetro; el coordinador, solo sus referencias. El comercial solo lee las parámetro | — | — |
 | `rutas/{id}/tarifas` | lectura; admin crea | — | — |
 

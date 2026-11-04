@@ -42,7 +42,8 @@ rules_version = '2';
 //                                organizacion_domicilios, organizacion_emails,
 //                                usuarios, productos, camiones, contadores
 //   Parte 3  Operacion           pedidos, entregas, despachos, viajes, gps
-//   Parte 4  Transversales       adjuntos, historial, app_logs
+//   Parte 4  Transversales       adjuntos, historial, app_logs,
+//                                configuracion_app
 //   Parte 5  Modelo viejo        sin cambios mientras conviven los dos
 //
 // Modelo: MODELO_DATOS_TOBE.md · Comportamiento: COMPORTAMIENTO.md
@@ -1259,6 +1260,27 @@ service cloud.firestore {
     match /app_logs/{logId} {
       allow create: if logueado();
       allow read, update, delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // CONFIGURACION DE LA APP (TrackEx v1.1.1, version minima obligatoria)
+    //
+    // Documento `trackex` con `version_minima` ("MAYOR.MENOR.PARCHE") y
+    // `actualizado_en`. La app lo lee para decidir si muestra la pantalla de
+    // bloqueo por version vieja.
+    //
+    // La lectura exige sesion iniciada: la verificacion de version corre DESPUES
+    // del login (la pantalla de login no se bloquea; ChoferScreen si). La primera
+    // version de esta regla tenia lectura publica y se cambio porque no pasa el
+    // control del Paso 8 de Procedimiento.md.
+    //
+    // La escritura queda cerrada: el administrador lo crea y edita desde la
+    // consola de Firebase o con Admin SDK, que no pasan por las reglas.
+    // -------------------------------------------------------------------------
+
+    match /configuracion_app/{docId} {
+      allow read: if logueado();
+      allow write: if false;
     }
 
     // =========================================================================
