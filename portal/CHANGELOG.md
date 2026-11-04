@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.3
+VERSION_ACTUAL: 1.2.4
 
 # Changelog — Portal Explora
 
@@ -14,6 +14,75 @@ Cada versión, además de esta entrada, se marca con un tag de git con el
 formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 
 Las versiones más nuevas van arriba.
+
+---
+## v1.2.4 — 04/11/2026 — cambios que acompañan a TrackEx v1.1.1
+
+**Textos de los avisos al chofer (TrackEx v1.1.1, Frente C).** Solo cambian
+textos y un campo nuevo; **no cambian reglas de Firestore** en este frente, y el
+Apps Script solo cambia por el Frente D (más abajo). Los avisos al transportista
+quedan como están.
+
+- **Viaje nominado:** la fecha de carga se muestra en `dd/mm/aaaa` ("Carga:
+  28/10/2026") y no en ISO. Si no hay fecha válida, se omite ese tramo. El
+  conjunto de campos del aviso no cambia.
+- **Cancelación:** el aviso al chofer ya no dice "Se canceló el despacho 123"
+  (el chofer no ve números de despacho). Ahora identifica el viaje por producto y
+  destino, con la fecha de carga y el motivo: "Glicerina · Planta MAPEI Escobar.
+  Carga: 28/10/2026. Motivo: Cliente sin espacio".
+- **Cambio de destino:** el aviso al chofer ya no menciona el número de pedido;
+  usa producto y fecha de carga ("Glicerina · carga 28/10/2026. Nuevo destino:
+  ..."). Pasa a ser **un aviso por viaje** (antes, uno por chofer) y lleva el
+  campo nuevo `viaje_id`. El aviso de cambio de destino de **una entrega**
+  (`editarDestinoEntrega`) también lleva `viaje_id` y dice lo mismo, porque
+  ambos usan ahora la misma función de armado del texto.
+- **Función nueva `formatoFechaCorta`** en `formatos.js`: `YYYY-MM-DD` →
+  `dd/mm/aaaa` sin crear un `Date` (evita el corrimiento de un día por la zona
+  horaria). Devuelve `''` si el valor no sirve.
+
+**Avisos al coordinador por demora y finalización (TrackEx v1.1.1, Frente D).**
+Apps Script: `Notificaciones.gs` y `Codigo.gs`. Es un **parche que se descarta en
+portal v1.2.4**, cuando los avisos pasen a la API de Vercel (fase 4).
+
+- La app TrackEx manda `chofer_demora` y `chofer_finalizo`, pero esas acciones no
+  existían en `ACCIONES`: el script respondía "Acción no reconocida" con HTTP 200
+  y los avisos nunca salieron.
+- `Codigo.gs` registra las dos acciones. `Notificaciones.gs` suma la sección
+  "MAILS DEL CHOFER": `enviarEmailChoferDemora` (mail 12),
+  `enviarEmailChoferFinalizo` (mail 13) y el auxiliar `bloqueViajeChofer`. Con
+  esto son 13 mails.
+- Limitaciones: los mails van a `DESTINATARIOS_RESPALDO` más `COPIA_FIJA` (la app
+  no manda la lista de coordinadores); el asunto sale con "[—]" porque el viaje
+  no tiene la OV; la app v1.1.0 manda un payload más chico y sus mails salen con
+  "—" en los campos que faltan.
+
+**Regla nueva de `configuracion_app` (TrackEx v1.1.1, Frente E).**
+`firestore.rules.produccion` suma `match /configuracion_app/{docId}` con lectura
+que **exige sesión** (`logueado()`; la verificación de versión mínima corre
+después del login) y escritura cerrada (el administrador edita el documento
+`trackex` desde la consola de Firebase). Una primera versión tenía lectura
+pública, pero no pasaba el control del Paso 8 de Procedimiento.md. **Requiere
+desplegar reglas en los dos proyectos** (staging y producción). Sin la regla, la
+lectura falla y la app simplemente no bloquea.
+
+**Baja de `BorrarDespacho.gs` (Apps Script del Plan de Producción).**
+`borrarDespacho` estaba definida dos veces: en `BorrarDespacho.gs` (busca el
+marcador viejo `"Pedido:  " + id`) y en `PlanDeProduccion.gs` (busca el marcador
+actual `"[ " + id + " |"`, el que escribe `escribirEnPlan`). En Apps Script gana
+la que se carga última: si ganaba la vieja, cancelar un despacho no sacaba su
+bloque del Plan de Producción. Se elimina el archivo y queda una sola definición.
+
+**Orden de despliegue del Apps Script.**
+
+0. Borrar el archivo `BorrarDespacho.gs` en el editor, si existe, antes de crear
+   la nueva versión.
+1. Pegar `Notificaciones.gs` y `Codigo.gs` **JUNTOS** (solo esos dos archivos).
+   Una función referenciada en `ACCIONES` que no esté definida rompe TODAS las
+   acciones al cargar el script (pasó el 18/09 y el 02/10): si se pega uno solo,
+   el script queda roto.
+2. Publicar desde "Administrar implementaciones → lápiz → Nueva versión →
+   Implementar", **nunca** con "Nueva implementación" (cambiaría la URL que usan
+   el portal y la app).
 
 ---
 ## v1.2.3 — 21/10/2026

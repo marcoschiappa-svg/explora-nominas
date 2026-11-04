@@ -57,7 +57,7 @@
 //   de hora estructurado a `despachos` y ajustar el filtro acá.
 // ============================================================
 
-var FIRESTORE_PROYECTO = 'entorno-prueba-explora';  // cambiar a 'explora-portal' para producción
+var FIRESTORE_PROYECTO = 'explora-portal';  // cambiar a 'explora-portal' para producción
 
 /* -----------------------------------------------------------------------------
  * Autenticación — JWT firmado a mano, token cacheado

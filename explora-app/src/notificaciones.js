@@ -34,10 +34,24 @@
  *   - Todo va en try/catch y nada lanza: en Expo Go de Android el token no se
  *     puede obtener y eso no debe romper la app.
  *
+ *   - `consultarPermisoNotificaciones` SOLO consulta, nunca pide: la usa la
+ *     pantalla para mostrar un aviso cuando el permiso está apagado, y pedirlo
+ *     por su cuenta daría un diálogo inesperado cada vez que se evalúa.
+ *
+ * HISTORIAL DE CORRECCIONES
+ *   TrackEx v1.1.1 — Frente B: si el chofer no concedía el permiso (o lo
+ *   desactivaba después), `registrarPushToken` solo dejaba el log
+ *   `push_permiso_denegado` y el chofer no recibía push de viaje nuevo,
+ *   cancelación ni cambio de destino, sin saber por qué. Se agrega
+ *   `consultarPermisoNotificaciones` para que ChoferScreen muestre un aviso
+ *   visible con botón para activarlas.
+ *
  * DEPENDENCIAS Y ENTORNO
  * expo-notifications ~56.0.21, expo-constants. El token solo se obtiene en un
- * build de EAS (no en Expo Go de Android) y exige `googleServicesFile` (FCM) en
- * app.json: pendiente, fuera de este frente.
+ * build de EAS (no en Expo Go de Android) y exige `googleServicesFile` (FCM), ya
+ * configurado en app.json. En Android 12 o anterior el sistema informa el permiso
+ * de notificaciones como concedido, así que ahí el aviso de "desactivadas" no
+ * aparece.
  * =============================================================================
  */
 
@@ -121,6 +135,39 @@ export async function asegurarPermisoNotificaciones() {
       mensaje: err?.message || '',
     });
     return false;
+  }
+}
+
+/**
+ * Consulta el estado del permiso de notificaciones SIN pedirlo nunca.
+ *
+ * Existe para que la pantalla pueda avisarle al chofer que no va a recibir push
+ * (y reevaluarlo al volver de Ajustes) sin disparar el diálogo del sistema.
+ * Usa los campos `granted` y `canAskAgain` de la respuesta de
+ * `getPermissionsAsync` (expo-notifications SDK 56, `PermissionResponse`).
+ *
+ * Si la consulta lanza, se registra y se devuelve "concedido": un error de
+ * consulta no debe mostrar un aviso falso de "notificaciones desactivadas".
+ * `puedePreguntar: false` en ese caso evita además que el botón intente pedir.
+ *
+ * En Android 12 o anterior el sistema informa el permiso como concedido, así
+ * que el aviso no aparece.
+ *
+ * @returns {Promise<{concedido: boolean, puedePreguntar: boolean}>}
+ */
+export async function consultarPermisoNotificaciones() {
+  try {
+    const actual = await Notifications.getPermissionsAsync();
+    return {
+      concedido: !!actual.granted,
+      puedePreguntar: actual.canAskAgain !== false,
+    };
+  } catch (err) {
+    await logApp('notificaciones_consulta_error', {
+      code: err?.code || '',
+      mensaje: err?.message || '',
+    });
+    return { concedido: true, puedePreguntar: false };
   }
 }
 

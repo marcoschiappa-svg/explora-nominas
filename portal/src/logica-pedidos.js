@@ -104,10 +104,53 @@
  *     Manual: suspender un pedido que tenga una entrega ENTREGADA y otra con
  *     despacho vivo: el vivo se cancela, el entregado queda como estaba, la
  *     entrega cumplida no se toca y el pedido queda suspendido.
+ *
+ * -----------------------------------------------------------------------------
+ * TrackEx v1.1.1 — Frente C: EL AVISO DE CAMBIO DE DESTINO AL CHOFER, POR VIAJE
+ * -----------------------------------------------------------------------------
+ *
+ *   SÍNTOMA
+ *     El aviso al chofer decía "El destino de tu próximo viaje (pedido 123)
+ *     cambió a: ...": el chofer no ve números de pedido en la app. Además el
+ *     aviso no llevaba `viaje_id`, y un chofer con dos viajes RECIBIDO del mismo
+ *     pedido recibía un solo aviso, sin poder saber de cuál de los dos.
+ *
+ *   CAUSA RAÍZ
+ *     El aviso se armó copiando el del transportista: mismo dato (número de
+ *     pedido) y misma deduplicación por destinatario. Pero el transportista
+ *     ve pedidos y despachos; el chofer ve viajes, cada uno con su fecha de
+ *     carga.
+ *
+ *   ALCANCE
+ *     En `editarDomicilioPedido()`, el bloque `snapsViajes.forEach`: pasa a ser
+ *     UN aviso por VIAJE RECIBIDO con chofer (se elimina el `Set` de DNIs
+ *     avisados). El mensaje identifica el viaje por producto y fecha de carga
+ *     (dd/mm/aaaa, si es válida) y termina en el nuevo destino:
+ *     "Glicerina · carga 28/10/2026. Nuevo destino: ...". Sin producto ni
+ *     fecha queda "Nuevo destino: ...". Campo nuevo: `viaje_id`. El título y el
+ *     aviso al transportista (que sigue deduplicado por organización) no
+ *     cambian.
+ *
+ *     CIERRE DEL FRENTE: el texto se arma en la función interna
+ *     `mensajeCambioDestinoChofer()`, que usan los DOS avisos al chofer por
+ *     cambio de destino. `editarDestinoEntrega()` (a lo sumo UN viaje RECIBIDO,
+ *     sin nada que deduplicar) pasa a decir lo mismo y a llevar `viaje_id`.
+ *     Sin producto pero con fecha el mensaje abre con "Carga dd/mm/aaaa" (antes
+ *     quedaba "carga" en minúscula). Los avisos al transportista de ambas
+ *     funciones no cambian.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Dos viajes del mismo chofer con igual producto y fecha dan dos avisos de
+ *     texto idéntico; se distinguen por `viaje_id`.
+ *
+ *   CÓMO SE VERIFICA
+ *     Cambiar el domicilio de un pedido con dos viajes RECIBIDO del mismo
+ *     chofer: se crean dos avisos, cada uno con su `viaje_id` y su fecha.
  * ========================================================================== */
 
 import { doc, collection, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { formatoFechaCorta } from './formatos';
 import { enTransaccion, calcularDiferencias } from './shared/datos';
 import { despachoVivo, DESPACHO, ENTREGA, VIAJE } from './shared/estados';
 import { cancelarDespacho, leerContextoPedido } from './logica-despachos';
@@ -735,6 +778,37 @@ export async function suspenderPedido({ pedidoId, motivo, usuario, appsScriptUrl
  * -------------------------------------------------------------------------- */
 
 /**
+ * Arma el texto del aviso "cambió el destino" que recibe el chofer.
+ *
+ * Es una función única porque hay DOS avisos al chofer por cambio de destino
+ * (`editarDomicilioPedido` y `editarDestinoEntrega`) y tienen que decir lo
+ * mismo: antes divergían (uno con número de pedido, el otro sin dato alguno del
+ * viaje), y el chofer recibía textos distintos para el mismo hecho. No usa el
+ * número de pedido porque el chofer no lo ve en la app.
+ *
+ * Formatos (producto y fecha se omiten si no hay):
+ *   "Glicerina · carga 28/10/2026. Nuevo destino: X"
+ *   "Glicerina. Nuevo destino: X"
+ *   "Carga 28/10/2026. Nuevo destino: X"   (sin producto: "Carga" en mayúscula,
+ *                                           porque abre la oración)
+ *   "Nuevo destino: X"
+ *
+ * @param {Object} viaje Documento del viaje, con `producto_nombre` y
+ *   `fecha_carga` (denormalizados al nominar).
+ * @param {string} nuevoDestinoTexto
+ * @returns {string}
+ */
+function mensajeCambioDestinoChofer(viaje, nuevoDestinoTexto) {
+  const producto = viaje.producto_nombre || '';
+  const fecha = formatoFechaCorta(viaje.fecha_carga);
+  let identificacion = '';
+  if (producto && fecha) identificacion = `${producto} · carga ${fecha}`;
+  else if (producto) identificacion = producto;
+  else if (fecha) identificacion = `Carga ${fecha}`;
+  return (identificacion ? `${identificacion}. ` : '') + `Nuevo destino: ${nuevoDestinoTexto}`;
+}
+
+/**
  * Cambia el domicilio de destino de un pedido.
  *
  * -----------------------------------------------------------------------------
@@ -828,11 +902,12 @@ export async function editarDomicilioPedido({
       usuario,
     });
 
-    // Un aviso por transportista y uno por chofer, no uno por despacho: si
-    // una empresa tiene dos despachos vivos en el mismo pedido, no hace falta
-    // mandarle el mismo aviso dos veces.
+    // Un aviso por transportista, no uno por despacho: si una empresa tiene
+    // dos despachos vivos en el mismo pedido, no hace falta mandarle el mismo
+    // aviso dos veces. Con los choferes NO vale: se avisa por VIAJE, porque
+    // cada viaje tiene su fecha de carga (TrackEx v1.1.1, Frente C — ver el
+    // bloque de la cabecera).
     const orgsAvisadas = new Set();
-    const dnisAvisados = new Set();
 
     snapsDespachos.forEach((snapD, i) => {
       if (!snapD.exists()) return;
@@ -884,16 +959,21 @@ export async function editarDomicilioPedido({
         derivado: true,
       });
 
-      if (vAntes.chofer_dni && !dnisAvisados.has(vAntes.chofer_dni)) {
-        dnisAvisados.add(vAntes.chofer_dni);
+      // (TrackEx v1.1.1, Frente C — ver el bloque de la cabecera) 1. Un aviso
+      // por VIAJE, sin deduplicar por chofer: dos viajes del mismo chofer tienen
+      // fechas de carga distintas. 2. El mensaje no menciona el número de
+      // pedido (el chofer no lo ve): usa producto y fecha de carga. 3. Si no hay
+      // producto ni fecha, queda solo "Nuevo destino: ...". 4. `viaje_id` nuevo.
+      if (vAntes.chofer_dni) {
         tx.set(doc(collection(db, 'avisos')), {
           destinatario_org_id: null,
           destinatario_chofer_dni: vAntes.chofer_dni,
           tipo: 'domicilio_cambiado',
           titulo: 'Cambió el destino de tu próximo viaje',
-          mensaje: `El destino de tu próximo viaje (pedido ${pedidoActual.numero}) cambió a: ${nuevoDestinoTexto}`,
+          mensaje: mensajeCambioDestinoChofer(vAntes, nuevoDestinoTexto),
           pedido_id: pedidoId,
           despacho_id: vAntes.despacho_id,
+          viaje_id: vAntes.id,
           leido: false,
           creado_en: serverTimestamp(),
         });
@@ -1033,15 +1113,20 @@ export async function editarDestinoEntrega({
           derivado: true,
         });
 
+        // (TrackEx v1.1.1, Frente C, cierre — ver el bloque de la cabecera) Mismo
+        // texto que el aviso de `editarDomicilioPedido` (función común) y ahora
+        // con `viaje_id`. A lo sumo hay UN viaje acá, así que no hay nada que
+        // deduplicar.
         if (vAntes.chofer_dni) {
           tx.set(doc(collection(db, 'avisos')), {
             destinatario_org_id: null,
             destinatario_chofer_dni: vAntes.chofer_dni,
             tipo: 'domicilio_cambiado',
             titulo: 'Cambió el destino de tu próximo viaje',
-            mensaje: `El destino de tu próximo viaje cambió a: ${nuevoDestinoTexto}`,
+            mensaje: mensajeCambioDestinoChofer(vAntes, nuevoDestinoTexto),
             pedido_id: pedidoId,
             despacho_id: vAntes.despacho_id,
+            viaje_id: vAntes.id,
             leido: false,
             creado_en: serverTimestamp(),
           });

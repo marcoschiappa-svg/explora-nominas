@@ -14,7 +14,11 @@
  *   ts           string  — ISO 8601 del momento del evento
  *   plataforma   string  — 'android' | 'ios'
  *   version_os   string  — versión del sistema operativo
- *   ...extra     campos adicionales que pase quien llama (códigos, ids)
+ *   version_app  string  — versión de TrackEx (`Constants.expoConfig.version`,
+ *                          app.json). Los logs SIN este campo vienen de la
+ *                          v1.1.0 o anterior: sirve para identificar a quienes
+ *                          todavía no actualizaron.
+ *   ...extra    campos adicionales que pase quien llama (códigos, ids)
  *
  * REQUIERE una regla de Firestore que permita `create` en `app_logs`
  * (`allow create: if logueado()`), o todo el logging remoto falla en silencio.
@@ -22,6 +26,7 @@
  */
 
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from './config/firebase';
 
@@ -46,6 +51,7 @@ export async function logApp(evento, extra = {}) {
       ts: new Date().toISOString(),
       plataforma: Platform.OS,
       version_os: String(Platform.Version),
+      version_app: Constants.expoConfig?.version || '',
       ...extra,
     });
   } catch (e) {

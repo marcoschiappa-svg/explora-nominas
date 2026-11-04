@@ -85,10 +85,37 @@
  *   CÓMO SE VERIFICA
  *     Nominar un despacho y mirar el viaje y su historial `crear_viaje`: tiene
  *     `entrega_id` igual al `entrega_id` del despacho.
+ *
+ * -----------------------------------------------------------------------------
+ * TrackEx v1.1.1 — Frente C: LA FECHA DEL AVISO "VIAJE NUEVO" VA EN dd/mm/aaaa
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El aviso `viaje_nominado` le mostraba al chofer "Carga: 2026-10-28".
+ *
+ *   CAUSA RAÍZ
+ *     El mensaje interpolaba `fecha_carga` tal como se guarda (ISO
+ *     `YYYY-MM-DD`), sin formatear.
+ *
+ *   ALCANCE
+ *     En `nominar()`, el `mensaje` del aviso al chofer pasa la fecha por
+ *     `formatoFechaCorta()` (ver `formatos.js`). Si la fecha no sirve, se omite
+ *     el tramo ". Carga: ..." entero. El CONJUNTO DE CAMPOS del documento no
+ *     cambia: la regla de Firestore de este aviso valida
+ *     `keys().hasOnly(camposDelAvisoDeNominacion())` cuando lo crea un
+ *     transportista, así que agregar o quitar un campo lo rechazaría. El
+ *     título tampoco cambia. Los avisos al transportista no se tocan.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Los avisos ya creados conservan el texto viejo.
+ *
+ *   CÓMO SE VERIFICA
+ *     Nominar un despacho con fecha de carga 28/10/2026: la notificación del
+ *     chofer dice "<producto> · <cliente>. Carga: 28/10/2026".
  * ========================================================================== */
 
 import { doc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { formatoFechaCorta } from './formatos';
 import { enTransaccion, calcularDiferencias } from './shared/datos';
 import {
   DESPACHO, VIAJE, deltaContadores, despachoVivo,
@@ -452,7 +479,12 @@ export async function nominar({
     // así que un aviso sin su viaje se rechaza. Lo recoge el emisor de push
     // (Apps Script, `PushAvisos.gs`) y lo muestra la bandeja de la app. No lleva
     // `anotar()`: el límite de anotaciones de esta transacción sigue en 3.
-    const fechaCargaAviso = actual.fecha_carga;
+    //
+    // (TrackEx v1.1.1, Frente C — ver el bloque de la cabecera) 1. La fecha va
+    // en dd/mm/aaaa; si no hay una válida, `formatoFechaCorta` devuelve '' y se
+    // omite el tramo "Carga: ...". 2. Los campos del documento son los mismos de
+    // antes: la regla usa `hasOnly(camposDelAvisoDeNominacion())`.
+    const fechaCargaAviso = formatoFechaCorta(actual.fecha_carga);
     tx.set(doc(collection(db, 'avisos')), {
       destinatario_org_id: null,
       destinatario_chofer_dni: chofer.datos_chofer.dni,

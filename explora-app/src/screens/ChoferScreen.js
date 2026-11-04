@@ -60,6 +60,14 @@
  * push no llegó. El permiso de notificaciones se pide en un solo lugar
  * (`asegurarPermisoNotificaciones`) y `logApp` vive en registro.js.
  *
+ * PERMISO DE NOTIFICACIONES VISIBLE (v1.1.1, Frente B): si el chofer no concedió
+ * el permiso (o lo apagó después), no recibe los push y antes no se enteraba. La
+ * pantalla lo consulta (`consultarPermisoNotificaciones`, que nunca lo pide) y
+ * muestra un aviso con botón: "Activar notificaciones" si el sistema todavía
+ * deja preguntar, o "Abrir ajustes de la app" si no. Se reevalúa cada vez que la
+ * app vuelve a primer plano (EFECTO 6) y el estado queda en `app_logs`
+ * (`push_permiso_estado`) para ver qué choferes las tienen apagadas.
+ *
  * -----------------------------------------------------------------------------
  * LAYOUT, TEMA E INSETS (Frente E)
  * -----------------------------------------------------------------------------
@@ -185,7 +193,9 @@ import { db } from '../config/firebase';
 import { APPS_SCRIPT_URL } from '../config/constants';
 import { logApp } from '../registro';
 import { useAvisos } from '../avisos';
-import { asegurarPermisoNotificaciones } from '../notificaciones';
+import {
+  asegurarPermisoNotificaciones, consultarPermisoNotificaciones, registrarPushToken,
+} from '../notificaciones';
 import { useTema } from '../tema/TemaContext';
 import { fuente } from '../tema/fuentes';
 import { DEGRADE_ENCABEZADO, ETIQUETA_ENCABEZADO, estadoEncabezado } from '../tema/encabezados';
@@ -737,6 +747,23 @@ export default function ChoferScreen({ usuario, onLogout }) {
    */
   const esperandoAjustesRef = useRef(false);
 
+  /**
+   * Permiso de notificaciones: `null` mientras no se consultó; luego
+   * `{ concedido, puedePreguntar }`. Maneja el aviso "Notificaciones desactivadas".
+   */
+  const [permisoNotif, setPermisoNotif] = useState(null);
+
+  /**
+   * Espejo de `permisoNotif` para comparar con el estado anterior dentro del
+   * listener de AppState, que se registra una sola vez y no vería el estado nuevo
+   * de React.
+   */
+  const permisoNotifRef = useRef(null);
+
+  /** Espejo de `usuario` por la misma razón: el listener lo usa para registrar el token. */
+  const usuarioRef = useRef(usuario);
+  usuarioRef.current = usuario;
+
   const dniUsuario = usuario?.datos_chofer?.dni || '';
 
   /** Avisos sin leer del chofer (bandeja). Ver avisos.js. */
@@ -904,9 +931,82 @@ export default function ChoferScreen({ usuario, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---------------------------------------------------------------------------
+   * EFECTO 6 — Permiso de notificaciones: consulta inicial y reevaluación
+   *
+   * Separado del EFECTO 4 (ubicación) porque son permisos independientes.
+   *   a. Al montar consulta el permiso, lo guarda y registra UNA vez
+   *      `push_permiso_estado` (para ver en app_logs quién las tiene apagadas).
+   *   b. En cada AppState 'active' vuelve a consultar: cubre el regreso de
+   *      Ajustes y el caso de que el chofer las apague con la app en segundo
+   *      plano. Si pasó de no concedido a concedido, registra el token push.
+   *   c. Al desmontar da de baja el listener.
+   * Sin dependencias a propósito: se registra una vez y lee el estado vigente
+   * por refs (`permisoNotifRef`, `usuarioRef`); `reevaluarPermisoNotif` solo usa
+   * refs y setters, así que no captura valores obsoletos.
+   * ------------------------------------------------------------------------ */
+  useEffect(() => {
+    reevaluarPermisoNotif({ registrar: true });
+    const sub = AppState.addEventListener('change', (estado) => {
+      if (estado === 'active') reevaluarPermisoNotif({ registrar: true });
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ===========================================================================
    * PERMISOS Y ARRANQUE DEL SEGUIMIENTO
    * ======================================================================== */
+
+  /**
+   * Consulta el permiso de notificaciones y, si cambió respecto del estado
+   * anterior (o es la primera consulta), actualiza el estado y registra
+   * `push_permiso_estado`.
+   *
+   * Si pasó de no concedido a concedido y `registrar` es true, registra el token
+   * push (`registrarPushToken` solo escribe si el token cambió). `activarNotificaciones`
+   * pasa `registrar: false` porque ya lo registró ella misma.
+   *
+   * @param {{registrar: boolean}} opciones
+   * @returns {Promise<void>}
+   */
+  async function reevaluarPermisoNotif({ registrar }) {
+    const nuevo = await consultarPermisoNotificaciones();
+    const previo = permisoNotifRef.current;
+    if (previo
+      && previo.concedido === nuevo.concedido
+      && previo.puedePreguntar === nuevo.puedePreguntar) return;
+
+    permisoNotifRef.current = nuevo;
+    setPermisoNotif(nuevo);
+    await logApp('push_permiso_estado', {
+      concedido: nuevo.concedido,
+      puede_preguntar: nuevo.puedePreguntar,
+    });
+
+    if (registrar && previo && !previo.concedido && nuevo.concedido) {
+      await registrarPushToken(usuarioRef.current);
+    }
+  }
+
+  /**
+   * Botón del aviso "Notificaciones desactivadas".
+   *
+   * Si el sistema todavía deja preguntar, `registrarPushToken` muestra el diálogo
+   * (es el único camino que pide el permiso) y registra el token si se concede;
+   * después se vuelve a consultar. Si ya no deja preguntar, se manda al chofer a
+   * Ajustes y el regreso lo resuelve el EFECTO 6.
+   *
+   * @returns {Promise<void>}
+   */
+  async function activarNotificaciones() {
+    if (permisoNotif?.puedePreguntar) {
+      await registrarPushToken(usuario);
+      await reevaluarPermisoNotif({ registrar: false });
+    } else {
+      abrirAjustes('Notificaciones');
+    }
+  }
 
   /**
    * Asegura el permiso de notificaciones (POST_NOTIFICATIONS en Android 13+).
@@ -1205,8 +1305,27 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * fallo de red del aviso mostraba "no se pudo actualizar" aunque sí se hubiera
    * actualizado.
    *
-   * `ov` va vacío: el viaje no trae el número de OV. Se conserva la clave
-   * porque el Apps Script espera el mismo payload que antes.
+   * PAYLOAD (TrackEx v1.1.1, Frente D). Todos los campos salen del viaje ya
+   * adaptado (`adaptarViaje`): no hay lecturas nuevas a Firestore.
+   *   accion, viaje_id, pedido_id, despacho_id, chofer (nombre, o el DNI si no
+   *   hay nombre), chofer_dni, producto, cliente, volumen, origen, lugar
+   *   (destino), fecha_carga, patente_tractor, patente_semi, motivo y `ov`.
+   * `ov` va vacío: el viaje no trae el número de OV, así que el asunto del mail
+   * sale con "[—]". No se manda `destinatarios`: el chofer no puede leer la
+   * lista de coordinadores en `usuarios`, y el Apps Script usa su lista de
+   * respaldo.
+   *
+   * LECTURA DE LA RESPUESTA. El Apps Script contesta HTTP 200 aun cuando falla
+   * (`{"status":"error",...}`), por eso antes el aviso podía no salir sin que
+   * nadie se enterara: la acción `chofer_demora` no estaba registrada y la app
+   * no leía la respuesta. Ahora se lee el texto y se intenta `JSON.parse`; si
+   * `res.ok` es false, si no es JSON o si `status !== 'ok'` se registra
+   * `aviso_coordinador_rechazado` (con `http` y los primeros 200 caracteres de
+   * la respuesta). Nada de esto se le muestra al chofer: la acción ya quedó
+   * escrita y no se revierte. El error de red sigue registrándose como
+   * `aviso_apps_script_error`.
+   *
+   * ES UN PARCHE hasta portal v1.2.4, cuando los avisos pasen a la API de Vercel.
    *
    * @param {string} accion 'chofer_demora' | 'chofer_finalizo'
    * @param {Object} viaje Viaje adaptado (`adaptarViaje`).
@@ -1216,16 +1335,39 @@ export default function ChoferScreen({ usuario, onLogout }) {
   async function avisarCoordinador(accion, viaje, motivo = '') {
     const payload = {
       accion,
+      viaje_id: viaje.id,
       pedido_id: viaje.pedido_id,
+      despacho_id: viaje.despacho_id,
       chofer: usuario?.nombre || dniUsuario,
+      chofer_dni: dniUsuario,
       producto: viaje.producto,
       cliente: viaje.cliente,
-      ov: '',
+      volumen: viaje.volumen,
+      origen: viaje.origen,
       lugar: viaje.lugar,
+      fecha_carga: viaje.fecha_carga,
+      patente_tractor: viaje.patente_tractor,
+      patente_semi: viaje.patente_semi,
       motivo,
+      ov: '',
     };
     try {
-      await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString());
+      const res = await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString());
+      const texto = await res.text();
+      let respuesta = null;
+      try {
+        respuesta = JSON.parse(texto);
+      } catch (errJson) {
+        respuesta = null;
+      }
+      if (!res.ok || !respuesta || respuesta.status !== 'ok') {
+        await logApp('aviso_coordinador_rechazado', {
+          accion,
+          viaje_id: viaje.id,
+          http: String(res.status),
+          respuesta: String(texto).slice(0, 200),
+        });
+      }
     } catch (errAviso) {
       await logApp('aviso_apps_script_error', {
         code: errAviso?.code || '',
@@ -1378,10 +1520,12 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * Abre los ajustes de la app. Es la salida que se le ofrece al chofer cuando
    * el permiso está denegado y el sistema ya no vuelve a preguntar.
    * Si `openSettings` falla, se dan las instrucciones manuales.
+   *
+   * @param {string} [permiso='Ubicación'] Nombre del permiso, para el texto de respaldo.
    */
-  function abrirAjustes() {
+  function abrirAjustes(permiso = 'Ubicación') {
     Linking.openSettings().catch(() => {
-      Alert.alert('Ajustes', 'Abrí Ajustes → Apps → TrackEx → Permisos → Ubicación.');
+      Alert.alert('Ajustes', `Abrí Ajustes → Apps → TrackEx → Permisos → ${permiso}.`);
     });
   }
 
@@ -1665,6 +1809,24 @@ export default function ChoferScreen({ usuario, onLogout }) {
             </View>
           )}
 
+          {/* Aviso de notificaciones desactivadas (Frente B). Reutiliza a propósito
+              los estilos del aviso de seguimiento (`gpsAviso*`): es la misma
+              familia visual de avisos de permisos. Solo se muestra una vez
+              consultado el permiso y si no está concedido. */}
+          {permisoNotif !== null && !permisoNotif.concedido && (
+            <View style={s.gpsAviso}>
+              <Text style={s.gpsAvisoTit}>🔔 Notificaciones desactivadas</Text>
+              <Text style={s.gpsAvisoTxt}>
+                No vas a recibir avisos de viajes nuevos, cancelaciones ni cambios de destino con la app cerrada. Cuando la abras, los avisos igual aparecen acá arriba.
+              </Text>
+              <TouchableOpacity style={s.gpsAvisoBtn} onPress={activarNotificaciones}>
+                <Text style={s.gpsAvisoBtnTxt}>
+                  {permisoNotif.puedePreguntar ? 'Activar notificaciones' : 'Abrir ajustes de la app'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* El perfil no tiene DNI: sin él no se puede resolver ningún viaje. */}
           {!dniUsuario && (
             <View style={s.alerta}>
@@ -1686,7 +1848,7 @@ export default function ChoferScreen({ usuario, onLogout }) {
               <Text style={s.gpsAvisoNota}>
                 Podés iniciar y finalizar el viaje igual: esto solo afecta el registro del recorrido.
               </Text>
-              <TouchableOpacity style={s.gpsAvisoBtn} onPress={abrirAjustes}>
+              <TouchableOpacity style={s.gpsAvisoBtn} onPress={() => abrirAjustes()}>
                 <Text style={s.gpsAvisoBtnTxt}>Abrir ajustes de la app</Text>
               </TouchableOpacity>
             </View>

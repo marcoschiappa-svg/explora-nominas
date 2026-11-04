@@ -30,6 +30,20 @@
 //   rama de acá es solo para poder dispararla a mano por URL si hace falta;
 //   normalmente corre sola por su propio trigger de tiempo
 //   (`instalarTriggerRecordatorio`, en el mismo archivo).
+//
+// TrackEx v1.1.1 — Frente D — `chofer_demora` Y `chofer_finalizo` (PARCHE)
+//   La app TrackEx avisa al coordinador con estas dos acciones, pero no estaban
+//   en `ACCIONES`: el script respondía "Acción no reconocida" (HTTP 200, que la
+//   app no leía) y los avisos nunca salieron. Ahora se rutean a
+//   `enviarEmailChoferDemora` y `enviarEmailChoferFinalizo` (Notificaciones.gs,
+//   sección 8). Es un parche que se descarta en portal v1.2.4, cuando los
+//   avisos pasen a la API de Vercel.
+//
+// ADVERTENCIA — Notificaciones.gs Y Codigo.gs SE PUBLICAN JUNTOS
+//   `var ACCIONES = {...}` se evalúa AL CARGAR el proyecto. Una función
+//   referenciada ahí que no esté definida tira ReferenceError y rompe TODAS las
+//   acciones, no solo la nueva (pasó el 18/09 y el 02/10). Pegar uno solo de
+//   los dos archivos deja el script roto.
 // ============================================================
 
 var ACCIONES = {
@@ -49,6 +63,11 @@ var ACCIONES = {
   reprogramar_despacho:  { escribir: moverEnPlan, notificar: enviarEmailReprogramacion },
   editar_despacho:       { escribir: moverEnPlan, notificar: enviarEmailEditarDespacho },
   borrar_despacho:       { escribir: borrarDespacho },
+  // PARCHE del Frente D de TrackEx v1.1.1: avisos del chofer al coordinador.
+  // Se descartan en portal v1.2.4, cuando los avisos pasen a la API de Vercel.
+  // Las funciones viven en Notificaciones.gs: se publican juntos.
+  chofer_demora:         { notificar: enviarEmailChoferDemora },
+  chofer_finalizo:       { notificar: enviarEmailChoferFinalizo },
 };
 
 function manejarAccion(accion, data) {
