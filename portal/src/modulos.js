@@ -117,6 +117,30 @@
  *     `CI=true npm run build` sin warnings. Home no muestra "Nuevo" ni las seis
  *     tarjetas dadas de baja, con ningún rol. Buscar la bandera `nuevo` con valor true en este
  *     archivo no devuelve nada.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 — UN SOLO TARIFARIO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     Home mostraba dos tiles, "Tarifario" (legacy, `Tarifario.js`) y "Nuevo
+ *     Tarifario" (`NuevoTarifario.js`): no quedaba claro cuál era el vigente.
+ *
+ *   CAUSA RAÍZ
+ *     Las dos pantallas convivían desde v1.2.0 (RF-09) mientras se aprobaba
+ *     la nueva; ya está adoptada.
+ *
+ *   ALCANCE
+ *     (1) Sale la entrada `tarifario`. `nuevo_tarifario` pasa a llamarse
+ *     "Tarifario" con la descripción del tile viejo; su `id` NO cambia (lo
+ *     usan las preferencias persistidas). Mismos roles.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     `Tarifario.js` y sus datos quedan en el repo/base sin referencias;
+ *     borrarlos es para otra versión.
+ *
+ *   CÓMO SE VERIFICA
+ *     Home muestra un solo tile "Tarifario" para admin, coordinador y
+ *     comercial, y abre `NuevoTarifario.js`.
  * ========================================================================== */
 
 import { tieneAlgunRol, tienePerfil } from './sesion';
@@ -140,14 +164,11 @@ export const MODULOS = [
   { id: 'camiones',       categoria: 'transporte',  emoji: '🚚', titulo: 'Mi Flota',              desc: 'Las unidades de cada empresa de transporte',           roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoVerde, usaModeloViejo: false },
 
   { id: 'seguimiento',    categoria: 'seguimiento', emoji: '📡', titulo: 'Seguimiento',           desc: 'Mapa en tiempo real de choferes activos',              roles: ['admin', 'coordinador', 'transportista'], acento: colorEstado.acentoAzul, usaModeloViejo: false },
-  // 3. `tarifario` deja de evaluarse contra el `rol` legacy (lo que hacía
-  //    App.js hasta ahora, con `rol !== 'transportista'`, sin límite real de
-  //    roles): pasa a `usaModeloViejo: false`, como cualquier módulo del
-  //    modelo nuevo. Ver Tarifario.js para las pestañas por rol.
-  { id: 'tarifario',      categoria: 'seguimiento', emoji: '💲', titulo: 'Tarifario',             desc: 'Consulta y gestión de tarifas de flete por ruta',      roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, usaModeloViejo: false },
-  // 9. v1.2.0 (RF-09) -- registro maestro de rutas, en paralelo al Tarifario
-  //    legacy. Ver `pages/NuevoTarifario.js`.
-  { id: 'nuevo_tarifario', categoria: 'seguimiento', emoji: '🧾', titulo: 'Nuevo Tarifario',       desc: 'Registro maestro de rutas y tarifas, con historial',   roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, usaModeloViejo: false },
+  // 3. (v1.2.5 (1): la entrada `tarifario` legacy se dio de baja; ver el
+  //    encabezado v1.2.5 de este archivo.)
+  // 9. v1.2.0 (RF-09) -- registro maestro de rutas. Ver `pages/NuevoTarifario.js`.
+  //    v1.2.5 (1): único tarifario; el `id` sigue siendo `nuevo_tarifario`.
+  { id: 'nuevo_tarifario', categoria: 'seguimiento', emoji: '🧾', titulo: 'Tarifario',             desc: 'Consulta y gestión de tarifas de flete por ruta',      roles: ['admin', 'comercial', 'coordinador'], acento: colorEstado.acentoAmbar, usaModeloViejo: false },
 
   // 4. `organizaciones` suma `coordinador`: da de alta transportes (ver
   //    Organizaciones.js y las reglas nuevas de esa colección).

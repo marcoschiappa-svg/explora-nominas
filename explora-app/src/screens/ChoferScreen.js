@@ -204,6 +204,7 @@ import {
 } from '../tema/dimensiones';
 import ColumnaCentrada from '../componentes/ColumnaCentrada';
 import PieVersion from '../componentes/PieVersion';
+import ModalCambiarClave from '../componentes/ModalCambiarClave';
 import {
   iniciarViaje, reportarDemora, finalizarViaje, registrarPuntos, VIAJE,
   marca, colorEstado, espacio, radio, tipografia,
@@ -724,6 +725,9 @@ export default function ChoferScreen({ usuario, onLogout }) {
 
   /** Visibilidad del modal que explica el permiso "Permitir siempre". */
   const [modalPermiso, setModalPermiso] = useState(false);
+
+  /** Visibilidad del modal para cambiar la contraseña (v1.1.1, Frente F). */
+  const [modalClave, setModalClave] = useState(false);
 
   /**
    * Estado del seguimiento GPS, para el banner de la interfaz.
@@ -1707,6 +1711,9 @@ export default function ChoferScreen({ usuario, onLogout }) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Modal para cambiar la contraseña (opcional; v1.1.1, Frente F). */}
+      <ModalCambiarClave visible={modalClave} onCerrar={() => setModalClave(false)} />
+
       {/* Modal de confirmación de entrega */}
       <Modal visible={!!modalFinalizar} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent>
         <View style={s.overlay}>
@@ -1738,6 +1745,10 @@ export default function ChoferScreen({ usuario, onLogout }) {
               {/* Selector de tema: Automático / Claro / Oscuro. */}
               <TouchableOpacity onPress={abrirSelectorTema} hitSlop={HIT_SLOP}>
                 <Text style={s.btnTema}>🌓</Text>
+              </TouchableOpacity>
+              {/* Cambiar contraseña (opcional). */}
+              <TouchableOpacity onPress={() => setModalClave(true)} hitSlop={HIT_SLOP} accessibilityLabel="Cambiar contraseña">
+                <Text style={s.btnTema}>🔑</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={onLogout} hitSlop={HIT_SLOP}>
                 <Text style={s.btnSalir}>Salir</Text>

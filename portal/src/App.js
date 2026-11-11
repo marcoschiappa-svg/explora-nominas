@@ -1,4 +1,43 @@
 /* -----------------------------------------------------------------------------
+ * v1.2.5 — UN SOLO TARIFARIO Y ALTO FIJO PARA SEGUIMIENTO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     (a) Home tenía dos tarifarios. (b) En Seguimiento la página entera
+ *     scrolleaba y el mapa tomaba el alto que le dejaba la lista.
+ *
+ *   CAUSA RAÍZ
+ *     (a) Convivencia con el legacy desde v1.2.0 (RF-09), ya terminada.
+ *     (b) La cadena de alto se cortaba en el wrapper de `Contenido` dentro de
+ *     `Pagina`: `{ flex: '1 0 auto', minHeight: 0 }` SIN `display: flex`, y
+ *     `Pagina` con `minHeight: 100vh` (no `height`). El arreglo de v1.1.x
+ *     puso `flex: 1, minHeight: 0` en `Seguimiento` (`wrap`/`layout`), pero
+ *     eso solo funciona si TODOS los ancestros son flex con alto acotado.
+ *     Cuando `Pagina` pasó a ser "sticky footer" (`minHeight` + `flex: '1 0
+ *     auto'`, para que el pie quede abajo en las pantallas cortas), el padre
+ *     de Seguimiento dejó de ser flex y de tener alto definido: el `flex: 1`
+ *     de Seguimiento quedó sin efecto y el alto pasó a depender del
+ *     contenido (la lista).
+ *
+ *   ALCANCE
+ *     1. Sale la rama `tarifario` y el import de `Tarifario.js` (el archivo
+ *        queda en el repo sin referencias).
+ *     2. `Pagina` recibe `altoFijo`. Solo Seguimiento lo pide: `Pagina` toma
+ *        `height: 100vh` + `overflow: hidden` y el wrapper del contenido pasa a
+ *        flex en columna con `flex: '1 1 0'`, `minHeight: 0`. El resto de las
+ *        pantallas sigue con el sticky footer y el scroll de siempre.
+ *     3. `Pagina` pasa a envolver desde ADENTRO de `Contenido` (que es quien
+ *        sabe qué módulo se muestra), en vez de al revés. Sigue dentro de
+ *        `TemaProvider`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     En Seguimiento el pie (`Pie`) sigue visible al fondo de la ventana: el
+ *     mapa ocupa el alto entre `BarraSuperior` y el pie.
+ *
+ *   CÓMO SE VERIFICA
+ *     Home muestra un solo tile "Tarifario". Seguimiento no tiene scroll de
+ *     página; Pedidos, Programación y el resto scrollean igual que antes.
+ *
+ * -----------------------------------------------------------------------------
  * v1.2.0 (RF-07) — RUTEO CONTRA LA TABLA ÚNICA DE MÓDULOS
  * -----------------------------------------------------------------------------
  *   SÍNTOMA
@@ -110,7 +149,6 @@ import Usuarios from './pages/Usuarios';
 import Productos from './pages/Productos';
 import Camiones from './pages/Camiones';
 import CalendarioOperativo from './pages/CalendarioOperativo';
-import Tarifario from './Tarifario';
 import NuevoTarifario from './pages/NuevoTarifario';
 import Pie from './ui/Pie';
 import { TemaProvider, useTema } from './ui/TemaContext';
@@ -255,20 +293,21 @@ function Contenido() {
     } else if (modulo === 'calendario' && puede('calendario')) {
       // v1.2.0 (RF-10)
       cuerpo = <CalendarioOperativo usuario={usuario} onVolver={() => setModulo('home')} />;
-    } else if (modulo === 'tarifario' && puede('tarifario')) {
-      // v1.2.0 (RF-09, comentario ALCANCE) — Tarifario legacy, sin tocar: recibe
-      // los campos viejos de la sesión, no el objeto `usuario` completo.
-      cuerpo = <Tarifario userRole={usuario.rol} userEmail={usuario.email} onVolver={() => setModulo('home')} />;
     } else if (modulo === 'nuevo_tarifario' && puede('nuevo_tarifario')) {
+      // v1.2.5 (1): único tarifario (la rama `tarifario` legacy se dio de baja).
       cuerpo = <NuevoTarifario usuario={usuario} onVolver={() => setModulo('home')} />;
     } else {
       cuerpo = <Home usuario={usuario} onModulo={setModulo} />;
     }
   }
 
+  // v1.2.5 (2): solo Seguimiento ocupa exactamente el alto de la ventana.
+  const altoFijo = !!usuario && modulo === 'seguimiento' && puedeVerModulo(usuario, moduloPorId('seguimiento'));
+
+  // v1.2.5 (3): `Pagina` envuelve desde acá.
   return (
-    <>
-      <div style={{ position: 'sticky', top: 0, zIndex: 9999 }}>
+    <Pagina altoFijo={altoFijo}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 9999, flexShrink: 0 }}>
         <FranjaEntorno />
         <BarraSuperior
           usuario={usuario}
@@ -277,7 +316,7 @@ function Contenido() {
         />
       </div>
       {cuerpo}
-    </>
+    </Pagina>
   );
 }
 
@@ -301,21 +340,28 @@ function Contenido() {
  * empujado al fondo cuando sobra espacio, y despues del contenido cuando no
  * sobra -- el patron clasico de "sticky footer".
  */
-function Pagina() {
+function Pagina({ altoFijo, children }) {
   const { colores } = useTema();
 
+  // v1.2.5 (2): con `altoFijo`, la cadena de alto queda acotada de punta a
+  // punta (100vh -> wrapper flex -> pantalla con `flex: 1, minHeight: 0`).
+  // Sin él, exactamente el sticky footer de antes.
   return (
     <div
       style={{
-        minHeight: '100vh',
+        ...(altoFijo ? { height: '100vh', overflow: 'hidden' } : { minHeight: '100vh' }),
         display: 'flex',
         flexDirection: 'column',
         background: colores.fondo,
         color: colores.texto,
       }}
     >
-      <div style={{ flex: '1 0 auto', minHeight: 0 }}>
-        <Contenido />
+      <div
+        style={altoFijo
+          ? { flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }
+          : { flex: '1 0 auto', minHeight: 0 }}
+      >
+        {children}
       </div>
       <Pie />
     </div>
@@ -323,16 +369,16 @@ function Pagina() {
 }
 
 /**
- * Punto de entrada del portal: `Pagina` (que incluye el contenido y el pie
- * de pagina) dentro de `TemaProvider`, para que tanto ella como cualquier
+ * Punto de entrada del portal: `Contenido` (que se envuelve en `Pagina`, con
+ * el pie de pagina -- v1.2.5 (3)) dentro de `TemaProvider`, para que tanto ella como cualquier
  * pantalla de adentro puedan leer el tema actual.
  */
 function App() {
   return (
     <TemaProvider>
-      <Pagina />
+      <Contenido />
     </TemaProvider>
   );
 }
 
-export default App;
+export default App;

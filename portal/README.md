@@ -23,7 +23,7 @@ Ver también: [Changelog](./CHANGELOG.md) · [Entorno de prueba](./ENTORNO_PRUEB
 | Home | `src/pages/Home.js` | Landing según rol |
 | Pedidos | `src/pages/Pedidos.js` | Carga y seguimiento de pedidos comerciales |
 | Seguimiento | `src/pages/Seguimiento.js` | Mapa en vivo del recorrido de cada viaje |
-| Tarifario | `src/Tarifario.js` | Consulta, edición y aprobación de tarifas de flete |
+| Tarifario | `src/pages/NuevoTarifario.js` | Consulta, edición y aprobación de tarifas de flete |
 
 ## Instalación
 

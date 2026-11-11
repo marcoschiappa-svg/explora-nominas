@@ -306,6 +306,43 @@
  *   CÓMO SE VERIFICA: asignar un transporte con un correo de organización y
  *   sin usuarios con correo ya no se rechaza, y el mail llega a ese correo.
  * -------------------------------------------------------------------------- */
+/* -----------------------------------------------------------------------------
+ * v1.2.5 -- CHOFER NOMINADO EN EL MODAL Y LISTA ALINEADA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     (a) El modal mostraba "Chofer <DNI>" sin el nombre. (b) En la lista,
+ *     producto y cantidad se corrían de fila en fila.
+ *
+ *   CAUSA RAÍZ
+ *     (a) Nadie resolvía `despacho.chofer_uid` contra `usuarios`. (b)
+ *     `FilaPedido` era un flex con cliente/producto creciendo (`flex: 2` /
+ *     `flex: 1`) y los chips "N sin cubrir"/"Vencido" solo en algunas filas:
+ *     el ancho disponible cambiaba según la fila.
+ *
+ *   ALCANCE
+ *     1. `choferesPorUid` (Map de usuarios con rol chofer) armado con
+ *        `useMemo` sobre la suscripción a `usuarios` que esta pantalla YA
+ *        tenía (colección completa, para correos y "creado por"). No se suma
+ *        una segunda suscripción con `where('roles','array-contains',...)`:
+ *        leería un subconjunto de los mismos documentos.
+ *     2. `choferesPorUid` baja a `ModalDetallePedido` -> `LineaDespacho`.
+ *     3. `styles.fila` pasa a CSS grid de columnas fijas (estado | cliente |
+ *        producto | cantidad | chips | OV/OC); la celda de chips se renderiza
+ *        siempre. Mismo orden y contenido de columnas.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Programación la ven admin y coordinador, y los dos pueden leer
+ *     `usuarios` (`esInterno()` en `firestore.rules.produccion`). Si esa
+ *     lectura fallara, el mapa queda vacío y el modal muestra el DNI, como
+ *     antes. Cliente/producto largos se cortan con "…" (texto completo en el
+ *     `title`).
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- --watchAll=false` y `CI=true npm run build`. Manual:
+ *     un despacho nominado muestra nombre, DNI, patentes y estado del viaje;
+ *     la lista queda en columnas con y sin chips, en claro y en oscuro.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -469,6 +506,11 @@ export default function Programacion({ usuario, onVolver }) {
   const orgsPorId = useMemo(() => new Map(organizaciones.map(o => [o.id, o])), [organizaciones]);
   const prodsPorId = useMemo(() => new Map(productos.map(p => [p.id, p])), [productos]);
   const domsPorId = useMemo(() => new Map(domicilios.map(d => [d.id, d])), [domicilios]);
+  // v1.2.5 (1): sobre la suscripción a `usuarios` que ya existía.
+  const choferesPorUid = useMemo(
+    () => new Map(usuarios.filter(u => (u.roles || []).includes('chofer')).map(u => [u.id, u])),
+    [usuarios]
+  );
 
   const viajePorDespacho = useMemo(
     () => new Map(viajes.map(v => [v.despacho_id, v])),
@@ -1039,6 +1081,7 @@ export default function Programacion({ usuario, onVolver }) {
           orgsPorId={orgsPorId}
           transportistas={transportistas}
           viajePorDespacho={viajePorDespacho}
+          choferesPorUid={choferesPorUid}
           calendarioDias={calendarioDias}
           calendarioReglas={calendarioReglas}
           asignando={asignando}
@@ -1099,17 +1142,20 @@ function FilaPedido({ x, org, prod, vencido, esUltima, onClick }) {
       style={{ ...styles.fila, ...(esUltima ? { borderBottom: 'none' } : {}) }}
     >
       <span style={styles.filaEstado}><Pastilla colores={col}>{ETIQUETA_PEDIDO[p.estado] || p.estado}</Pastilla></span>
-      <span style={styles.filaCliente}>{org ? org.razon_social : '—'}</span>
-      <span style={styles.filaProducto}>{prod ? prod.nombre : '—'}</span>
+      <span style={styles.filaCliente} title={org ? org.razon_social : ''}>{org ? org.razon_social : '—'}</span>
+      <span style={styles.filaProducto} title={prod ? prod.nombre : ''}>{prod ? prod.nombre : '—'}</span>
       <span style={styles.filaCantidad}>{p.volumen} tn</span>
-      {sinCubrir > 0 && (
-        <Pastilla chico colores={{ bg: paleta.chipSinCubrir.fondo, color: paleta.chipSinCubrir.texto }}>
-          {sinCubrir} sin cubrir
-        </Pastilla>
-      )}
-      {vencido && (
-        <Pastilla chico colores={{ bg: paleta.estadoDespacho.sinCubrir.fondo, color: paleta.estadoDespacho.sinCubrir.texto }}>Vencido</Pastilla>
-      )}
+      {/* v1.2.5 (3): la celda de chips existe siempre, aunque quede vacía. */}
+      <span style={styles.filaChips}>
+        {sinCubrir > 0 && (
+          <Pastilla chico colores={{ bg: paleta.chipSinCubrir.fondo, color: paleta.chipSinCubrir.texto }}>
+            {sinCubrir} sin cubrir
+          </Pastilla>
+        )}
+        {vencido && (
+          <Pastilla chico colores={{ bg: paleta.estadoDespacho.sinCubrir.fondo, color: paleta.estadoDespacho.sinCubrir.texto }}>Vencido</Pastilla>
+        )}
+      </span>
       <span style={styles.filaOv}>{p.ov}</span>
     </div>
   );
@@ -1180,18 +1226,30 @@ function crearEstilos(colores, oscuro) {
     // ahora vía `radioProgramacion.panel` (también 16). Acá se queda el
     // estilo de cada fila (`fila`/`filaEstado`/...), que PanelLista no
     // conoce.
+    // v1.2.5 (3): grid de columnas fijas -- estado | cliente | producto |
+    // cantidad | chips | OV/OC. Mismo gap, padding y borde que el flex de antes.
     fila: {
-      display: 'flex', alignItems: 'center', gap: espacio.lg, padding: '16px 20px',
+      display: 'grid', gridTemplateColumns: '130px minmax(140px, 2fr) minmax(110px, 1fr) 80px 200px 90px',
+      alignItems: 'center', gap: espacio.lg, padding: '16px 20px',
       borderBottom: `1px solid ${colores.borde}`, cursor: 'pointer',
     },
-    filaEstado: { minWidth: 120, flexShrink: 0 },
-    // Cliente: bold -- tabla del diseño.
-    filaCliente: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: colores.texto, flex: 2, minWidth: 120 },
-    // Producto: rojo marca, semibold -- tabla del diseño.
-    filaProducto: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: paleta.producto, flex: 1, minWidth: 90 },
-    filaCantidad: { fontSize: tipografia.tamano.md, color: colores.texto, flexShrink: 0 },
+    filaEstado: { minWidth: 0 },
+    // Cliente: bold -- tabla del diseño. v1.2.5 (3): cortado con "…".
+    filaCliente: {
+      fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: colores.texto,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    },
+    // Producto: rojo marca, semibold -- tabla del diseño. v1.2.5 (3): cortado con "…".
+    filaProducto: {
+      fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: paleta.producto,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    },
+    // v1.2.5 (3): a la derecha, con dígitos de ancho fijo.
+    filaCantidad: { fontSize: tipografia.tamano.md, color: colores.texto, textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+    // v1.2.5 (3): celda fija de chips, a la izquierda, sin wrap.
+    filaChips: { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: espacio.xs, flexWrap: 'nowrap', overflow: 'hidden' },
     // OV/OC: rojo marca, bold, alineada a la derecha -- tabla del diseño.
-    filaOv: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.fuerte, color: paleta.ovOc, marginLeft: 'auto', textAlign: 'right', flexShrink: 0 },
+    filaOv: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.fuerte, color: paleta.ovOc, textAlign: 'right' },
   };
 }
 
