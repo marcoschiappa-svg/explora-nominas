@@ -59,6 +59,28 @@
  *   `CI=true npm test -- Programacion` (los tests de este módulo viven en
  *   `Programacion.test.js`, junto con los que ya había de RF-08/Paso 0.2 --
  *   ver el prompt de la tarea, Paso 4).
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 -- NOMBRE DEL CHOFER NOMINADO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     El modal de Programación mostraba "Chofer <DNI>" sin el nombre: había
+ *     que ir a Usuarios para saber quién iba a manejar.
+ *
+ *   CAUSA RAÍZ
+ *     `despachos` solo denormaliza `chofer_uid`/`chofer_dni`; el nombre vive
+ *     en `usuarios` y nadie lo resolvía en esta pantalla.
+ *
+ *   ALCANCE
+ *     `nombreChofer(despacho, choferesPorUid)` (1): lógica pura, testeada en
+ *     `Programacion.test.js`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Si el usuario no tiene `nombre` (o no se pudo leer `usuarios`), devuelve
+ *     `null` y la pantalla cae al DNI.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test -- Programacion --watchAll=false`.
  * ========================================================================== */
 
 import { DESPACHO, despachoVivo, entregaSinCubrir } from '../../shared/estados';
@@ -139,4 +161,19 @@ export function separarDespachosPorVida(despachos) {
     vivos: lista.filter(despachoVivo),
     muertos: lista.filter(d => !despachoVivo(d)),
   };
+}
+
+/**
+ * v1.2.5 (1) -- El nombre del chofer nominado en un despacho, o `null` si no
+ * hay `chofer_uid`, el uid no está en el mapa o el usuario no tiene nombre
+ * (la pantalla muestra el DNI en ese caso).
+ *
+ * @param {Object} despacho
+ * @param {Map<string, Object>} choferesPorUid usuarios con rol chofer, por id
+ * @returns {string|null}
+ */
+export function nombreChofer(despacho, choferesPorUid) {
+  if (!despacho || !despacho.chofer_uid || !choferesPorUid) return null;
+  const usuario = choferesPorUid.get(despacho.chofer_uid);
+  return (usuario && usuario.nombre) || null;
 }

@@ -54,6 +54,23 @@ Los próximos frentes de v1.1.1 se suman a esta misma entrada.
   inexistente, valores inválidos) NO bloquea. Todos los logs de `app_logs`
   registran ahora `version_app`. Archivos nuevos: `versiones.js`,
   `versionMinima.js`, `screens/ActualizarScreen.js`.
+- **Frente F — cambiar la contraseña desde la app.** Los choferes reciben una
+  contraseña inicial (`<primer nombre>2026`, asignada con
+  `portal/scripts/asignar-claves-choferes.js`) y la app no tenía forma de
+  cambiarla. Ahora el encabezado tiene un botón 🔑, entre el selector de tema y
+  "Salir", que abre un modal con "Contraseña actual", "Contraseña nueva" y
+  "Repetí la contraseña nueva". El cambio es **opcional**: nada obliga a hacerlo.
+  Antes de llamar a Firebase se valida que la nueva tenga al menos 6 caracteres
+  (el mínimo de Firebase; el portal pide 8, y acá se usan 6 a propósito porque
+  los choferes la tipean en el teléfono), que coincida con la repetida y que sea
+  distinta de la actual. La lógica está en `cuenta.js` (`cambiarClave`
+  reautentica con la contraseña actual y después llama a `updatePassword`, igual
+  que el portal; evita `auth/requires-recent-login`, porque la sesión de la app
+  dura semanas) y los errores se muestran en texto ("La contraseña actual es
+  incorrecta.", "Sin conexión...", etc.) dentro del modal. En `app_logs` quedan
+  `clave_cambiada` y `clave_cambio_error` (solo con `code`); **nunca se registra
+  una contraseña**. Archivos nuevos: `cuenta.js`,
+  `componentes/ModalCambiarClave.js`. No requiere cambios en reglas de Firestore.
 - **Versión:** `app.json` pasa de 1.1.0 a **1.1.1**.
 
 ### Puesta en marcha de la versión mínima

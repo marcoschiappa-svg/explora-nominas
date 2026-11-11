@@ -74,19 +74,51 @@
  * CÓMO SE VERIFICA
  *   `CI=true npm run build` sin warnings. Ver las pruebas manuales al pie del
  *   prompt de la tarea, sección "Detalle, datos" y "Detalle, acciones".
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 -- BLOQUE "CHOFER" EN CADA DESPACHO NOMINADO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `LineaDespacho` mostraba una línea chica y tenue, "Chofer <DNI> ·
+ *     patentes · viaje RECIBIDO": sin nombre, difícil de leer y con el estado
+ *     del viaje en crudo.
+ *
+ *   CAUSA RAÍZ
+ *     El modal no recibía ningún índice de usuarios, y `despachoDetalle` era
+ *     texto `xs` armado a mano con `viaje.estado` sin etiqueta.
+ *
+ *   ALCANCE
+ *     1. `choferesPorUid` baja desde `Programacion.js` por `BloqueEntrega`
+ *        hasta `LineaDespacho`.
+ *     2. `despachoDetalle` se reemplaza por un bloque "Chofer" entre la fila
+ *        del despacho y los botones: etiqueta "CHOFER" (estilo `label` de la
+ *        grilla de datos), nombre en `md`/negrita (o "DNI <dni>" si no hay
+ *        nombre, `nombreChofer()` de `logica-vista.js`), "DNI <dni>" en `sm`
+ *        debajo, "Tractor · Semi" en `md` monospace, y el estado del viaje
+ *        como `Pastilla` chica con `ETIQUETA_VIAJE`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Si `usuarios` no se pudo leer o el chofer no tiene nombre, se muestra
+ *     el DNI como título, igual de legible que antes pero sin nombre.
+ *
+ *   CÓMO SE VERIFICA
+ *     Manual, en claro y en oscuro: un despacho nominado muestra nombre, DNI,
+ *     patentes y estado del viaje legibles, entre la fila del despacho y los
+ *     botones.
  * ========================================================================== */
 
 import React, { useState, useMemo } from 'react';
 import { textoDomicilio } from '../../buscar-domicilios';
 import { hoyISO } from '../../logica-pedidos';
 import {
-  DESPACHO, ETIQUETA_DESPACHO, ETIQUETA_ENTREGA, ETIQUETA_PEDIDO, COLOR_PEDIDO,
+  DESPACHO, ETIQUETA_DESPACHO, ETIQUETA_ENTREGA, ETIQUETA_PEDIDO, ETIQUETA_VIAJE, COLOR_PEDIDO,
   despachoVivo, entregaSinCubrir, viajeAbierto, viajeVencido,
   puedeAsignar, puedeReasignar, puedeEditar, puedeCancelar,
 } from '../../shared/estados';
 import { evaluarFechaCarga, evaluarFechaEntrega } from '../../logica-calendario';
 import {
   ordenarEntregasPorNumero, estiloEstadoDespacho, separarDespachosPorVida, formatearFechaLarga,
+  nombreChofer,
 } from './logica-vista';
 import SelectorTransportista from './SelectorTransportista';
 import {
@@ -103,7 +135,7 @@ import Modal from '../../ui/Modal';
  * -------------------------------------------------------------------------- */
 
 export default function ModalDetallePedido({
-  x, org, prod, domsPorId, orgsPorId, transportistas, viajePorDespacho,
+  x, org, prod, domsPorId, orgsPorId, transportistas, viajePorDespacho, choferesPorUid,
   calendarioDias, calendarioReglas,
   asignando, setAsignando, editando, setEditando,
   ocupado, onAceptar, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
@@ -190,6 +222,7 @@ export default function ModalDetallePedido({
               orgsPorId={orgsPorId}
               transportistas={transportistas}
               viajePorDespacho={viajePorDespacho}
+              choferesPorUid={choferesPorUid}
               calendarioDias={calendarioDias}
               calendarioReglas={calendarioReglas}
               asignando={asignando}
@@ -218,6 +251,7 @@ export default function ModalDetallePedido({
                 orgsPorId={orgsPorId}
                 transportistas={transportistas}
                 viajePorDespacho={viajePorDespacho}
+                choferesPorUid={choferesPorUid}
                 calendarioDias={calendarioDias}
                 calendarioReglas={calendarioReglas}
                 asignando={asignando}
@@ -260,7 +294,7 @@ function Dato({ label, valor, ancho = false }) {
 
 function BloqueEntrega({
   x, item, pedido, producto, esEntregaAlCliente, domsPorId, orgsPorId, transportistas, viajePorDespacho,
-  calendarioDias, calendarioReglas,
+  choferesPorUid, calendarioDias, calendarioReglas,
   asignando, setAsignando, editando, setEditando,
   ocupado, onAceptar, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
 }) {
@@ -326,6 +360,7 @@ function BloqueEntrega({
           orgsPorId={orgsPorId}
           transportistas={transportistas}
           viaje={viajePorDespacho.get(d.id) || null}
+          choferesPorUid={choferesPorUid}
           asignando={asignando}
           setAsignando={setAsignando}
           editando={editando}
@@ -428,6 +463,7 @@ function BloqueEntrega({
 
 function LineaDespacho({
   despacho: d, producto, tipoPedido, calendarioDias, calendarioReglas, orgsPorId, transportistas, viaje,
+  choferesPorUid,
   asignando, setAsignando, editando, setEditando,
   ocupado, onAsignar, onEditar, onCancelar, onCerrarManual, setError,
 }) {
@@ -449,6 +485,8 @@ function LineaDespacho({
 
   const asignandoEste = asignando && asignando.despachoId === d.id;
   const editandoEste = editando && editando.despachoId === d.id;
+  // v1.2.5 (2): null -> se muestra el DNI como título.
+  const nombre = nombreChofer(d, choferesPorUid);
 
   return (
     <div style={styles.despachoLinea}>
@@ -469,6 +507,25 @@ function LineaDespacho({
           {org ? org.razon_social : 'Sin asignar'}
         </span>
       </div>
+
+      {/* v1.2.5 (2): bloque "Chofer", entre la fila del despacho y los botones. */}
+      {d.chofer_dni && (
+        <div style={styles.choferBloque}>
+          <span style={styles.label}>Chofer</span>
+          <span style={styles.choferNombre}>{nombre || `DNI ${d.chofer_dni}`}</span>
+          {nombre && <span style={styles.choferDni}>DNI {d.chofer_dni}</span>}
+          {d.patente_tractor && (
+            <span style={styles.choferPatentes}>
+              Tractor {d.patente_tractor}{d.patente_semi ? ` · Semi ${d.patente_semi}` : ''}
+            </span>
+          )}
+          {viaje && (
+            <span style={styles.choferViaje}>
+              <Pastilla chico>{ETIQUETA_VIAJE[viaje.estado] || viaje.estado}</Pastilla>
+            </span>
+          )}
+        </div>
+      )}
 
       {despachoVivo(d) && !asignandoEste && !editandoEste && (
         <div style={styles.despachoAcciones}>
@@ -497,15 +554,6 @@ function LineaDespacho({
               Cerrar viaje a mano
             </Boton>
           )}
-        </div>
-      )}
-
-      {d.chofer_dni && (
-        <div style={styles.despachoDetalle}>
-          Chofer {d.chofer_dni}
-          {d.patente_tractor && <> · {d.patente_tractor}</>}
-          {d.patente_semi && <> + {d.patente_semi}</>}
-          {viaje && <> · viaje {viaje.estado}</>}
         </div>
       )}
 
@@ -630,7 +678,16 @@ function crearEstilos(colores, oscuro) {
     // Transportista: rojo marca, extra bold -- tabla del diseño.
     despachoTransportista: { fontSize: tipografia.tamano.sm, color: paleta.transportista, fontWeight: tipografia.peso.extra, marginLeft: 'auto' },
     despachoAcciones: { display: 'flex', gap: 6, marginTop: espacio.xs, flexWrap: 'wrap' },
-    despachoDetalle: { fontSize: tipografia.tamano.xs, color: colores.textoSecundario, marginTop: 4 },
+    // v1.2.5 (2): bloque "Chofer" -- reemplaza a `despachoDetalle`.
+    choferBloque: {
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+      marginTop: espacio.sm, padding: `${espacio.sm}px ${espacio.md}px`,
+      background: colores.fondoAlterno, borderRadius: radio.md,
+    },
+    choferNombre: { fontSize: tipografia.tamano.md, fontWeight: tipografia.peso.negrita, color: colores.texto },
+    choferDni: { fontSize: tipografia.tamano.sm, color: colores.textoSecundario },
+    choferPatentes: { fontSize: tipografia.tamano.md, color: colores.texto, fontFamily: 'monospace' },
+    choferViaje: { marginTop: espacio.xs },
 
     // Botón "Editar" con contorno azul, "Cerrar viaje a mano" secundario
     // (tabla del diseño: "Editar, que reprograma (contorno azul)").

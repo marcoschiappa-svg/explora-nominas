@@ -92,6 +92,18 @@
  *   como están guardados, sin resolver contra ninguna colección.
  *   `CampoConSugerencias` sugiere valores ya cargados en el registro maestro
  *   para ese campo, sin bloquear un valor nuevo.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 — "NUEVO TARIFARIO" PASA A SER "TARIFARIO"
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA: Home tenía dos tarifarios y esta pantalla se titulaba "Nuevo
+ *   Tarifario".
+ *   CAUSA RAÍZ: convivencia con el legacy desde v1.2.0 (RF-09), ya terminada.
+ *   ALCANCE: (1) solo el título visible. Archivo, carpeta, `id` de módulo y
+ *   comentarios históricos sin cambios.
+ *   LIMITACIONES CONOCIDAS: ninguna.
+ *   CÓMO SE VERIFICA: el tile "Tarifario" de Home abre esta pantalla con el
+ *   título "Tarifario".
  * ========================================================================== */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -515,7 +527,8 @@ export default function NuevoTarifario({ usuario, onVolver }) {
         <div style={S.header}>
           <div style={S.headerL}>
             <div>
-              <span style={S.titulo}>Nuevo Tarifario</span>
+              {/* v1.2.5 (1) */}
+              <span style={S.titulo}>Tarifario</span>
               <div style={S.catacInfo}>{catacVer && catacVer.desc ? catacVer.desc : 'CATAC de referencia'}</div>
             </div>
           </div>

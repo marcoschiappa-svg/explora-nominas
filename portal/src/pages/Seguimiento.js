@@ -90,9 +90,75 @@
  *     viaje vivo muestra "Cerrar viaje a mano"; como transportista (viendo
  *     los suyos), no. Cerrarlo saca el viaje de "En vivo" y lo muestra en
  *     "Historial".
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 -- LEAFLET + OPENSTREETMAP, ALTO FIJO, CENTRADO EN ARGENTINA
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     (a) El mapa salía con la marca de agua "For development purposes only"
+ *     de Google. (b) La página entera scrolleaba: el alto del mapa dependía
+ *     del largo de la lista, y scrollear la lista movía el mapa. (c) Al abrir,
+ *     el mapa no mostraba Argentina completa (centro en la planta, zoom 4).
+ *
+ *   CAUSA RAÍZ
+ *     (a) La marca de agua la pone Google cuando la clave (`MAPS_KEY`) no
+ *     tiene facturación habilitada: no era un problema de código.
+ *     (b) La cadena de alto se cortaba en `App.js` (`Pagina`): ver su
+ *     encabezado v1.2.5. Lo de acá (`wrap`/`layout` con `flex: 1, minHeight:
+ *     0`) era correcto, pero quedó sin efecto cuando `Pagina` pasó a sticky
+ *     footer con un wrapper que no es flex.
+ *     (c) `PLANTA_EXPLORA` + `ZOOM_ARGENTINA` fijos, sin ajustarse al tamaño
+ *     real del contenedor.
+ *
+ *   ALCANCE
+ *     1. Google Maps -> Leaflet 1.9.4 (manejo imperativo con refs, sin
+ *        react-leaflet) con teselas de OpenStreetMap y la atribución que
+ *        exige su licencia. Sale `MAPS_KEY` y la inyección del script.
+ *     2. Equivalencias: `circleMarker` (mismo relleno/borde) para los viajes
+ *        vivos, `marker` + `divIcon` para "A"/"B", `bindPopup`/`openPopup`
+ *        por `InfoWindow`, `polyline`, `remove()`/`addTo()`, `setView`.
+ *        Mismos colores y semántica (`COLOR_GPS`, `colorEstado`, `marca`).
+ *     3. El mapa se crea UNA vez en un `useEffect` y se destruye en el
+ *        cleanup (`map.remove()`): el doble montaje de StrictMode tiraba
+ *        "Map container is already initialized". El cleanup también vacía
+ *        las refs de marcadores/traza para que el segundo montaje los recree.
+ *     4. `ResizeObserver` sobre el contenedor -> `map.invalidateSize()`: sin
+ *        esto Leaflet deja teselas grises cuando el contenedor cambia de
+ *        tamaño después de crearse.
+ *     5. Modo oscuro: clase `mapa-oscuro` en `mapaWrap` (`Seguimiento.css`
+ *        invierte solo las teselas). Va en el contenedor y no en el div del
+ *        mapa porque Leaflet le agrega clases propias a ese div y React las
+ *        pisaría al re-renderizar.
+ *     6. Layout: columna izquierda `minHeight: 0` + `overflowY: 'auto'`;
+ *        columna del mapa `flex: 1`, `minHeight: 0`, `position: relative`, con
+ *        el mapa ocupándola entera (`zIndex: 0` lo aísla, para que el aviso
+ *        "Sin posición GPS" quede encima de los panes de Leaflet).
+ *     7. `LIMITES_ARGENTINA` (SO, NE): `fitBounds` al crear el mapa, después
+ *        del primer `invalidateSize` y en `volverAVivo()`. Salen
+ *        `PLANTA_EXPLORA` y `ZOOM_ARGENTINA`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Sin selector de tipo de mapa (satélite) ni pantalla completa:
+ *       `mapTypeControl`/`fullscreenControl` no tienen equivalente directo en
+ *       Leaflet sin plugins.
+ *     - La traza ya no es geodésica (`L.polyline` une puntos en línea recta
+ *       en Mercator); con puntos GPS cercanos entre sí no se nota.
+ *     - Las teselas de `tile.openstreetmap.org` tienen política de uso
+ *       justo: sirven para el volumen de este portal, no para tráfico masivo.
+ *     - El modo oscuro es un filtro sobre las teselas claras, no un estilo
+ *       oscuro diseñado.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Manual, en claro y en oscuro: sin
+ *     marca de agua; al abrir se ve Argentina completa; la lista scrollea sin
+ *     mover el mapa; no hay scroll de página; redimensionar la ventana no deja
+ *     teselas grises; seleccionar un viaje acerca y abre su popup; el
+ *     historial dibuja la traza con A/B; "En vivo" re-centra en Argentina.
  * ========================================================================== */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, where, doc, getDocs, orderBy } from 'firebase/firestore';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso, tieneAlgunRol } from '../sesion';
@@ -106,11 +172,36 @@ import Pastilla from '../ui/Pastilla';
 import Boton from '../ui/Boton';
 import Vacio from '../ui/Vacio';
 import ModalCierreManual from './ModalCierreManual';
+import './Seguimiento.css';
 
-const MAPS_KEY = 'AIzaSyClpZ7qlzK2bqO2DcuY2Ta_jcNSAGffbrw';
+// v1.2.5 (7): [SO, NE].
+const LIMITES_ARGENTINA = [[-55.2, -73.6], [-21.7, -53.5]];
 
-const PLANTA_EXPLORA = { lat: -32.7, lng: -60.5 };
-const ZOOM_ARGENTINA = 4;
+// v1.2.5 (1): la atribución es obligatoria por la licencia de OSM.
+const TESELAS_OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ATRIBUCION_OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+/** v1.2.5 (2): el contenido del popup de un viaje vivo (antes, el InfoWindow). */
+function popupViaje(c) {
+  return `
+    <div style="font-family:sans-serif;padding:2px 0;min-width:200px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${c.chofer}</div>
+      <div style="font-size:12px;color:#6B7280">${c.producto_nombre || ''} · ${c.cliente_razon_social || ''}</div>
+      <div style="font-size:12px;color:#6B7280;margin-top:2px">${c.patente_tractor || ''}${c.patente_semi ? ' / ' + c.patente_semi : ''}</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${ETIQUETA_VIAJE[c.estado] || c.estado}${c.demorado ? ' · demorado' : ''}</div>
+    </div>
+  `;
+}
+
+/** v1.2.5 (2): marcador "A"/"B" del historial -- círculo con la letra. */
+function iconoLetra(letra, fondo) {
+  return L.divIcon({
+    className: 'seguimiento-marcador-letra',
+    html: `<span style="background:${fondo}">${letra}</span>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+}
 
 const RANGOS_FECHA = [
   { id: 'todo', label: 'Todo' },
@@ -222,6 +313,7 @@ function FiltroMulti({ etiqueta, opciones, seleccion, onChange, vacio = 'Sin opc
 
 function Seguimiento({ usuario, onVolver }) {
   const styles = useEstilos();
+  const { oscuro } = useTema();
   const [tab, setTab] = useState('vivo');
   const [viajesVivos, setViajesVivos] = useState([]);
   const [viajesHistorial, setViajesHistorial] = useState([]);
@@ -256,7 +348,6 @@ function Seguimiento({ usuario, onVolver }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
-  const infoWindowRef = useRef(null);
   const polylineRef = useRef(null);
   const marcadoresHistRef = useRef([]);
 
@@ -319,26 +410,37 @@ function Seguimiento({ usuario, onVolver }) {
   const vivosEnriquecidos = useMemo(() => viajesVivos.map(enriquecer), [viajesVivos, enriquecer]);
   const historialEnriquecido = useMemo(() => viajesHistorial.map(enriquecer), [viajesHistorial, enriquecer]);
 
+  // v1.2.5 (3): el mapa se crea una sola vez y se destruye en el cleanup.
+  // Tiene que declararse ANTES del efecto de marcadores, para que en el
+  // segundo montaje de StrictMode el mapa ya exista cuando se recrean.
   useEffect(() => {
-    if (window.google) { initMap(); return; }
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}`;
-    script.async = true;
-    script.onload = initMap;
-    document.head.appendChild(script);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const el = mapRef.current;
+    if (!el) return undefined;
 
-  function initMap() {
-    if (!mapRef.current || mapInstanceRef.current) return;
-    mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-      center: PLANTA_EXPLORA,
-      zoom: ZOOM_ARGENTINA,
-      mapTypeControl: true,
-      streetViewControl: false,
-      fullscreenControl: true,
-    });
-    infoWindowRef.current = new window.google.maps.InfoWindow();
-  }
+    const map = L.map(el, { zoomControl: true });
+    L.tileLayer(TESELAS_OSM, { maxZoom: 19, attribution: ATRIBUCION_OSM }).addTo(map);
+    map.fitBounds(LIMITES_ARGENTINA); // v1.2.5 (7)
+    mapInstanceRef.current = map;
+
+    // v1.2.5 (4): sin esto quedan teselas grises al cambiar de tamaño.
+    let primerAjuste = true;
+    const observador = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+          map.invalidateSize();
+          if (primerAjuste) { primerAjuste = false; map.fitBounds(LIMITES_ARGENTINA); } // v1.2.5 (7)
+        })
+      : null;
+    if (observador) observador.observe(el);
+
+    return () => {
+      if (observador) observador.disconnect();
+      map.remove();
+      mapInstanceRef.current = null;
+      markersRef.current = {};
+      polylineRef.current = null;
+      marcadoresHistRef.current = [];
+    };
+  }, []);
 
   const opcionesTransportistas = useMemo(() => {
     const mapa = new Map();
@@ -410,49 +512,38 @@ function Seguimiento({ usuario, onVolver }) {
     setFiltroRango('todo');
   }
 
+  // v1.2.5 (2): marcadores de viajes vivos como `circleMarker`, mismo
+  // relleno (COLOR_GPS / demorado) y borde blanco que el círculo de Google.
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
 
     const idsActuales = new Set(choferesFiltrados.map(c => c.id));
     Object.keys(markersRef.current).forEach(uid => {
       if (!idsActuales.has(uid)) {
-        markersRef.current[uid].setMap(null);
+        markersRef.current[uid].remove();
         delete markersRef.current[uid];
       }
     });
 
     choferesFiltrados.forEach(c => {
       if (!c.ultima_lat || !c.ultima_lng) return;
-      const pos = { lat: c.ultima_lat, lng: c.ultima_lng };
+      const pos = [c.ultima_lat, c.ultima_lng];
       const salud = saludGPS(c);
       const color = c.demorado ? colorEstado.advertenciaBorde : (COLOR_GPS[salud] || COLOR_GPS.sin_datos);
-
-      const icon = {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 9,
-        fillColor: color,
-        fillOpacity: 1,
-        strokeColor: '#fff',
-        strokeWeight: 2,
-      };
+      const estilo = { radius: 9, fillColor: color, fillOpacity: 1, color: '#fff', weight: 2 };
 
       if (markersRef.current[c.id]) {
-        markersRef.current[c.id].setPosition(pos);
-        markersRef.current[c.id].setIcon(icon);
+        markersRef.current[c.id].setLatLng(pos);
+        markersRef.current[c.id].setStyle(estilo);
+        markersRef.current[c.id].setPopupContent(popupViaje(c));
       } else {
-        const marker = new window.google.maps.Marker({ position: pos, map: mapInstanceRef.current, title: c.chofer, icon });
-        marker.addListener('click', () => {
+        const marker = L.circleMarker(pos, estilo).addTo(map);
+        marker.bindTooltip(c.chofer);
+        marker.bindPopup(popupViaje(c));
+        marker.on('click', () => {
           setSeleccionado(c.id);
-          mapInstanceRef.current.panTo(pos);
-          infoWindowRef.current.setContent(`
-            <div style="font-family:sans-serif;padding:6px 8px;min-width:200px">
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">🚛 ${c.chofer}</div>
-              <div style="font-size:12px;color:#6B7280">${c.producto_nombre || ''} · ${c.cliente_razon_social || ''}</div>
-              <div style="font-size:12px;color:#6B7280;margin-top:2px">${c.patente_tractor || ''}${c.patente_semi ? ' / ' + c.patente_semi : ''}</div>
-              <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${ETIQUETA_VIAJE[c.estado] || c.estado}${c.demorado ? ' · demorado' : ''}</div>
-            </div>
-          `);
-          infoWindowRef.current.open(mapInstanceRef.current, marker);
+          map.panTo(marker.getLatLng());
         });
         markersRef.current[c.id] = marker;
       }
@@ -460,40 +551,36 @@ function Seguimiento({ usuario, onVolver }) {
   }, [choferesFiltrados]);
 
   function limpiarPolyline() {
-    if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null; }
+    if (polylineRef.current) { polylineRef.current.remove(); polylineRef.current = null; }
   }
 
   function limpiarMarcadoresHist() {
-    marcadoresHistRef.current.forEach(m => m.setMap(null));
+    marcadoresHistRef.current.forEach(m => m.remove());
     marcadoresHistRef.current = [];
   }
 
   function dibujarTraza(track) {
     limpiarPolyline();
-    if (!track || track.length < 2 || !mapInstanceRef.current || !window.google) return;
-    const path = track.map(p => ({ lat: p.lat, lng: p.lng }));
-    polylineRef.current = new window.google.maps.Polyline({
-      path, geodesic: true,
-      strokeColor: marca, strokeOpacity: 0.75, strokeWeight: 3,
-      map: mapInstanceRef.current,
-    });
-    const bounds = new window.google.maps.LatLngBounds();
-    path.forEach(p => bounds.extend(p));
-    mapInstanceRef.current.fitBounds(bounds);
+    const map = mapInstanceRef.current;
+    if (!track || track.length < 2 || !map) return;
+    const path = track.map(p => [p.lat, p.lng]);
+    // v1.2.5 (2): sin `geodesic` -- ver LIMITACIONES CONOCIDAS.
+    polylineRef.current = L.polyline(path, { color: marca, opacity: 0.75, weight: 3 }).addTo(map);
+    map.fitBounds(polylineRef.current.getBounds());
   }
 
   function centrarEnChofer(c) {
-    if (!c.ultima_lat || !c.ultima_lng || !mapInstanceRef.current) return;
-    mapInstanceRef.current.panTo({ lat: c.ultima_lat, lng: c.ultima_lng });
-    mapInstanceRef.current.setZoom(13);
+    const map = mapInstanceRef.current;
+    if (!c.ultima_lat || !c.ultima_lng || !map) return;
+    map.setView([c.ultima_lat, c.ultima_lng], 13);
     setSeleccionado(c.id);
-    if (markersRef.current[c.id]) window.google.maps.event.trigger(markersRef.current[c.id], 'click');
+    if (markersRef.current[c.id]) markersRef.current[c.id].openPopup();
   }
 
   async function seleccionarHistorial(h) {
     setSeleccionadoHist(h.id);
 
-    Object.keys(markersRef.current).forEach(uid => markersRef.current[uid].setMap(null));
+    Object.keys(markersRef.current).forEach(uid => markersRef.current[uid].remove());
     limpiarMarcadoresHist();
 
     const snap = await getDocs(query(collection(db, 'viajes', h.id, 'gps_puntos'), orderBy('ts')));
@@ -501,23 +588,17 @@ function Seguimiento({ usuario, onVolver }) {
 
     dibujarTraza(track);
 
-    if (window.google && mapInstanceRef.current && track.length >= 2) {
+    const map = mapInstanceRef.current;
+    if (map && track.length >= 2) {
       const inicio = track[0];
       const fin = track[track.length - 1];
-      marcadoresHistRef.current.push(new window.google.maps.Marker({
-        position: { lat: inicio.lat, lng: inicio.lng },
-        map: mapInstanceRef.current,
-        title: 'Inicio',
-        label: { text: 'A', color: '#fff', fontWeight: 'bold' },
-        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: colorEstado.exitoBorde, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
-      }));
-      marcadoresHistRef.current.push(new window.google.maps.Marker({
-        position: { lat: fin.lat, lng: fin.lng },
-        map: mapInstanceRef.current,
-        title: 'Fin',
-        label: { text: 'B', color: '#fff', fontWeight: 'bold' },
-        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: marca, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
-      }));
+      // v1.2.5 (2): "A"/"B" como `marker` + `divIcon`, mismos colores.
+      marcadoresHistRef.current.push(
+        L.marker([inicio.lat, inicio.lng], { title: 'Inicio', icon: iconoLetra('A', colorEstado.exitoBorde) }).addTo(map)
+      );
+      marcadoresHistRef.current.push(
+        L.marker([fin.lat, fin.lng], { title: 'Fin', icon: iconoLetra('B', marca) }).addTo(map)
+      );
     }
   }
 
@@ -525,12 +606,13 @@ function Seguimiento({ usuario, onVolver }) {
     limpiarPolyline();
     limpiarMarcadoresHist();
     setSeleccionadoHist(null);
+    const map = mapInstanceRef.current;
+    if (!map) return;
     choferesFiltrados.forEach(c => {
       if (!c.ultima_lat || !c.ultima_lng) return;
-      if (markersRef.current[c.id]) markersRef.current[c.id].setMap(mapInstanceRef.current);
+      if (markersRef.current[c.id]) markersRef.current[c.id].addTo(map);
     });
-    mapInstanceRef.current?.setCenter(PLANTA_EXPLORA);
-    mapInstanceRef.current?.setZoom(ZOOM_ARGENTINA);
+    map.fitBounds(LIMITES_ARGENTINA); // v1.2.5 (7)
   }
 
   function tiempoDesde(ts) {
@@ -770,7 +852,8 @@ function Seguimiento({ usuario, onVolver }) {
           )}
         </div>
 
-        <div style={styles.mapaWrap}>
+        {/* v1.2.5 (5): la clase va acá, no en el div del mapa. */}
+        <div style={styles.mapaWrap} className={oscuro ? 'mapa-oscuro' : undefined}>
           <div ref={mapRef} style={styles.mapa} />
           {tab === 'vivo' && !cargando && choferesFiltrados.filter(c => c.ultima_lat).length === 0 && (
             <div style={styles.sinGps}>
@@ -808,7 +891,8 @@ function crearEstilos(colores, oscuro) {
   return {
     wrap: { flex: 1, minHeight: 0, fontFamily: tipografia.familia, background: colores.fondo, color: colores.texto, display: 'flex', flexDirection: 'column' },
     layout: { display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' },
-    panel: { width: 320, flexShrink: 0, overflowY: 'auto', padding: 12, borderRight: `0.5px solid ${colores.borde}`, background: colores.superficie },
+    // v1.2.5 (6): `minHeight: 0` para que scrollee adentro y no estire la página.
+    panel: { width: 320, flexShrink: 0, minHeight: 0, overflowY: 'auto', padding: 12, borderRight: `0.5px solid ${colores.borde}`, background: colores.superficie },
 
     topbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: colores.superficie, borderBottom: `0.5px solid ${colores.borde}`, position: 'sticky', top: 0, zIndex: 100 },
     topbarTit: { fontSize: 15, fontWeight: tipografia.peso.negrita, color: colores.texto },
@@ -847,8 +931,10 @@ function crearEstilos(colores, oscuro) {
     cv: { fontSize: 12, color: colores.texto, fontWeight: tipografia.peso.medio },
     puntosGps: { fontSize: 10, color: pal.azul, marginTop: 6 },
 
-    mapaWrap: { flex: 1, position: 'relative' },
-    mapa: { width: '100%', height: '100%' },
+    // v1.2.5 (6): columna del mapa con alto acotado; el mapa la ocupa entera
+    // y `zIndex: 0` aísla los panes de Leaflet debajo del aviso `sinGps`.
+    mapaWrap: { flex: 1, minHeight: 0, position: 'relative' },
+    mapa: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 0 },
     sinGps: {
       position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center',
       fontSize: 14, color: colores.texto, lineHeight: 1.7, background: colores.superficieModal, padding: '16px 20px', borderRadius: radio.lg,

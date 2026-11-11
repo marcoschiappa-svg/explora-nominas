@@ -16,6 +16,77 @@ formato `Portal-vX.Y.Z` (por ejemplo `Portal-v1.0.1`).
 Las versiones más nuevas van arriba.
 
 ---
+## Sin publicar
+
+**Herramienta nueva: `scripts/asignar-claves-choferes.js`.** Asigna a todos los
+choferes activos la contraseña `<primer nombre>2026` (minúsculas, sin acentos,
+solo a-z; "Iván Pérez" -> `ivan2026`), para darles acceso a TrackEx v1.1.1. Es
+una decisión del responsable **mientras el sistema está en modo de prueba**; el
+chofer la puede cambiar desde la app (TrackEx v1.1.1, Frente F). Simula por
+defecto (la tabla muestra la contraseña de cada uno y marca con ⚠ los nombres de
+una sola palabra o todo en mayúsculas, donde el orden nombre/apellido es
+dudoso); con `--ejecutar` cambia la contraseña en Firebase Auth. Incluye a los
+que ya iniciaron sesión (los informa aparte: cambiarles la contraseña puede
+cerrarles la sesión). Excluye las cuentas sin Auth, deshabilitadas, con un email
+distinto de `<dni>@explora-portal.com`, o con un nombre no utilizable. `--dni`
+limita a choferes puntuales; `--salida` (opcional, fuera del repo, archivo
+inexistente) guarda un CSV. No escribe en Firestore. **Limitación:** la
+contraseña es predecible (alcanza con el nombre y el DNI para entrar) y hay que
+revisarla al salir del modo de prueba. No cambia el portal, las reglas ni el
+Apps Script.
+
+---
+## v1.2.5 — 11/11/2026 — Programación, Tarifario y Seguimiento
+
+**A — Chofer nominado visible en el modal de Programación.** Cada despacho con
+chofer muestra un bloque "Chofer" entre la fila del despacho y los botones:
+nombre (resuelto contra `usuarios` por `chofer_uid`; si no hay, "DNI <dni>"),
+DNI, "Tractor <patente> · Semi <patente>" y el estado del viaje como pastilla
+(`ETIQUETA_VIAJE`), en vez de la línea chica "Chofer <DNI> · … · viaje
+RECIBIDO". Lógica pura nueva `nombreChofer()` en
+`programacion/logica-vista.js`, con tests. Usa la suscripción a `usuarios` que
+la pantalla ya tenía (no suma consultas).
+
+**B — Lista de Programación alineada.** Cada fila pasa a un grid de columnas
+fijas (estado | cliente | producto | cantidad | chips | OV/OC); la celda de
+chips existe siempre, la cantidad va a la derecha con dígitos tabulares y
+cliente/producto largos se cortan con "…" (texto completo al pasar el mouse).
+
+**C — Un solo Tarifario.** Sale el tile del Tarifario legacy; el que antes se
+llamaba "Nuevo Tarifario" pasa a llamarse "Tarifario" (mismo `id`
+`nuevo_tarifario`, mismos roles: admin, coordinador, comercial). `Tarifario.js`
+queda en el repo sin referencias; sus datos no se tocan.
+
+**D — Mapa con Leaflet + OpenStreetMap.** Seguimiento deja Google Maps. La
+marca de agua "For development purposes only" la ponía Google porque la clave
+no tenía facturación habilitada, no por el código; pasar a Leaflet 1.9.4 con
+teselas de OpenStreetMap la elimina sin depender de una clave paga. Mismos
+colores y comportamiento de marcadores, popups, traza y marcadores A/B. Modo
+oscuro con un filtro sobre las teselas (los marcadores conservan sus colores).
+Se pierden el selector de tipo de mapa y la pantalla completa (sin equivalente
+directo en Leaflet).
+
+**E — Mapa de tamaño fijo y centrado en Argentina.** Seguimiento ocupa el alto
+de la ventana debajo de la barra superior, sin scroll de página; la lista
+scrollea sin mover el mapa. La cadena de alto se había vuelto a cortar en
+`App.js` cuando la página pasó a "sticky footer"; ahora solo Seguimiento pide
+alto fijo y el resto de las pantallas scrollea igual que antes. Al abrir y al
+volver a "En vivo" el mapa encuadra Argentina completa.
+
+Sin cambios en el modelo de datos ni en las reglas de Firestore.
+
+**Pruebas manuales (en claro y en oscuro):**
+- Programación: un despacho nominado muestra nombre, DNI, patentes y estado
+  del viaje legibles. La lista queda alineada en columnas con y sin chips.
+- Home: un solo tile "Tarifario" que abre el tarifario vigente, con el mismo
+  comportamiento para admin, coordinador y comercial.
+- Seguimiento: sin marca de agua; al abrir se ve Argentina completa; la lista
+  scrollea sin mover el mapa; no hay scroll de página; redimensionar la
+  ventana no deja teselas grises; seleccionar un viaje acerca y abre su popup;
+  el historial dibuja la traza con A/B; "volver a vivo" re-centra en
+  Argentina.
+
+---
 ## v1.2.4 — 04/11/2026 — cambios que acompañan a TrackEx v1.1.1
 
 **Textos de los avisos al chofer (TrackEx v1.1.1, Frente C).** Solo cambian

@@ -14,11 +14,21 @@
  * `programacion/SelectorTransportista.js` -- sigue importándose de
  * `./Programacion` (re-exportada ahí, ver su encabezado) para no romper
  * estos tests existentes.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.5 -- NOMBRE DEL CHOFER NOMINADO
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA: el modal mostraba solo el DNI del chofer.
+ *   CAUSA RAÍZ: nadie resolvía `chofer_uid` contra `usuarios`.
+ *   ALCANCE: tests de `nombreChofer` (1): nombre encontrado, uid sin usuario,
+ *   despacho sin `chofer_uid`.
+ *   LIMITACIONES CONOCIDAS: ninguna.
+ *   CÓMO SE VERIFICA: `CI=true npm test -- Programacion --watchAll=false`.
  * ========================================================================== */
 
 import { agruparTransportistasPorProducto, migrarSoloVencidosLegacy } from './Programacion';
 import {
-  contarEntregasSinCubrir, ordenarEntregasPorNumero, estiloEstadoDespacho,
+  contarEntregasSinCubrir, ordenarEntregasPorNumero, estiloEstadoDespacho, nombreChofer,
 } from './programacion/logica-vista';
 import { DESPACHO } from '../shared/estados';
 
@@ -164,5 +174,22 @@ describe('estiloEstadoDespacho', () => {
   test('RECHAZADO / CANCELADO -- sinCubrir, por completitud', () => {
     expect(estiloEstadoDespacho(DESPACHO.RECHAZADO)).toBe('sinCubrir');
     expect(estiloEstadoDespacho(DESPACHO.CANCELADO)).toBe('sinCubrir');
+  });
+});
+
+// v1.2.5 (1)
+describe('nombreChofer', () => {
+  const choferes = new Map([['u1', { id: 'u1', nombre: 'Iván Pérez', roles: ['chofer'] }]]);
+
+  test('devuelve el nombre del usuario del chofer_uid', () => {
+    expect(nombreChofer({ chofer_uid: 'u1', chofer_dni: '30111222' }, choferes)).toBe('Iván Pérez');
+  });
+
+  test('uid sin usuario -> null', () => {
+    expect(nombreChofer({ chofer_uid: 'u9', chofer_dni: '30111222' }, choferes)).toBeNull();
+  });
+
+  test('despacho sin chofer_uid -> null', () => {
+    expect(nombreChofer({ chofer_dni: '30111222' }, choferes)).toBeNull();
   });
 });
