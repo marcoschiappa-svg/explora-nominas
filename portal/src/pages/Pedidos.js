@@ -386,6 +386,69 @@
  *     modal, cerrarlo vuelve al detalle, y lo mismo con "Ver historial".
  * ========================================================================== */
 
+/* =============================================================================
+ * v1.2.5 — Banda horaria editable
+ * =============================================================================
+ *   SÍNTOMA
+ *     La banda horaria solo se elegía en el alta del pedido; el detalle la
+ *     mostraba pero no dejaba cambiarla.
+ *
+ *   CAUSA RAÍZ
+ *     No había acción ni función de lógica para editarla. La lógica nueva vive
+ *     en `editarBandaHorariaPedido()` (`logica-pedidos.js`, ver su encabezado
+ *     v1.2.5 — Banda horaria editable).
+ *
+ *   ALCANCE
+ *     1. En `ModalDetallePedido`, con `esInternoUsuario && pedidoActivo` (la
+ *        condición de "Editar domicilio" sin `!esEntregaAlCliente`), el valor
+ *        de "Banda horaria" se resalta en rojo (`paleta.botonSuspender`, que
+ *        tiene contraste en los dos temas) y es clickeable; a su derecha va un
+ *        botón "Editar" con el mismo `Boton chico secundario` y el mismo azul
+ *        (`paleta.botonFecha`) que "Editar fecha", separado con el mismo gap
+ *        (`styles.entregaAcciones`). El botón lleva margen vertical negativo
+ *        para no agrandar la fila de la grilla. Sin permiso, es un `Dato`
+ *        común, igual que el resto.
+ *     2. EDICIÓN EN EL LUGAR (reemplaza al modal chico de la primera versión).
+ *        Al tocar el valor o "Editar", la celda ocupa las dos columnas de la
+ *        grilla (`gridColumn: '1 / -1'`, el mismo recurso que `Dato
+ *        completo`) y muestra en una fila: el select (`ui/Campo`, mismo
+ *        estilo que el del alta, con padding y fuente de botón chico para
+ *        igualar el alto, foco automático), "Guardar" (color de marca) y
+ *        "Cancelar" (gris neutro); debajo, la ayuda en `styles.ayuda`.
+ *        Escape cancela; Enter en el select guarda si cambió.
+ *        POR QUÉ: el modal chico reemplazaba el detalle entero para elegir
+ *        entre cuatro opciones; sacaba al usuario del contexto del pedido y no
+ *        se parecía a ninguna otra acción del modal. "Editar fecha" y "Editar
+ *        dirección" ya editan en el lugar, así que la banda pasa a comportarse
+ *        igual. La regla "nunca dos `<Modal>` a la vez" sigue vigente; la
+ *        banda simplemente ya no abre ninguno.
+ *     3. "Guardar" deshabilitado mientras la banda no cambie, y "Guardando…"
+ *        sin aceptar clicks mientras guarda. Éxito y error con `window.alert`
+ *        (mismo mecanismo que "Editar fecha"), errores con `traducirError`; el
+ *        éxito dice a cuántos transportistas se avisó.
+ *     4. La banda nueva aparece en el detalle sin recargar: `pedido` llega de
+ *        la suscripción `onSnapshot` a `pedidos` del componente padre.
+ *     5. El estado de edición vive en `ModalDetallePedido`: si se cierra el
+ *        modal (o se pasa a historial / ciclo de vida) a mitad de la edición,
+ *        el componente se desmonta y la edición se descarta.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Los avisos de organización no generan push ni mail (PushAvisos.gs
+ *       descarta los que no tienen `destinatario_chofer_dni`): el transportista
+ *       se entera recién cuando entra a Mis despachos. Es la misma limitación
+ *       que ya tiene `editarDomicilioPedido()`.
+ *     - Los mails ya enviados (pedido nuevo, despacho asignado) quedan con la
+ *       banda anterior.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm run build` sin warnings. Manual: como comercial, abrir un
+ *     pedido vivo, tocar la banda (en rojo) o "Editar": la celda pasa a ancho
+ *     completo con el select enfocado, el resto del modal sigue visible.
+ *     Guardar: el detalle muestra la banda nueva y el historial el cambio.
+ *     Escape cancela sin cerrar el detalle. En un pedido suspendido o
+ *     cumplido la banda se ve como cualquier otro dato, sin botón.
+ * ========================================================================== */
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -413,6 +476,7 @@ import {
   TIPOS, RECIPIENTES, BANDAS_HORARIAS,
   validarPedido, crearPedido, suspenderPedido,
   editarDomicilioPedido, editarFechaEntrega, editarDestinoEntrega,
+  editarBandaHorariaPedido,
   agregarEntregas, suspenderEntregas, reactivarEntrega,
   armarPayloadNuevoPedido,
   hoyISO,
@@ -1455,6 +1519,12 @@ function ModalDetallePedido({
   const [nuevoDomicilioElegido, setNuevoDomicilioElegido] = useState(p.destino_domicilio_id || '');
   const [guardandoDomicilio, setGuardandoDomicilio] = useState(false);
 
+  // (v1.2.5 — Banda horaria editable, ALCANCE 2 y 5) Estado de la edición en
+  // el lugar; se descarta solo al desmontarse el detalle.
+  const [editandoBanda, setEditandoBanda] = useState(false);
+  const [nuevaBanda, setNuevaBanda] = useState('');
+  const [guardandoBanda, setGuardandoBanda] = useState(false);
+
   const [editandoFechaId, setEditandoFechaId] = useState(null);
   const [nuevaFecha, setNuevaFecha] = useState('');
   const [guardandoFechaId, setGuardandoFechaId] = useState(null);
@@ -1616,6 +1686,41 @@ function ModalDetallePedido({
     }
   }
 
+  // (v1.2.5 — Banda horaria editable, ALCANCE 2) Pasa la celda a edición con
+  // la banda actual preseleccionada.
+  function abrirEdicionBanda() {
+    setNuevaBanda(p.banda_horaria || '');
+    setEditandoBanda(true);
+  }
+
+  // (v1.2.5 — Banda horaria editable, ALCANCE 3) Toda la lógica está en
+  // `editarBandaHorariaPedido()`; acá solo el mensaje.
+  async function confirmarNuevaBanda() {
+    if (guardandoBanda || nuevaBanda === (p.banda_horaria || '')) return;
+    setGuardandoBanda(true);
+    try {
+      const { cambio, avisados } = await editarBandaHorariaPedido({
+        pedidoId: p.id, nuevaBanda, usuario,
+      });
+      setEditandoBanda(false);
+      if (!cambio) {
+        window.alert('No hubo cambios.');
+      } else if (avisados === 0) {
+        window.alert('Banda horaria actualizada. No había transportistas con despachos activos para avisar.');
+      } else {
+        window.alert(
+          `Banda horaria actualizada. Se avisó a ${avisados} `
+          + (avisados === 1 ? 'transportista.' : 'transportistas.')
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      window.alert(traducirError(err));
+    } finally {
+      setGuardandoBanda(false);
+    }
+  }
+
   function abrirEdicionFecha(e) {
     setEditandoFechaId(e.id);
     setNuevaFecha(e.fecha_solicitada || '');
@@ -1752,6 +1857,19 @@ function ModalDetallePedido({
     }
   }
 
+  // (v1.2.5 — Banda horaria editable, ALCANCE 1) Quién puede editar la banda.
+  const puedeEditarBanda = esInternoUsuario && pedidoActivo;
+
+  // (v1.2.5 — Banda horaria editable, ALCANCE 2) Escape cancela. Se frena la
+  // propagación para que el Escape del `<Modal>` no cierre el detalle entero.
+  function teclaEnEdicionBanda(ev) {
+    if (ev.key === 'Escape') {
+      ev.stopPropagation();
+      ev.nativeEvent.stopImmediatePropagation();
+      if (!guardandoBanda) setEditandoBanda(false);
+    }
+  }
+
   return (
     <Modal
       titulo={
@@ -1780,7 +1898,70 @@ function ModalDetallePedido({
             <Dato label="Producto" valor={prod ? prod.nombre : ''} />
             <Dato label="Tipo" valor={p.tipo} />
             <Dato label="Recipiente" valor={p.recipiente} />
-            <Dato label="Banda horaria" valor={p.banda_horaria} />
+            {/* (v1.2.5 — Banda horaria editable, ALCANCE 2) Edición en el
+                lugar: la celda ocupa las dos columnas, como `Dato completo`. */}
+            {puedeEditarBanda && editandoBanda ? (
+              <div style={{ ...styles.field, gridColumn: '1 / -1' }} onKeyDown={teclaEnEdicionBanda}>
+                <span style={styles.labelGrilla}>Banda horaria</span>
+                <div style={{ ...styles.entregaAcciones, alignItems: 'flex-start' }}>
+                  <Campo
+                    as="select" value={nuevaBanda} autoFocus disabled={guardandoBanda}
+                    onChange={e => setNuevaBanda(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); confirmarNuevaBanda(); }
+                    }}
+                    style={{
+                      width: 'auto', padding: '4px 10px',
+                      fontSize: tipografia.tamano.sm, borderRadius: radio.sm,
+                    }}
+                  >
+                    {BANDAS_HORARIAS.map(b => <option key={b} value={b}>{b}</option>)}
+                  </Campo>
+                  <Boton
+                    chico variante="secundario"
+                    style={{ borderColor: marca, color: marca }}
+                    disabled={guardandoBanda || nuevaBanda === (p.banda_horaria || '')}
+                    onClick={confirmarNuevaBanda}
+                  >
+                    {guardandoBanda ? 'Guardando…' : 'Guardar'}
+                  </Boton>
+                  <Boton
+                    chico variante="secundario" disabled={guardandoBanda}
+                    onClick={() => setEditandoBanda(false)}
+                  >
+                    Cancelar
+                  </Boton>
+                </div>
+                <span style={styles.ayuda}>
+                  No cambia la programación existente. Se avisa a los transportistas con despachos activos.
+                </span>
+              </div>
+            ) : puedeEditarBanda ? (
+              /* (v1.2.5 — Banda horaria editable, ALCANCE 1) Valor en rojo y
+                 clickeable + "Editar" con el estilo de "Editar fecha". */
+              <div style={styles.field}>
+                <span style={styles.labelGrilla}>Banda horaria</span>
+                <div style={{ ...styles.entregaAcciones, alignItems: 'center', flexWrap: 'nowrap' }}>
+                  <span
+                    role="button" tabIndex={0} title="Editar banda horaria"
+                    style={{ ...styles.valorCompleto, color: paleta.botonSuspender, cursor: 'pointer' }}
+                    onClick={abrirEdicionBanda}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirEdicionBanda(); } }}
+                  >
+                    {p.banda_horaria || 'Sin dato'}
+                  </span>
+                  <Boton
+                    chico variante="secundario"
+                    style={{ borderColor: paleta.botonFecha, color: paleta.botonFecha, margin: '-3px 0' }}
+                    onClick={abrirEdicionBanda}
+                  >
+                    Editar
+                  </Boton>
+                </div>
+              </div>
+            ) : (
+              <Dato label="Banda horaria" valor={p.banda_horaria} />
+            )}
             {varioPorEntrega ? (
               <Dato label="Destino" valor="Varía por entrega →" completo />
             ) : (

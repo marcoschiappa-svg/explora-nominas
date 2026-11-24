@@ -148,6 +148,52 @@
  *     chofer: se crean dos avisos, cada uno con su `viaje_id` y su fecha.
  * ========================================================================== */
 
+/* =============================================================================
+ * v1.2.5 — Banda horaria editable
+ * =============================================================================
+ *   SÍNTOMA
+ *     La banda horaria de un pedido solo se elegía al crearlo. Si el cliente
+ *     pedía cambiarla, comercial no tenía cómo hacerlo desde el portal.
+ *
+ *   CAUSA RAÍZ
+ *     No existía ninguna función que escribiera `banda_horaria` después de
+ *     `crearPedido()`. COMPORTAMIENTO.md ya la clasifica como "editable sin
+ *     consecuencias": ningún despacho ni viaje guarda copia propia, y el Plan
+ *     de Producción no la escribe.
+ *
+ *   ALCANCE
+ *     1. `validarCambioBandaHoraria({ pedido, nuevaBanda })`: función pura con
+ *        la lista de problemas. Usa SOLO campos guardados en el pedido (el
+ *        documento no tiene `estado`: se deriva). Bloquea si la banda no está
+ *        en `BANDAS_HORARIAS`, si el pedido está suspendido, si tiene cierre
+ *        administrativo o si todas sus entregas están cumplidas (contadores
+ *        `entregas_total`/`entregas_cumplidas` del propio pedido, así no hace
+ *        falta releer `entregas` dentro de la transacción).
+ *     2. `editarBandaHorariaPedido({ pedidoId, nuevaBanda, usuario })`, con la
+ *        estructura de `editarDomicilioPedido()`: contexto afuera, relectura
+ *        del pedido y de sus despachos vivos adentro, `banda_horaria` +
+ *        `actualizado_en` en el pedido, un registro de historial y un aviso
+ *        'banda_horaria_cambiada' por organización transportista con al menos
+ *        un despacho vivo (no ENTREGADO). No avisa a choferes (TrackEx no
+ *        muestra la banda) ni a coordinadores (la ven en el pedido y en el
+ *        historial). No llama al Apps Script ni escribe entregas, despachos ni
+ *        viajes.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Los avisos de organización no generan push ni mail (PushAvisos.gs
+ *       descarta los que no tienen `destinatario_chofer_dni`): el transportista
+ *       se entera recién cuando entra a Mis despachos. Es la misma limitación
+ *       que ya tiene `editarDomicilioPedido()`.
+ *     - Los mails ya enviados (pedido nuevo, despacho asignado) quedan con la
+ *       banda anterior.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test` (`logica-pedidos.test.js`). Manual: cambiar la banda
+ *     de un pedido con dos despachos vivos de la misma empresa y uno de otra:
+ *     se crean dos avisos, un registro de historial y ningún cambio en
+ *     despachos ni viajes. Guardar con la misma banda no escribe nada.
+ * ========================================================================== */
+
 import { doc, collection, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { formatoFechaCorta } from './formatos';
@@ -982,6 +1028,145 @@ export async function editarDomicilioPedido({
 
     return { cambio: true };
   }, 1 + vivos.length + viajesRecibidos.length);
+}
+
+/* -----------------------------------------------------------------------------
+ * Editar la banda horaria — ver el encabezado "v1.2.5 — Banda horaria editable"
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Un despacho al que vale la pena avisarle el cambio de banda: vivo y todavía
+ * no entregado (mismo criterio que `suspenderPedido()` desde v1.2.3).
+ */
+function despachoAvisableBanda(d) {
+  return despachoVivo(d) && d.estado !== DESPACHO.ENTREGADO;
+}
+
+/**
+ * Valida un cambio de banda horaria. Pura: no lee nada.
+ *
+ * (v1.2.5 — Banda horaria editable, ALCANCE 1) Solo mira campos GUARDADOS en
+ * el pedido: el documento no tiene `estado` (se deriva en pantalla), así que
+ * "cerrado" se decide con `cierre_administrativo` y con los contadores.
+ *
+ * @param {Object} params
+ * @param {Object} params.pedido El pedido tal como está guardado
+ * @param {string} params.nuevaBanda
+ * @returns {string[]} Problemas; vacío si el cambio es válido.
+ */
+export function validarCambioBandaHoraria({ pedido, nuevaBanda }) {
+  const problemas = [];
+
+  if (!BANDAS_HORARIAS.includes(nuevaBanda)) {
+    problemas.push('Elegí una banda horaria válida.');
+  }
+
+  if (!pedido) {
+    problemas.push('El pedido ya no existe.');
+    return problemas;
+  }
+
+  // 1. Mismo criterio que `pedidoActivo` en Pedidos.js. `estado` casi nunca
+  //    viene en el documento guardado; se deja por si llega un pedido ya
+  //    derivado desde la pantalla.
+  if (pedido.suspendido === true || pedido.estado === 'suspendido') {
+    problemas.push('El pedido está suspendido.');
+  } else {
+    const total = Number(pedido.entregas_total) || 0;
+    const cumplidas = Number(pedido.entregas_cumplidas) || 0;
+    // 2. Cerrado: cierre administrativo (resguardo) o todas las entregas
+    //    cumplidas, que es lo que `estadoPedido()` llama `cumplido`.
+    if (
+      pedido.cierre_administrativo === true
+      || pedido.estado === 'cumplido'
+      || (total > 0 && cumplidas >= total)
+    ) {
+      problemas.push('El pedido está cerrado.');
+    }
+  }
+
+  return problemas;
+}
+
+/**
+ * Cambia la banda horaria de un pedido.
+ *
+ * (v1.2.5 — Banda horaria editable, ALCANCE 2) No cancela despachos ni toca
+ * entregas, despachos, viajes ni el Plan de Producción: ninguno guarda copia de
+ * la banda. Avisa a cada organización transportista con un despacho vivo, una
+ * sola vez por organización.
+ *
+ * @param {Object} params
+ * @param {string} params.pedidoId
+ * @param {string} params.nuevaBanda Una de `BANDAS_HORARIAS`
+ * @param {Object} params.usuario
+ * @returns {Promise<{cambio: boolean, avisados: number}>}
+ */
+export async function editarBandaHorariaPedido({ pedidoId, nuevaBanda, usuario }) {
+  const { despachos } = await leerContextoPedido(pedidoId);
+  const vivos = despachos.filter(despachoAvisableBanda);
+
+  return enTransaccion(db, async (tx, anotar) => {
+    const refPedido = doc(db, 'pedidos', pedidoId);
+    const refsDespachos = vivos.map(d => doc(db, 'despachos', d.id));
+
+    // TODAS las lecturas antes que cualquier escritura — Firestore lo exige.
+    const [snapPedido, ...snapsDespachos] = await Promise.all([
+      tx.get(refPedido),
+      ...refsDespachos.map(r => tx.get(r)),
+    ]);
+
+    if (!snapPedido.exists()) throw new Error('El pedido ya no existe.');
+    const pedidoActual = { id: pedidoId, ...snapPedido.data() };
+
+    const problemas = validarCambioBandaHoraria({ pedido: pedidoActual, nuevaBanda });
+    if (problemas.length > 0) throw new Error(problemas[0]);
+
+    const anterior = pedidoActual.banda_horaria || '';
+    if (anterior === nuevaBanda) return { cambio: false, avisados: 0 };
+
+    const cambiosPedido = {
+      banda_horaria: nuevaBanda,
+      actualizado_en: serverTimestamp(),
+    };
+    tx.update(refPedido, cambiosPedido);
+    anotar({
+      entidadTipo: 'pedido',
+      entidadId: pedidoId,
+      pedidoId,
+      accion: 'editar_banda_horaria',
+      diferencias: calcularDiferencias(pedidoActual, cambiosPedido),
+      usuario,
+    });
+
+    // 3. Un aviso por organización, no por despacho. El filtro de vivos se
+    //    repite sobre lo RELEÍDO: entre la lectura de afuera y esta, un
+    //    despacho pudo pasar a CANCELADO, RECHAZADO o ENTREGADO.
+    const orgsAvisadas = new Set();
+    snapsDespachos.forEach((snapD, i) => {
+      if (!snapD.exists()) return;
+      const d = { id: vivos[i].id, ...snapD.data() };
+      if (!despachoAvisableBanda(d)) return;
+      if (!d.transportista_org_id || orgsAvisadas.has(d.transportista_org_id)) return;
+
+      orgsAvisadas.add(d.transportista_org_id);
+      tx.set(doc(collection(db, 'avisos')), {
+        destinatario_org_id: d.transportista_org_id,
+        destinatario_chofer_dni: null,
+        tipo: 'banda_horaria_cambiada',
+        titulo: `Cambió la banda horaria del pedido ${pedidoActual.numero}`,
+        mensaje: `La banda horaria del pedido ${pedidoActual.numero} pasó de `
+          + `"${anterior}" a "${nuevaBanda}". La fecha y el horario de carga `
+          + 'de tu despacho no cambian.',
+        pedido_id: pedidoId,
+        despacho_id: d.id,
+        leido: false,
+        creado_en: serverTimestamp(),
+      });
+    });
+
+    return { cambio: true, avisados: orgsAvisadas.size };
+  }, 1);
 }
 
 /* -----------------------------------------------------------------------------
