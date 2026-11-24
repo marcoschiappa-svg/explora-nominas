@@ -154,6 +154,66 @@
  *     mover el mapa; no hay scroll de página; redimensionar la ventana no deja
  *     teselas grises; seleccionar un viaje acerca y abre su popup; el
  *     historial dibuja la traza con A/B; "En vivo" re-centra en Argentina.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.6 — Mapa de Seguimiento
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     (a) En pantallas chicas (notebooks) el mapa quedaba como un recuadro
+ *     gris: Leaflet cargaba pero no dibujaba teselas, hasta que el usuario
+ *     cambiaba el zoom del navegador o el tamaño de la ventana.
+ *     (b) La vista inicial era Argentina entera con países limítrofes; se
+ *     pide el área operativa alrededor de Rosario.
+ *
+ *   CAUSA RAÍZ
+ *     (a) Leaflet mide el contenedor una vez, al crear el mapa. El
+ *     ResizeObserver de v1.2.5 llamaba a `invalidateSize()` dentro del
+ *     callback (sincrónico, sin filtrar medidas 0) y encuadraba SOLO en la
+ *     primera medición; además `fitBounds` corría antes, en la creación, con
+ *     el tamaño provisorio. Con la cadena de alto fijo, el contenedor puede
+ *     no tener su tamaño final en ese momento (fuentes, BarraSuperior, tab,
+ *     filtros) y el mapa quedaba con zoom y teselas de un tamaño viejo.
+ *     (b) `LIMITES_ARGENTINA` + `fitBounds` en la creación, en el observer y
+ *     en `volverAVivo()`.
+ *     Van juntos: el zoom de la vista inicial sale del tamaño medido.
+ *
+ *   ALCANCE
+ *     1. `CENTRO_ROSARIO` / `REGION_OBJETIVO` reemplazan a
+ *        `LIMITES_ARGENTINA` (en `seguimiento-encuadre.js`, con su test).
+ *     2. `L.map` con `zoomSnap: 0.25` (zoomDelta sigue en 1).
+ *     3. Vista inicial = `setView(CENTRO_ROSARIO, getBoundsZoom(
+ *        limitesSimetricos(...)))`, aplicada en la primera medida válida, no
+ *        al crear el mapa.
+ *     4. ResizeObserver -> un solo `requestAnimationFrame` pendiente ->
+ *        `invalidateSize()`; medidas con ancho o alto 0 se ignoran. Sin
+ *        ResizeObserver, `window` resize con la misma función.
+ *     5. Mientras el usuario no interactúe (zoom, arrastre, seleccionar un
+ *        viaje) cada medida válida re-aplica la vista inicial; después, no.
+ *        Interacción = `zoomstart`/`movestart` que no vienen de
+ *        `aplicarVistaInicial()`, más seleccionar un viaje (lista, alerta,
+ *        marcador o historial).
+ *     6. "Volver a vivo" aplica la vista inicial y re-habilita (5).
+ *     7. Cleanup: desconecta el observer (o el listener) y cancela el rAF
+ *        pendiente antes de `map.remove()`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Sin ResizeObserver (navegadores muy viejos) solo se re-mide en el
+ *       resize de la ventana: un cambio de tamaño del contenedor sin cambio
+ *       de ventana vuelve a dejar el problema de (a).
+ *     - El popup de un marcador con autoPan cuenta como interacción (es
+ *       consecuencia de seleccionar un viaje, así que es lo esperado).
+ *     - El zoom queda en múltiplos de 0.25: en niveles intermedios las
+ *       teselas se escalan y se ven apenas menos nítidas.
+ *     - La simetría de los límites es en grados (ver seguimiento-encuadre.js).
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test` (incluye `seguimiento-encuadre.test.js`) y
+ *     `CI=true npm run build` sin warnings. Manual: notebook (1280x650,
+ *     1366x768) sin gris y con Rosario al centro, Córdoba, Santa Fe, Paraná y
+ *     Buenos Aires a la vista; 1920x1080 más cerca; zoom del navegador 125 %
+ *     y 150 %; cambiar tabs y filtros sin franjas grises; con un viaje
+ *     seleccionado, redimensionar no lo saca de la vista; "En vivo" vuelve a
+ *     la vista de Rosario.
  * ========================================================================== */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -173,9 +233,12 @@ import Boton from '../ui/Boton';
 import Vacio from '../ui/Vacio';
 import ModalCierreManual from './ModalCierreManual';
 import './Seguimiento.css';
+// v1.2.6 (1): reemplazan a `LIMITES_ARGENTINA`.
+import { CENTRO_ROSARIO, REGION_OBJETIVO, limitesSimetricos } from './seguimiento-encuadre';
 
-// v1.2.5 (7): [SO, NE].
-const LIMITES_ARGENTINA = [[-55.2, -73.6], [-21.7, -53.5]];
+// v1.2.6 (3): límites simétricos alrededor de Rosario que contienen la región
+// objetivo -- de acá sale el zoom con `getBoundsZoom`.
+const LIMITES_VISTA_INICIAL = limitesSimetricos(CENTRO_ROSARIO, REGION_OBJETIVO);
 
 // v1.2.5 (1): la atribución es obligatoria por la licencia de OSM.
 const TESELAS_OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -191,6 +254,20 @@ function popupViaje(c) {
       <div style="font-size:11px;color:#9CA3AF;margin-top:4px">${ETIQUETA_VIAJE[c.estado] || c.estado}${c.demorado ? ' · demorado' : ''}</div>
     </div>
   `;
+}
+
+/**
+ * v1.2.6 (3): vista inicial -- Rosario al centro con el zoom que hace entrar
+ * la región objetivo en el tamaño actual del contenedor. `aplicandoRef`
+ * marca el cambio como programático para que no cuente como interacción (5).
+ */
+function aplicarVistaInicial(map, aplicandoRef) {
+  aplicandoRef.current = true;
+  try {
+    map.setView(CENTRO_ROSARIO, map.getBoundsZoom(LIMITES_VISTA_INICIAL), { animate: false });
+  } finally {
+    aplicandoRef.current = false;
+  }
 }
 
 /** v1.2.5 (2): marcador "A"/"B" del historial -- círculo con la letra. */
@@ -350,6 +427,9 @@ function Seguimiento({ usuario, onVolver }) {
   const markersRef = useRef({});
   const polylineRef = useRef(null);
   const marcadoresHistRef = useRef([]);
+  // v1.2.6 (5): si el usuario ya movió el mapa, y si el movimiento en curso es nuestro.
+  const interactuoRef = useRef(false);
+  const aplicandoVistaRef = useRef(false);
 
   useEffect(() => {
     if (sinAcceso) { setCargando(false); return; }
@@ -417,23 +497,44 @@ function Seguimiento({ usuario, onVolver }) {
     const el = mapRef.current;
     if (!el) return undefined;
 
-    const map = L.map(el, { zoomControl: true });
+    // v1.2.6 (2): zoom en niveles intermedios; los botones +/- siguen de a 1.
+    // v1.2.6 (3): sin vista acá -- se aplica en la primera medida válida.
+    const map = L.map(el, { zoomControl: true, zoomSnap: 0.25, zoomDelta: 1 });
     L.tileLayer(TESELAS_OSM, { maxZoom: 19, attribution: ATRIBUCION_OSM }).addTo(map);
-    map.fitBounds(LIMITES_ARGENTINA); // v1.2.5 (7)
     mapInstanceRef.current = map;
+    aplicandoVistaRef.current = false;
+    interactuoRef.current = false;
 
-    // v1.2.5 (4): sin esto quedan teselas grises al cambiar de tamaño.
-    let primerAjuste = true;
-    const observador = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => {
-          map.invalidateSize();
-          if (primerAjuste) { primerAjuste = false; map.fitBounds(LIMITES_ARGENTINA); } // v1.2.5 (7)
-        })
-      : null;
+    // v1.2.6 (5): cualquier zoom/movimiento que no venga de
+    // `aplicarVistaInicial()` es del usuario.
+    const marcarInteraccion = () => { if (!aplicandoVistaRef.current) interactuoRef.current = true; };
+    map.on('zoomstart movestart', marcarInteraccion);
+
+    // v1.2.6 (4): un solo rAF pendiente; medidas 0 (contenedor oculto) se ignoran.
+    let rafPendiente = null;
+    const remedir = () => {
+      if (rafPendiente !== null) return;
+      rafPendiente = requestAnimationFrame(() => {
+        rafPendiente = null;
+        if (el.clientWidth === 0 || el.clientHeight === 0) return;
+        map.invalidateSize();
+        // v1.2.6 (5): re-encuadre automático hasta la primera interacción.
+        if (!interactuoRef.current) aplicarVistaInicial(map, aplicandoVistaRef);
+      });
+    };
+
+    // v1.2.6 (4): sin ResizeObserver, `window` resize (LIMITACIONES CONOCIDAS).
+    const hayObserver = typeof ResizeObserver !== 'undefined';
+    const observador = hayObserver ? new ResizeObserver(remedir) : null;
     if (observador) observador.observe(el);
+    else { window.addEventListener('resize', remedir); remedir(); }
 
     return () => {
+      // v1.2.6 (7): primero cortar mediciones, después destruir el mapa.
       if (observador) observador.disconnect();
+      else window.removeEventListener('resize', remedir);
+      if (rafPendiente !== null) cancelAnimationFrame(rafPendiente);
+      map.off('zoomstart movestart', marcarInteraccion);
       map.remove();
       mapInstanceRef.current = null;
       markersRef.current = {};
@@ -542,6 +643,7 @@ function Seguimiento({ usuario, onVolver }) {
         marker.bindTooltip(c.chofer);
         marker.bindPopup(popupViaje(c));
         marker.on('click', () => {
+          interactuoRef.current = true; // v1.2.6 (5)
           setSeleccionado(c.id);
           map.panTo(marker.getLatLng());
         });
@@ -572,6 +674,7 @@ function Seguimiento({ usuario, onVolver }) {
   function centrarEnChofer(c) {
     const map = mapInstanceRef.current;
     if (!c.ultima_lat || !c.ultima_lng || !map) return;
+    interactuoRef.current = true; // v1.2.6 (5)
     map.setView([c.ultima_lat, c.ultima_lng], 13);
     setSeleccionado(c.id);
     if (markersRef.current[c.id]) markersRef.current[c.id].openPopup();
@@ -579,6 +682,7 @@ function Seguimiento({ usuario, onVolver }) {
 
   async function seleccionarHistorial(h) {
     setSeleccionadoHist(h.id);
+    interactuoRef.current = true; // v1.2.6 (5)
 
     Object.keys(markersRef.current).forEach(uid => markersRef.current[uid].remove());
     limpiarMarcadoresHist();
@@ -612,7 +716,9 @@ function Seguimiento({ usuario, onVolver }) {
       if (!c.ultima_lat || !c.ultima_lng) return;
       if (markersRef.current[c.id]) markersRef.current[c.id].addTo(map);
     });
-    map.fitBounds(LIMITES_ARGENTINA); // v1.2.5 (7)
+    // v1.2.6 (6): vuelve a la vista inicial y re-habilita el re-encuadre.
+    interactuoRef.current = false;
+    aplicarVistaInicial(map, aplicandoVistaRef);
   }
 
   function tiempoDesde(ts) {
