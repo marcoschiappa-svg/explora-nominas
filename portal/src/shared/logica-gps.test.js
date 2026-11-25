@@ -45,6 +45,7 @@ import {
   distanciaMetros, normalizarLectura, evaluarLectura, fuenteDebeGrabar, agregarAlBuffer,
   debeDescargar, armarLotes, quitarConfirmados, quitarViaje, migrarBufferViejo,
   codificarValorRest, urlCommitRest, armarCommitRest, clasificarRespuesta, crearGestorGPS,
+  urlDocumentoRest, leerEstadoViajeRest,
 } from './logica-gps';
 import fixture from './__fixtures__/gps-24-11-2026.json';
 
@@ -328,6 +329,28 @@ describe('urlCommitRest y armarCommitRest', () => {
         },
       ],
     });
+  });
+});
+
+describe('urlDocumentoRest y leerEstadoViajeRest (prompt 2: consulta del viaje por REST)', () => {
+  test('URL del GET de viajes/abc', () => {
+    expect(urlDocumentoRest(PROYECTO, 'viajes/abc'))
+      .toBe('https://firestore.googleapis.com/v1/projects/demo-explora/databases/(default)/documents/viajes/abc');
+  });
+
+  test('con estado devuelve el stringValue', () => {
+    const cuerpo = {
+      name: `projects/${PROYECTO}/databases/(default)/documents/viajes/abc`,
+      fields: { estado: { stringValue: 'EN_VIAJE' }, chofer_dni: { stringValue: '123' } },
+    };
+    expect(leerEstadoViajeRest(cuerpo)).toBe('EN_VIAJE');
+  });
+
+  test('sin fields, sin estado o cuerpo null devuelve null', () => {
+    expect(leerEstadoViajeRest({ name: 'x' })).toBeNull();
+    expect(leerEstadoViajeRest({ fields: {} })).toBeNull();
+    expect(leerEstadoViajeRest({ fields: { estado: { nullValue: null } } })).toBeNull();
+    expect(leerEstadoViajeRest(null)).toBeNull();
   });
 });
 

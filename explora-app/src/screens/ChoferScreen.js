@@ -37,10 +37,15 @@
  *   iniciarViaje      RECIBIDO → EN_VIAJE, con la posición de inicio
  *   reportarDemora    demorado = true + motivo (el estado NO cambia)
  *   finalizarViaje    cierra el viaje y empuja el despacho a ENTREGADO
- *   registrarPuntos   lote de puntos GPS en viajes/{id}/gps_puntos (la clave de
- *                     cada punto es su timestamp: reenviar un lote no duplica)
- * Las reglas de `gps_puntos` exigen el viaje en EN_VIAJE, por eso al finalizar
- * el buffer se descarga ANTES de cerrar el viaje.
+ *   registrarEstadoSeguimiento   campos `seguimiento_*` del viaje (TrackEx
+ *                     v1.1.2): permisos, servicio y versión del teléfono; los
+ *                     escribe `informarSeguimiento` solo cuando cambian.
+ * Los puntos GPS ya NO los escribe la pantalla: los sube el gestor de
+ * `src/gps/seguimiento.js` por la API REST (`src/gps/subida.js`), a
+ * viajes/{id}/gps_puntos (la clave de cada punto es el `ts` de la lectura:
+ * reenviar un lote reescribe idéntico). Las reglas de `gps_puntos` exigen el
+ * viaje en EN_VIAJE, por eso al finalizar se suben los pendientes ANTES de
+ * cerrar el viaje.
  *
  * Esta pantalla ya NO escribe `gps_estado` ni `gps_track_*`: la salud del GPS
  * se deriva de `ultima_ts` con `saludGPS()` y los puntos van a la subcolección.
@@ -110,7 +115,14 @@
  *
  *   3. SEGUNDO PLANO (complementaria) — `startLocationUpdatesAsync` + TaskManager.
  *      Es la única que sigue con la pantalla bloqueada, y también la más frágil:
- *      exige la cadena completa de permisos y un foreground service.
+ *      exige la cadena completa de permisos y un foreground service. La tarea
+ *      se define en `src/gps/tarea.js` (importado primero en `index.js`).
+ *
+ * UNA SOLA FUENTE CONTINUA GRABA (TrackEx v1.1.2): con el servicio de segundo
+ * plano activo no se inicia el watch de primer plano (o se baja si estaba
+ * corriendo); sin servicio, graba el watch. Las dos fuentes entran por
+ * `procesarUbicaciones` (src/gps/seguimiento.js) y el gestor ignora la copia de
+ * primer plano si el servicio corre (`fuenteDebeGrabar`, segunda barrera).
  *
  * REGLA DE DISEÑO: el viaje SIEMPRE avanza, haya o no ubicación disponible. Un
  * chofer adentro de un galpón o con el GPS apagado no puede quedar trabado sin
@@ -161,10 +173,67 @@
  *     Ahora 30s/50m.
  *
  * -----------------------------------------------------------------------------
+ * HISTORIAL DE CORRECCIONES — TrackEx v1.1.2 — GPS (noviembre 2026)
+ * -----------------------------------------------------------------------------
+ * SÍNTOMA: en el primer uso real (v1.1.1, 24/11/2026) la traza de la pantalla
+ *   apagada subió horas tarde y toda junta (558 puntos a las 03:20, cuando el
+ *   chofer abrió la app), hubo lotes rechazados enteros (errores de descarga con
+ *   `permission-denied` en ráfaga), puntos con la hora equivocada, un teléfono
+ *   sin "Permitir siempre" del que nadie se enteró, un servicio que el sistema
+ *   cortó a las 13:21 y no volvió, y no se pudo saber si los choferes habían
+ *   tocado Finalizar.
+ * CAUSAS RAÍZ:
+ *   (5) SUBIDA TRABADA EN SEGUNDO PLANO. Con la app en segundo plano React
+ *       Native 0.85 pausa los timers de JS (`JavaTimerManager.kt`) salvo
+ *       mientras haya una headless task, y expo-task-manager 56.0.22
+ *       (`TaskService.java`) la registra solo mientras procesa un evento de
+ *       ubicación. El SDK web de Firestore depende de timers para conectar y
+ *       reintentar: sus escrituras quedaban pendientes horas, y una escritura
+ *       sin confirmar no falla (ni error ni log). `logApp` hacía `await` de
+ *       una escritura así y también podía colgar la tarea.
+ *       → Subida, consulta del viaje y token por XHR con timeout nativo
+ *         (`src/gps/subida.js`); la tarea espera con `await` todo el trabajo
+ *         (`src/gps/tarea.js`); `logApp` no bloquea (registro.js).
+ *   (6) DOS FUENTES GRABANDO LA MISMA LECTURA + DESCARGAS SUPERPUESTAS. El
+ *       watch de primer plano y la tarea grababan las mismas lecturas; dos
+ *       descargas a la vez mandaban puntos repetidos y `set()` sobre un punto
+ *       existente es un update que la regla prohibía: el lote entero rebotaba.
+ *       Una descarga exitosa además vaciaba el buffer completo.
+ *       → Una sola fuente graba (ver arriba) y el gestor de logica-gps.js
+ *         serializa el buffer, deja una sola descarga en vuelo y quita solo
+ *         lo confirmado. Regla de reescritura idéntica (prompt 1).
+ *   (7) HORA DEL PUNTO EQUIVOCADA. El registro de lecturas recibía solo
+ *       `loc.coords`, descartaba `loc.timestamp` y sellaba con `new Date()` al procesar; con lecturas en
+ *       lote, el filtro de velocidad descartaba lecturas válidas.
+ *       → `normalizarLectura(loc)` con el objeto entero.
+ *   (8) LA TAREA SE DEFINÍA EN ESTA PANTALLA. La doc de expo-task-manager exige
+ *       el ámbito global del bundle; acá dependía de que se importara la
+ *       pantalla. → `src/gps/tarea.js`, primera línea de `index.js`.
+ *   (9) SIN DATO DEL SEGUIMIENTO NI DE LAS ACCIONES. "Ahora no" en el modal de
+ *       permiso no dejaba rastro, los logs de permisos no llevaban viaje ni DNI,
+ *       y una acción sin red quedaba esperando sin aviso ni log.
+ *       → `informarSeguimiento` (campos `seguimiento_*` del viaje),
+ *         `permiso_background_pospuesto`, `viaje_id`/`dni` en los logs,
+ *         `accion_intento` + límite de 25 s + `accion_sin_confirmar`.
+ *   (10) SERVICIO CORTADO POR EL SISTEMA. Nada lo volvía a arrancar.
+ *       → `asegurarServicio` al volver a primer plano (EFECTO 4).
+ * ALCANCE: el JSX, los estilos, los textos y el flujo de pantallas no cambian
+ *   (salvo el aviso nuevo de acción sin confirmar). La tarea conserva nombre y
+ *   opciones de servicio.
+ * LIMITACIONES CONOCIDAS: ver las cabeceras de `src/gps/*.js` y de
+ *   portal/src/shared/logica-gps.js; los puntos que quedan sin subir al
+ *   finalizar se pierden (`gps_pendientes_al_finalizar`).
+ * CÓMO SE VERIFICA: con `informe-viajes.js` y `app_logs` (ver CHANGELOG
+ *   v1.1.2): puntos de pantalla apagada que llegan con pocos minutos de
+ *   atraso, sin `gps_subida_error` en ráfaga con red, `seguimiento_estado` en
+ *   cada viaje y `accion_intento` antes de cada acción.
+ *
+ * -----------------------------------------------------------------------------
  * DEPENDENCIAS Y ENTORNO
  * -----------------------------------------------------------------------------
  * Expo SDK 56 · expo-location ~56.0.21 · expo-task-manager ~56.0.22
  * @react-native-async-storage/async-storage 2.2.0 · firebase ^12.15.0
+ * expo-constants (versión instalada para `seguimiento_version_app`)
  *
  * IMPORTANTE PARA PROBAR: el GPS en segundo plano NO funciona en Expo Go. Hay
  * que usar un development build de EAS. Además, los permisos de Android son
@@ -185,11 +254,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, onSnapshot, doc, getDoc, query, where } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
-import * as TaskManager from 'expo-task-manager';
-import { db } from '../config/firebase';
+import { db, auth } from '../config/firebase';
 import { APPS_SCRIPT_URL } from '../config/constants';
 import { logApp } from '../registro';
 import { useAvisos } from '../avisos';
@@ -206,9 +274,17 @@ import ColumnaCentrada from '../componentes/ColumnaCentrada';
 import PieVersion from '../componentes/PieVersion';
 import ModalCambiarClave from '../componentes/ModalCambiarClave';
 import {
-  iniciarViaje, reportarDemora, finalizarViaje, registrarPuntos, VIAJE,
+  iniciarViaje, reportarDemora, finalizarViaje, VIAJE,
+  registrarEstadoSeguimiento, cambiosEstadoSeguimiento, FUENTE,
+  GPS_INTERVALO_MS, GPS_DISTANCIA_M,
   marca, colorEstado, espacio, radio, tipografia,
 } from '../compartido';
+import {
+  KEY_VIAJE_ACTIVO, escribirJSON, ganchos, servicioActivo, iniciarServicio,
+  detenerGPSBackground, limpiarEstadoLocalGPS, procesarUbicaciones,
+  descargarPendientes, pendientesDeViaje, asegurarServicio,
+} from '../gps/seguimiento';
+import { sembrarToken } from '../gps/subida';
 
 /**
  * Colores de una tarjeta de aviso según su tipo. SOLO de tokens:
@@ -243,83 +319,14 @@ function coloresAviso(tipo, c) {
  */
 const HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 };
 
-/**
- * Identificador de la tarea de background registrada en TaskManager.
- * Debe ser único en toda la app y estable entre versiones: si cambia, una tarea
- * previamente registrada por una versión anterior queda huérfana y corriendo.
- */
-const GPS_TASK = 'explora-gps-task';
-
 /* -----------------------------------------------------------------------------
- * CLAVES DE ASYNCSTORAGE
+ * PARÁMETROS DE LA CAPTURA PUNTUAL
  *
- * Por qué disco y no memoria: la tarea de background puede ejecutarse en un
- * contexto JS donde el componente React nunca se montó. Cualquier variable de
- * módulo o de componente llega vacía ahí. AsyncStorage es el único canal que
- * sobrevive a ese reinicio de contexto. (Ver causa 3 del historial.)
+ * TrackEx v1.1.2 — GPS: las constantes, claves de AsyncStorage y funciones de
+ * la captura CONTINUA (filtros, buffer, subida, tarea de segundo plano) se
+ * mudaron a `src/gps/` y a `portal/src/shared/logica-gps.js`. Acá quedan solo
+ * las de `obtenerPuntoActual`, que es de la pantalla.
  * -------------------------------------------------------------------------- */
-
-/**
- * Viaje en curso: `{ viajeId }` o ausente si no hay ninguno.
- *
- * MIGRACIÓN: las versiones anteriores guardaban `{ docId, despachoIdx,
- * pedidoId }` (modelo `pedidos_portal`). Esa forma se descarta al arrancar
- * (ver `migrarEstadoLocal`) para no mezclar puntos de modelos distintos.
- */
-const KEY_VIAJE_ACTIVO = 'explora:viaje_activo';
-
-/** Cola de puntos GPS pendientes de escritura: `[{ lat, lng, ts }, ...]` con `ts` ISO. */
-const KEY_BUFFER_GPS = 'explora:gps_buffer';
-
-/** Último punto aceptado: `{ lat, lng, ts }`. Se usa para el filtro de velocidad. */
-const KEY_ULTIMO_PUNTO = 'explora:gps_ultimo_punto';
-
-/* -----------------------------------------------------------------------------
- * PARÁMETROS DE CAPTURA Y FILTRADO
- * -------------------------------------------------------------------------- */
-
-/**
- * Umbral de precisión: si el GPS reporta más de 100m de radio de error,
- * descartamos la lectura — es la causa más común de que la posición "salte"
- * cuando el camión está parado cerca de estructuras metálicas, tanques o
- * galpones (señal rebotada, no movimiento real).
- */
-const PRECISION_MAXIMA_METROS = 100;
-
-/**
- * Velocidad máxima físicamente razonable para un camión en ruta/planta.
- * Un salto que implique más que esto entre dos lecturas es ruido de GPS,
- * no movimiento real.
- */
-const VELOCIDAD_MAXIMA_KMH = 150;
-
-/**
- * Cadencia de captura, para ambas fuentes continuas (background y primer plano).
- *
- * En Android estos dos valores actúan como umbrales combinados: se emite una
- * lectura cuando pasó el tiempo Y se recorrió la distancia. Con los 60s/100m
- * originales, un camión a 80 km/h (~1,3 km por minuto) generaba un punto cada
- * kilómetro y medio: más un boceto que un recorrido.
- *
- * El costo extra en escrituras lo absorbe el buffer por lotes.
- */
-const GPS_INTERVALO_MS = 30000;
-const GPS_DISTANCIA_M = 50;
-
-/**
- * Política del buffer local.
- *
- * Se descarga a Firestore cuando se junta BUFFER_MAX_PUNTOS o cuando el punto
- * más viejo supera BUFFER_MAX_EDAD_MS — lo segundo cubre el caso del camión
- * detenido, que genera pocos puntos y no llegaría nunca al umbral por cantidad.
- *
- * BUFFER_TOPE_PUNTOS es una red de seguridad: si el camión pasa horas sin señal
- * el buffer no puede crecer sin control. Al superarlo se descartan los puntos
- * más viejos (se prioriza el tramo reciente).
- */
-const BUFFER_MAX_PUNTOS = 10;
-const BUFFER_MAX_EDAD_MS = 120000;
-const BUFFER_TOPE_PUNTOS = 1000;
 
 /**
  * Timeout de la lectura puntual al iniciar/finalizar viaje.
@@ -332,308 +339,52 @@ const BUFFER_TOPE_PUNTOS = 1000;
 const TIMEOUT_PUNTO_MS = 10000;
 const EDAD_MAXIMA_ULTIMA_POSICION_MS = 300000;
 
+/**
+ * Límite de espera de una acción del chofer (iniciar, demora, finalizar):
+ * 25 s. Una transacción de Firestore sin red no falla, queda esperando; el
+ * 24/11 no se pudo saber si los choferes habían tocado Finalizar. 25 s cubren
+ * una red móvil mala (la transacción hace una lectura y una escritura) sin
+ * dejar al chofer mirando "Confirmando..." indefinidamente. Con la app en
+ * primer plano los timers corren, así que `Promise.race` alcanza.
+ */
+const LIMITE_ACCION_MS = 25000;
+
+/**
+ * Límite de espera del aviso al coordinador (Apps Script): 15 s. El Apps
+ * Script suele contestar en 2 a 5 s; si no contesta en 15, se deja de esperar
+ * y se registra en el log, como cualquier otra falla del aviso. La acción ya
+ * quedó escrita: el aviso no puede trabar el botón.
+ */
+const LIMITE_AVISO_MS = 15000;
+
+/** Texto del aviso cuando una acción no confirmó dentro de `LIMITE_ACCION_MS`. */
+const TEXTO_SIN_CONFIRMAR = 'No pudimos confirmar si se guardó. Revisá tu conexión: si en unos segundos el viaje no cambió, intentá de nuevo.';
+
+/**
+ * Corre una promesa contra un temporizador.
+ *
+ * Si vence, rechaza con un `Error` de `code: 'sin-confirmar'`; la promesa
+ * original sigue en vuelo (no se puede cancelar) y puede terminar después.
+ * Solo se usa en primer plano, donde los timers corren.
+ *
+ * @param {Promise} promesa
+ * @param {number} ms
+ * @returns {Promise<*>} El valor de la promesa, si terminó a tiempo.
+ */
+function conLimite(promesa, ms) {
+  let temporizador;
+  const vencimiento = new Promise((_, rechazar) => {
+    temporizador = setTimeout(
+      () => rechazar(Object.assign(new Error('sin confirmar'), { code: 'sin-confirmar' })),
+      ms
+    );
+  });
+  return Promise.race([promesa, vencimiento]).finally(() => clearTimeout(temporizador));
+}
+
 /* =============================================================================
  * UTILIDADES DE ÁMBITO DE MÓDULO
- *
- * Todo lo que está acá afuera del componente es deliberado: la tarea de
- * background necesita poder ejecutar estas funciones sin que exista ninguna
- * instancia de React montada.
  * ========================================================================== */
-
-/**
- * Distancia entre dos coordenadas por la fórmula de Haversine.
- *
- * @param {number} lat1 Latitud del primer punto, en grados.
- * @param {number} lng1 Longitud del primer punto, en grados.
- * @param {number} lat2 Latitud del segundo punto, en grados.
- * @param {number} lng2 Longitud del segundo punto, en grados.
- * @returns {number} Distancia en metros.
- */
-function distanciaMetros(lat1, lng1, lat2, lng2) {
-  const R = 6371000; // radio medio terrestre en metros
-  const rad = (x) => (x * Math.PI) / 180;
-  const dLat = rad(lat2 - lat1);
-  const dLng = rad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * Lee y deserializa un valor de AsyncStorage.
- *
- * Nunca lanza: si la clave no existe, el JSON está corrupto o el storage falla,
- * devuelve el valor por defecto. Un error de storage no debe poder tumbar la
- * tarea de GPS ni el flujo del chofer.
- *
- * @param {string} clave Clave de AsyncStorage.
- * @param {*} porDefecto Valor a devolver si no hay dato utilizable.
- * @returns {Promise<*>} El valor deserializado o `porDefecto`.
- */
-async function leerJSON(clave, porDefecto) {
-  try {
-    const crudo = await AsyncStorage.getItem(clave);
-    return crudo ? JSON.parse(crudo) : porDefecto;
-  } catch (e) {
-    return porDefecto;
-  }
-}
-
-/**
- * Serializa y guarda un valor en AsyncStorage.
- *
- * Nunca lanza; ante un fallo deja constancia en consola y sigue. Perder una
- * escritura de buffer degrada la traza, no rompe el viaje.
- *
- * @param {string} clave Clave de AsyncStorage.
- * @param {*} valor Valor serializable a JSON.
- * @returns {Promise<void>}
- */
-async function escribirJSON(clave, valor) {
-  try {
-    await AsyncStorage.setItem(clave, JSON.stringify(valor));
-  } catch (e) {
-    console.warn('AsyncStorage write error:', e?.message || e);
-  }
-}
-
-/**
- * Gancho para que el código de ámbito de módulo (que puede correr sin React
- * montado) pueda pedirle al componente que baje la suscripción de primer
- * plano, cuyo `watchRef` solo existe adentro. Lo registra el EFECTO 5.
- */
-const ganchos = { alDescartar: null };
-
-/**
- * Da de baja la tarea de background si estaba corriendo.
- *
- * Está a nivel de módulo (y no dentro del componente) porque `descargarBuffer`
- * la necesita al descartar un viaje cerrado por fuera, y puede ejecutarse en el
- * contexto de la tarea de background. Consulta primero con
- * `hasStartedLocationUpdatesAsync` porque detener una tarea no registrada lanza.
- *
- * @returns {Promise<void>}
- */
-async function detenerGPSBackground() {
-  try {
-    const corriendo = await Location.hasStartedLocationUpdatesAsync(GPS_TASK).catch(() => false);
-    if (corriendo) {
-      await Location.stopLocationUpdatesAsync(GPS_TASK);
-    }
-  } catch (err) {
-    console.warn('stopLocationUpdates error:', err?.message || err);
-  }
-}
-
-/**
- * Descarta TODO el estado local de GPS (viaje activo, buffer y último punto).
- *
- * @returns {Promise<void>}
- */
-async function limpiarEstadoLocalGPS() {
-  await AsyncStorage.removeItem(KEY_BUFFER_GPS).catch(() => {});
-  await AsyncStorage.removeItem(KEY_VIAJE_ACTIVO).catch(() => {});
-  await AsyncStorage.removeItem(KEY_ULTIMO_PUNTO).catch(() => {});
-}
-
-/**
- * Migración en caliente del estado local de GPS.
- *
- * Una instalación que se actualiza con un viaje en curso trae en disco
- * `KEY_VIAJE_ACTIVO` con la forma del modelo viejo (campos `docId` /
- * `despachoIdx`, sin `viajeId`) y un buffer de puntos que pertenecen a ese
- * pedido. Escribirlos contra un viaje del modelo nuevo mezclaría recorridos de
- * dos viajes distintos, así que se descarta todo y se deja constancia.
- *
- * Se considera forma vieja: viaje activo sin `viajeId` string, o buffer con
- * elementos que no son un punto `{ lat, lng, ts }`.
- *
- * @returns {Promise<void>}
- */
-async function migrarEstadoLocal() {
-  const activo = await leerJSON(KEY_VIAJE_ACTIVO, null);
-  const buffer = await leerJSON(KEY_BUFFER_GPS, []);
-
-  const activoViejo = !!activo && typeof activo.viajeId !== 'string';
-  const bufferViejo = !Array.isArray(buffer) || buffer.some(p =>
-    !p || typeof p.lat !== 'number' || typeof p.lng !== 'number' || !p.ts);
-  // Un buffer viejo suelto (sin viaje activo) también se descarta; y si el viaje
-  // activo es viejo, sus puntos pertenecen al modelo viejo aunque tengan buena forma.
-  if (!activoViejo && !bufferViejo) return;
-
-  await limpiarEstadoLocalGPS();
-  await logApp('migracion_descarte', {
-    viaje_activo_viejo: String(activoViejo),
-    buffer_viejo: String(bufferViejo),
-    puntos_descartados: Array.isArray(buffer) ? buffer.length : 0,
-  });
-}
-
-/**
- * Descarga a Firestore todos los puntos GPS acumulados en el buffer local.
- *
- * Delega en `registrarPuntos` (lógica compartida), que escribe el lote en
- * `viajes/{id}/gps_puntos` y actualiza la última posición del viaje.
- *
- * ADAPTADOR OBLIGATORIO DE `ts`: el buffer guarda `ts` como ISO string, pero
- * `registrarPuntos` espera milisegundos (`Number(ts)`) y DESCARTA EN SILENCIO
- * lo que no entiende. Se convierte con `new Date(ts).getTime()` antes de
- * llamarla. Si el punto trae `precision` o `velocidad` se pasan tal cual.
- *
- * Si la escritura falla, el buffer NO se limpia: queda intacto para el próximo
- * intento (así un tramo sin señal no pierde puntos). Solo se limpia tras la
- * confirmación del servidor.
- *
- * VIAJE CERRADO POR FUERA: las reglas de `gps_puntos` exigen el viaje en
- * EN_VIAJE. Si el coordinador lo cerró a mano y quedan puntos, la escritura da
- * `permission-denied` para siempre. Ante ese código se lee el viaje: si ya no
- * está EN_VIAJE (o no existe) se descarta el buffer, se limpia el viaje activo
- * y se detiene el seguimiento (`gps_descarte`); si sigue EN_VIAJE el error es
- * otro y se conserva el buffer para reintentar.
- *
- * @param {string} viajeId ID del documento en `viajes`.
- * @returns {Promise<void>}
- */
-async function descargarBuffer(viajeId) {
-  if (!viajeId) return;
-
-  const buffer = await leerJSON(KEY_BUFFER_GPS, []);
-  if (!buffer.length) return;
-
-  try {
-    const puntos = buffer
-      .map(p => ({ ...p, ts: new Date(p.ts).getTime() }))
-      .filter(p => Number.isFinite(p.ts));
-
-    await registrarPuntos(db, viajeId, puntos);
-
-    // Solo se limpia si la escritura fue confirmada por el servidor.
-    await escribirJSON(KEY_BUFFER_GPS, []);
-  } catch (err) {
-    console.warn('GPS flush error:', err?.code, err?.message);
-
-    if (err?.code === 'permission-denied') {
-      try {
-        const snap = await getDoc(doc(db, 'viajes', viajeId));
-        const estado = snap.exists() ? snap.data().estado : null;
-        if (estado !== VIAJE.EN_VIAJE) {
-          await limpiarEstadoLocalGPS();
-          await detenerGPSBackground();
-          if (ganchos.alDescartar) ganchos.alDescartar();
-          await logApp('gps_descarte', {
-            viaje_id: viajeId,
-            estado_viaje: estado || 'inexistente',
-            puntos_descartados: buffer.length,
-          });
-          return;
-        }
-      } catch (errLectura) {
-        console.warn('GPS descarte: no se pudo leer el viaje', errLectura?.code);
-      }
-    }
-
-    await logApp('gps_flush_error', {
-      code: err?.code || '',
-      mensaje: err?.message || '',
-      puntos_pendientes: buffer.length,
-      viaje_id: viajeId,
-    });
-  }
-}
-
-/**
- * Procesa una lectura de posición: la filtra, la encola y descarga si toca.
- *
- * Punto de entrada COMÚN de las dos fuentes continuas (tarea de background y
- * `watchPositionAsync` de primer plano), para que ambas apliquen exactamente los
- * mismos filtros y compartan un único buffer.
- *
- * Descarta la lectura sin registrarla en tres casos:
- *   1. Coordenadas ausentes o inválidas.
- *   2. No hay viaje activo (llegó una lectura tardía tras finalizar).
- *   3. Precisión peor que PRECISION_MAXIMA_METROS.
- *   4. Implica una velocidad superior a VELOCIDAD_MAXIMA_KMH respecto del
- *      último punto aceptado.
- *
- * El filtro de velocidad compara contra el último punto guardado en disco y no
- * contra lo último escrito en Firestore: es más confiable (no depende de que la
- * escritura anterior haya llegado) y ahorra una lectura de red por punto.
- *
- * @param {Object} coords Objeto `coords` de expo-location.
- * @returns {Promise<void>}
- */
-async function registrarPunto(coords) {
-  if (!coords || coords.latitude == null || coords.longitude == null) return;
-
-  const viaje = await leerJSON(KEY_VIAJE_ACTIVO, null);
-  if (!viaje || !viaje.viajeId) return;
-
-  // Filtro 1: descartar lecturas de baja precisión.
-  if (coords.accuracy != null && coords.accuracy > PRECISION_MAXIMA_METROS) return;
-
-  // Filtro 2: descartar saltos que implican velocidad imposible.
-  const ultimo = await leerJSON(KEY_ULTIMO_PUNTO, null);
-  if (ultimo) {
-    const metros = distanciaMetros(ultimo.lat, ultimo.lng, coords.latitude, coords.longitude);
-    const segundos = (Date.now() - new Date(ultimo.ts).getTime()) / 1000;
-    const kmh = segundos > 0 ? (metros / segundos) * 3.6 : 0;
-    if (kmh > VELOCIDAD_MAXIMA_KMH) return;
-  }
-
-  const punto = {
-    lat: coords.latitude,
-    lng: coords.longitude,
-    ts: new Date().toISOString(),
-  };
-  await escribirJSON(KEY_ULTIMO_PUNTO, punto);
-
-  let buffer = await leerJSON(KEY_BUFFER_GPS, []);
-  buffer.push(punto);
-
-  // Red de seguridad: conservar los más recientes si el buffer se desbordó.
-  if (buffer.length > BUFFER_TOPE_PUNTOS) {
-    buffer = buffer.slice(buffer.length - BUFFER_TOPE_PUNTOS);
-  }
-  await escribirJSON(KEY_BUFFER_GPS, buffer);
-
-  // Dos disparadores de descarga: por cantidad o por antigüedad. El segundo
-  // cubre al camión detenido, que nunca llegaría al umbral por cantidad.
-  const edadMasViejo = Date.now() - new Date(buffer[0].ts).getTime();
-  if (buffer.length >= BUFFER_MAX_PUNTOS || edadMasViejo >= BUFFER_MAX_EDAD_MS) {
-    await descargarBuffer(viaje.viajeId);
-  }
-}
-
-/**
- * Tarea de background de GPS.
- *
- * DEBE definirse en el ámbito superior del módulo: es un requisito de
- * expo-task-manager, porque el sistema operativo la invoca sin que exista
- * necesariamente una instancia de React montada.
- *
- * Android puede entregar varias lecturas juntas en una sola invocación (batching
- * del sistema para ahorrar batería), por eso se recorre `locations` entero en
- * vez de tomar solo el primer elemento como hacía la versión anterior.
- */
-TaskManager.defineTask(GPS_TASK, async ({ data, error }) => {
-  if (error) {
-    console.error('GPS task error:', error);
-    await logApp('gps_task_error', {
-      code: error?.code || '',
-      mensaje: error?.message || '',
-    });
-    return;
-  }
-  if (!data) return;
-
-  const { locations } = data;
-  if (!locations || !locations.length) return;
-
-  for (const loc of locations) {
-    await registrarPunto(loc.coords);
-  }
-});
 
 /**
  * Convierte un Timestamp de Firestore a ISO 8601.
@@ -752,6 +503,14 @@ export default function ChoferScreen({ usuario, onLogout }) {
   const esperandoAjustesRef = useRef(false);
 
   /**
+   * Último estado del seguimiento informado al viaje (TrackEx v1.1.2 — GPS,
+   * punto 3): `{ viajeId, clave }`, donde `clave` es el JSON de
+   * `cambiosEstadoSeguimiento`. `informarSeguimiento` solo escribe si cambió,
+   * para no reescribir el viaje en cada regreso a primer plano.
+   */
+  const ultimoSeguimientoRef = useRef({ viajeId: null, clave: '' });
+
+  /**
    * Permiso de notificaciones: `null` mientras no se consultó; luego
    * `{ concedido, puedePreguntar }`. Maneja el aviso "Notificaciones desactivadas".
    */
@@ -850,10 +609,16 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * EFECTO 3 — Arranque y parada del seguimiento
    *
    * Con viaje activo: persiste el viaje en disco (para que la tarea de background
-   * lo encuentre) y arranca la cadena de permisos.
+   * lo encuentre), siembra la cache del token para la subida por REST (sin
+   * bloquear) y arranca la cadena de permisos.
    *
-   * Sin viaje activo: descarga lo que quede en el buffer ANTES de limpiar, para
-   * no perder el último tramo, y luego apaga todas las fuentes.
+   * Sin viaje activo: sube lo pendiente (`descargarPendientes`) ANTES de
+   * limpiar, para no perder el último tramo, y luego apaga todas las fuentes.
+   * TrackEx v1.1.2 — GPS: se borran SOLO `viaje_activo` y `ultimo`, NO el
+   * buffer: puede tener puntos pendientes (por ejemplo, sin red), que el gestor
+   * sube o descarta solo. La migración del formato viejo, que antes corría acá
+   * al principio, vive ahora en el almacén (`src/gps/seguimiento.js`), porque
+   * la primera lectura puede ocurrir en la tarea, sin React.
    *
    * La bandera `cancelado` evita tocar estado de React si el componente se
    * desmontó mientras las operaciones asíncronas estaban en vuelo.
@@ -862,24 +627,21 @@ export default function ChoferScreen({ usuario, onLogout }) {
     let cancelado = false;
 
     async function sincronizar() {
-      // Primero se descarta el estado local con la forma del modelo anterior
-      // (si lo hay), para no mezclar sus puntos con los del viaje nuevo.
-      await migrarEstadoLocal();
-
       if (claveViajeActivo) {
         const activo = viajeActivoRef.current;
         if (!activo) return;
 
         await escribirJSON(KEY_VIAJE_ACTIVO, { viajeId: activo.id });
+        sembrarToken(auth.currentUser); // sin await: es una optimización
 
         if (!cancelado) await activarSeguimiento();
       } else {
-        // Orden importante: descargar primero, limpiar después.
-        const previo = await leerJSON(KEY_VIAJE_ACTIVO, null);
-        if (previo) await descargarBuffer(previo.viajeId);
-
-        await AsyncStorage.removeItem(KEY_VIAJE_ACTIVO).catch(() => {});
-        await AsyncStorage.removeItem(KEY_ULTIMO_PUNTO).catch(() => {});
+        // Orden importante: subir primero, limpiar después.
+        await descargarPendientes();
+        // Sin red la descarga puede tardar hasta el límite de la subida; si en
+        // ese tiempo arrancó otro viaje, esta limpieza borraría el suyo.
+        if (cancelado) return;
+        await limpiarEstadoLocalGPS();
 
         detenerWatchForeground();
         await detenerGPSBackground();
@@ -894,19 +656,30 @@ export default function ChoferScreen({ usuario, onLogout }) {
   }, [claveViajeActivo]);
 
   /* ---------------------------------------------------------------------------
-   * EFECTO 4 — Reevaluar el permiso al volver de Ajustes
+   * EFECTO 4 — Volver a primer plano: permiso, servicio, subida y estado
    *
-   * En Android 11+ el pedido de background abre la pantalla de Ajustes del
-   * sistema en vez de mostrar un diálogo. Cuando el chofer vuelve, este listener
-   * detecta el regreso al estado 'active' y verifica si concedió el permiso, sin
-   * obligarlo a tocar nada más.
+   * Cada vez que la app vuelve a 'active' (`alVolverAPrimerPlano`):
+   *   1. Si se había derivado al chofer a Ajustes (Android 11+ abre Ajustes en
+   *      vez de un diálogo), verifica si concedió el permiso de background,
+   *      sin obligarlo a tocar nada más. Igual que antes.
+   *   Con viaje en curso, además (TrackEx v1.1.2 — GPS, punto 5):
+   *   2. `asegurarServicio`: si el sistema cortó el servicio (caso del 24/11
+   *      a las 13:21), lo rearranca; si quedó activo, baja el watch de primer
+   *      plano para que grabe una sola fuente.
+   *   3. Siembra la cache del token y sube lo pendiente, SIN bloquear la UI.
+   *   4. Informa el estado del seguimiento al viaje (`informarSeguimiento`).
+   *
+   * SIN DEPENDENCIAS A PROPÓSITO: el listener se registra una vez al montar y
+   * se da de baja al desmontar. Registrarlo de nuevo en cada render dejaría
+   * ventanas sin listener y listeners duplicados. Lo que necesita del estado
+   * vigente lo lee por refs (`viajeActivoRef`, `esperandoAjustesRef`,
+   * `usuarioRef`, `ultimoSeguimientoRef`) o lo consulta al sistema en el
+   * momento (permisos, servicio), así que la closure del primer render no
+   * deja nada obsoleto.
    * ------------------------------------------------------------------------ */
   useEffect(() => {
     const sub = AppState.addEventListener('change', (estado) => {
-      if (estado === 'active' && esperandoAjustesRef.current) {
-        esperandoAjustesRef.current = false;
-        revisarPermisoBackground();
-      }
+      if (estado === 'active') alVolverAPrimerPlano();
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -919,9 +692,10 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * detiene acá a propósito: tiene que seguir corriendo con la app cerrada, que
    * es justamente su razón de existir.
    *
-   * También registra el gancho que usa `descargarBuffer` cuando descarta un
-   * viaje cerrado por fuera: baja el seguimiento de primer plano y apaga el
-   * banner. Sin dependencias: se registra una vez al montar.
+   * También registra el gancho (`ganchos.alDescartar`, src/gps/seguimiento.js)
+   * que usa `alViajeDescartado` cuando el gestor descarta un viaje cerrado por
+   * fuera: baja el seguimiento de primer plano y apaga el banner. Sin
+   * dependencias: se registra una vez al montar.
    * ------------------------------------------------------------------------ */
   useEffect(() => {
     ganchos.alDescartar = () => {
@@ -1034,6 +808,21 @@ export default function ChoferScreen({ usuario, onLogout }) {
   }
 
   /**
+   * Datos del viaje y del chofer para los logs de seguimiento (TrackEx v1.1.2
+   * — GPS, punto 4). El 24/11 los logs de permisos no decían de qué viaje ni
+   * de qué chofer eran, y no se pudieron cruzar con los viajes sin traza. Lee
+   * por refs: se usa desde el listener de AppState, que se registra una vez.
+   *
+   * @returns {{viaje_id: string, dni: string}}
+   */
+  function datosLog() {
+    return {
+      viaje_id: viajeActivoRef.current?.id || '',
+      dni: usuarioRef.current?.datos_chofer?.dni || '',
+    };
+  }
+
+  /**
    * Cadena de permisos escalonada y arranque de las fuentes de GPS.
    *
    * CORRIGE LA CAUSA 1. El orden no es opcional: la documentación de
@@ -1045,45 +834,52 @@ export default function ChoferScreen({ usuario, onLogout }) {
    *
    * Secuencia:
    *   1. Foreground. Si falla, se corta acá y se registra `sin_permiso`.
-   *   2. Se arranca YA la fuente de primer plano: no depende de nada más.
-   *   3. Notificaciones (solo Android 13+). Si falla, se loguea y se sigue.
-   *   4. Background: si ya estaba concedido arranca la tarea; si no, se muestra
-   *      el modal explicativo antes de derivar a Ajustes.
+   *   2. Notificaciones (solo Android 13+). Si falla, se loguea y se sigue.
+   *   3. Background:
+   *      - ya concedido → arranca la tarea y NO inicia el watch de primer plano
+   *        (TrackEx v1.1.2 — GPS, causa B: una sola fuente graba);
+   *      - no concedido → inicia el watch como siempre (con el permiso de
+   *        primer plano alcanza para registrar traza mientras el chofer mira el
+   *        teléfono) y muestra el modal explicativo antes de derivar a Ajustes.
+   *   4. En todas las salidas, `informarSeguimiento()` (caso C).
    *
    * @returns {Promise<void>}
    */
   async function activarSeguimiento() {
-    const fg = await Location.requestForegroundPermissionsAsync().catch(() => null);
-    if (!fg || fg.status !== 'granted') {
-      setGpsEstado('sin_permiso');
-      await logApp('permiso_foreground_denegado', {
-        puede_reintentar: fg ? String(fg.canAskAgain) : 'null',
-      });
-      return;
+    try {
+      const fg = await Location.requestForegroundPermissionsAsync().catch(() => null);
+      if (!fg || fg.status !== 'granted') {
+        setGpsEstado('sin_permiso');
+        await logApp('permiso_foreground_denegado', {
+          ...datosLog(),
+          puede_reintentar: fg ? String(fg.canAskAgain) : 'null',
+        });
+        return;
+      }
+
+      const notificaciones = await pedirPermisoNotificaciones();
+      if (!notificaciones) {
+        await logApp('permiso_notificaciones_denegado');
+      }
+
+      const bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
+      if (bg && bg.status === 'granted') {
+        await arrancarTareaBackground();
+        return;
+      }
+
+      // Sin "Permitir siempre": una fuente degradada es mejor que ninguna.
+      await iniciarWatchForeground();
+      setGpsEstado('solo_primer_plano');
+
+      // En Android 11+ `requestBackgroundPermissionsAsync` no muestra diálogo:
+      // manda al chofer directo a Ajustes. La propia doc de Expo recomienda
+      // explicar antes por qué se necesita. Sin eso, el chofer aterriza en una
+      // pantalla del sistema sin entender qué le pidieron.
+      setModalPermiso(true);
+    } finally {
+      await informarSeguimiento();
     }
-
-    // Con el permiso de primer plano ya alcanza para registrar traza mientras el
-    // chofer tiene la app abierta. Se arranca siempre, aunque el permiso de
-    // background después falle: una fuente degradada es mejor que ninguna.
-    await iniciarWatchForeground();
-    setGpsEstado('solo_primer_plano');
-
-    const notificaciones = await pedirPermisoNotificaciones();
-    if (!notificaciones) {
-      await logApp('permiso_notificaciones_denegado');
-    }
-
-    const bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
-    if (bg && bg.status === 'granted') {
-      await arrancarTareaBackground();
-      return;
-    }
-
-    // En Android 11+ `requestBackgroundPermissionsAsync` no muestra diálogo:
-    // manda al chofer directo a Ajustes. La propia doc de Expo recomienda
-    // explicar antes por qué se necesita. Sin eso, el chofer aterriza en una
-    // pantalla del sistema sin entender qué le pidieron.
-    setModalPermiso(true);
   }
 
   /**
@@ -1104,16 +900,34 @@ export default function ChoferScreen({ usuario, onLogout }) {
         await arrancarTareaBackground();
       } else {
         await logApp('permiso_background_denegado', {
+          ...datosLog(),
           puede_reintentar: String(bg.canAskAgain),
         });
       }
     } catch (err) {
       esperandoAjustesRef.current = false;
       await logApp('permiso_background_error', {
+        ...datosLog(),
         code: err?.code || '',
         mensaje: err?.message || '',
       });
     }
+    await informarSeguimiento();
+  }
+
+  /**
+   * "Ahora no" del modal de permiso (TrackEx v1.1.2 — GPS, caso C).
+   *
+   * Antes cerrar el modal no dejaba rastro: el 24/11 un chofer quedó todo el
+   * viaje sin "Permitir siempre" y no había forma de saberlo. Ahora queda el
+   * log `permiso_background_pospuesto` y el estado `limitado` en el viaje.
+   *
+   * @returns {Promise<void>}
+   */
+  async function posponerPermisoBackground() {
+    setModalPermiso(false);
+    logApp('permiso_background_pospuesto', datosLog());
+    await informarSeguimiento();
   }
 
   /**
@@ -1127,6 +941,7 @@ export default function ChoferScreen({ usuario, onLogout }) {
     if (bg && bg.status === 'granted') {
       await arrancarTareaBackground();
     }
+    await informarSeguimiento();
   }
 
   /**
@@ -1137,44 +952,39 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * rechazo quedaba sin manejar y era completamente invisible en producción. Es
    * plausible que el servicio viniera fallando al arrancar desde siempre.
    *
-   * `killServiceOnDestroy: false` mantiene el seguimiento si el chofer saca la
-   * app de recientes. Aun así, el comportamiento real varía por fabricante
-   * (ver dontkillmyapp.com).
+   * Las opciones (precisión, cadencia, notificación con
+   * `killServiceOnDestroy: false`) son las de siempre y viven en
+   * `iniciarServicio` (src/gps/seguimiento.js), que también usa
+   * `asegurarServicio` al rearrancar.
+   *
+   * TrackEx v1.1.2 — GPS: con el servicio activo se baja el watch de primer
+   * plano (una sola fuente graba, causa B). Si el servicio falla, se arranca el
+   * watch: mientras el chofer mire el teléfono, hay traza. En los dos casos se
+   * informa el estado del seguimiento al viaje.
    *
    * @returns {Promise<void>}
    */
   async function arrancarTareaBackground() {
     try {
-      const corriendo = await Location.hasStartedLocationUpdatesAsync(GPS_TASK).catch(() => false);
-      if (!corriendo) {
-        await Location.startLocationUpdatesAsync(GPS_TASK, {
-          accuracy: Location.Accuracy.High,
-          timeInterval: GPS_INTERVALO_MS,
-          distanceInterval: GPS_DISTANCIA_M,
-          showsBackgroundLocationIndicator: true,
-          pausesUpdatesAutomatically: false,
-          foregroundService: {
-            notificationTitle: 'TrackEx · viaje en curso',
-            notificationBody: 'Se registra el recorrido hasta que finalices el viaje.',
-            notificationColor: colorEstado.acentoVerde,
-            killServiceOnDestroy: false,
-          },
-        });
-      }
+      await iniciarServicio();
+      detenerWatchForeground();
       setGpsEstado('activo');
-      await logApp('gps_background_iniciado');
+      await logApp('gps_background_iniciado', datosLog());
     } catch (err) {
       setGpsEstado('error');
       await logApp('gps_background_error', {
+        ...datosLog(),
         code: err?.code || '',
         mensaje: err?.message || '',
       });
+      await iniciarWatchForeground();
       // Se avisa sin alarmar: el viaje funciona igual, lo que se degrada es la traza.
       Alert.alert(
         'Seguimiento limitado',
         'No pudimos activar el registro del recorrido con la app cerrada. El viaje se registra igual, pero conviene avisarle al administrador.'
       );
     }
+    await informarSeguimiento();
   }
 
   /**
@@ -1183,6 +993,11 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * Solo requiere permiso de foreground: ni servicio, ni notificación, ni
    * derivación a Ajustes. Es la red de seguridad para el chofer que nunca
    * concede "Permitir siempre" — mientras mire el teléfono, hay traza.
+   *
+   * TrackEx v1.1.2 — GPS: cada lectura va ENTERA (con su `timestamp`) a
+   * `procesarUbicaciones`, el mismo punto de entrada que la tarea. Si el
+   * servicio de segundo plano está activo, el gestor ignora esta copia
+   * (`fuenteDebeGrabar`, segunda barrera después de no iniciar el watch).
    *
    * Idempotente: si ya hay una suscripción viva, no crea otra.
    *
@@ -1197,10 +1012,114 @@ export default function ChoferScreen({ usuario, onLogout }) {
           timeInterval: GPS_INTERVALO_MS,
           distanceInterval: GPS_DISTANCIA_M,
         },
-        (loc) => { registrarPunto(loc.coords); }
+        (loc) => {
+          procesarUbicaciones([loc], FUENTE.PRIMER_PLANO).catch((err) => {
+            logApp('watch_foreground_error', {
+              ...datosLog(),
+              code: err?.code || '',
+              mensaje: err?.message || '',
+            });
+          });
+        }
       );
     } catch (err) {
       await logApp('watch_foreground_error', {
+        code: err?.code || '',
+        mensaje: err?.message || '',
+      });
+    }
+  }
+
+  /**
+   * Informa al viaje el estado del seguimiento (TrackEx v1.1.2 — GPS, caso C).
+   *
+   * El 24/11 un teléfono sin "Permitir siempre" quedó sin traza con la pantalla
+   * apagada y el portal no tenía cómo saberlo. Junta:
+   *   - permiso de ubicación y de segundo plano (consultas, nunca pedidos);
+   *   - notificaciones: se consulta en el momento con
+   *     `consultarPermisoNotificaciones` (la misma fuente que `permisoNotif`)
+   *     y no se lee el estado de React, porque al volver de Ajustes el
+   *     EFECTO 6 puede no haberlo actualizado todavía;
+   *   - si el servicio corre (`hasStartedLocationUpdatesAsync`);
+   *   - la versión instalada (`Constants.expoConfig.version`, la misma fuente
+   *     que `PieVersion` y `registro.js`).
+   * Si `cambiosEstadoSeguimiento` difiere de lo último informado para ese
+   * viaje, escribe con `registrarEstadoSeguimiento` SIN `await` (es telemetría;
+   * el SDK la encola si no hay red) y registra `seguimiento_estado`. Nunca
+   * lanza: no puede trabar la cadena de permisos.
+   *
+   * @returns {Promise<void>}
+   */
+  async function informarSeguimiento() {
+    const viaje = viajeActivoRef.current;
+    if (!viaje) return;
+    try {
+      const [fg, bg, notif, servicio] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch(() => null),
+        Location.getBackgroundPermissionsAsync().catch(() => null),
+        consultarPermisoNotificaciones(),
+        servicioActivo(),
+      ]);
+      const estado = {
+        permisoUbicacion: fg?.status === 'granted',
+        permisoSegundoPlano: bg?.status === 'granted',
+        notificaciones: notif?.concedido === true,
+        servicioActivo: servicio === true,
+        versionApp: Constants.expoConfig?.version || '',
+      };
+      const campos = cambiosEstadoSeguimiento(estado);
+      const clave = JSON.stringify(campos);
+      const previo = ultimoSeguimientoRef.current;
+      if (previo.viajeId === viaje.id && previo.clave === clave) return;
+      ultimoSeguimientoRef.current = { viajeId: viaje.id, clave };
+
+      registrarEstadoSeguimiento({ db, viajeId: viaje.id, estado }).catch((err) => {
+        // Se olvida lo informado para reintentar en la próxima reevaluación.
+        ultimoSeguimientoRef.current = { viajeId: null, clave: '' };
+        logApp('seguimiento_estado_error', {
+          viaje_id: viaje.id,
+          code: err?.code || '',
+          mensaje: err?.message || '',
+        });
+      });
+      logApp('seguimiento_estado', { ...datosLog(), viaje_id: viaje.id, ...campos });
+    } catch (err) {
+      logApp('seguimiento_estado_error', {
+        viaje_id: viaje.id,
+        code: err?.code || '',
+        mensaje: err?.message || '',
+      });
+    }
+  }
+
+  /**
+   * Regreso a primer plano: ver EFECTO 4. Nunca lanza (corre desde un
+   * listener, donde un rechazo quedaría sin manejar).
+   *
+   * @returns {Promise<void>}
+   */
+  async function alVolverAPrimerPlano() {
+    try {
+      if (esperandoAjustesRef.current) {
+        esperandoAjustesRef.current = false;
+        await revisarPermisoBackground();
+      }
+      if (!viajeActivoRef.current) return;
+
+      const activo = await asegurarServicio();
+      if (activo) {
+        detenerWatchForeground();
+        setGpsEstado('activo');
+      }
+
+      // Sin bloquear la UI: la subida puede tardar hasta el límite de tiempo.
+      sembrarToken(auth.currentUser);
+      descargarPendientes().catch(() => {});
+
+      await informarSeguimiento();
+    } catch (err) {
+      logApp('primer_plano_error', {
+        ...datosLog(),
         code: err?.code || '',
         mensaje: err?.message || '',
       });
@@ -1298,6 +1217,27 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * transacciones que revalidan el estado del viaje en el servidor y dejan
    * historial. Acá solo se arma el contexto (posición, buffer GPS, usuario) y se
    * manejan los errores y el aviso al coordinador.
+   *
+   * ACCIONES CON RESULTADO SIEMPRE VISIBLE (TrackEx v1.1.2 — GPS, punto 7).
+   * SÍNTOMA: el 24/11 no se pudo saber si los choferes habían tocado Finalizar.
+   * CAUSA RAÍZ: una transacción de Firestore sin red no falla, queda esperando;
+   * el botón quedaba en "Confirmando..." y no había log hasta que terminaba.
+   * CORRECCIÓN:
+   *   1. ANTES de escribir se registra `accion_intento` (`accion`, `viaje_id`,
+   *      `dni`), sin `await`: queda el rastro de que el chofer tocó el botón.
+   *   2. La escritura compartida corre contra `LIMITE_ACCION_MS` (25 s,
+   *      `conLimite`). En primer plano los timers corren.
+   *   3. Si vence: `accion_sin_confirmar` y el aviso `TEXTO_SIN_CONFIRMAR`.
+   * POR QUÉ ES SEGURO REINTENTAR: `iniciarViaje`, `reportarDemora` y
+   * `finalizarViaje` son transacciones que leen el viaje y revalidan su estado
+   * antes de escribir. Si la primera escritura sí llegó, el reintento falla
+   * con un mensaje ("Este viaje ya está iniciado.", "El viaje está FINALIZADO
+   * y no se puede cerrar.") en vez de escribir dos veces; en la demora, solo
+   * reescribe el mismo atributo `demorado`. Además el snapshot del viaje
+   * actualiza la pantalla en cuanto la escritura llega, que es lo que el aviso
+   * le pide al chofer que mire.
+   * LIMITACIÓN: la transacción vencida no se cancela; puede terminar después
+   * del aviso (y entonces la pantalla cambia sola).
    * ======================================================================== */
 
   /**
@@ -1331,6 +1271,13 @@ export default function ChoferScreen({ usuario, onLogout }) {
    *
    * ES UN PARCHE hasta portal v1.2.4, cuando los avisos pasen a la API de Vercel.
    *
+   * LÍMITE DE ESPERA (TrackEx v1.1.2 — GPS, punto 7.5): el `fetch` y la lectura
+   * de la respuesta corren contra `LIMITE_AVISO_MS` (15 s). Antes un Apps Script
+   * colgado dejaba el botón en "Confirmando..." aunque el viaje ya estuviera
+   * escrito. Si vence, se registra `aviso_apps_script_error` con
+   * `code: 'sin-confirmar'`, como cualquier otra falla del aviso: el pedido
+   * puede igual llegar después.
+   *
    * @param {string} accion 'chofer_demora' | 'chofer_finalizo'
    * @param {Object} viaje Viaje adaptado (`adaptarViaje`).
    * @param {string} [motivo] Motivo de la demora, si corresponde.
@@ -1356,8 +1303,11 @@ export default function ChoferScreen({ usuario, onLogout }) {
       ov: '',
     };
     try {
-      const res = await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString());
-      const texto = await res.text();
+      const url = APPS_SCRIPT_URL + '?' + new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+      const { res, texto } = await conLimite(
+        fetch(url).then(async (r) => ({ res: r, texto: await r.text() })),
+        LIMITE_AVISO_MS
+      );
       let respuesta = null;
       try {
         respuesta = JSON.parse(texto);
@@ -1396,6 +1346,14 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * @returns {Promise<void>}
    */
   async function manejarErrorAccion(err, accion, viaje) {
+    // Venció `LIMITE_ACCION_MS`: no es un error de la escritura, es que no
+    // sabemos si llegó. Ver "ACCIONES CON RESULTADO SIEMPRE VISIBLE".
+    if (err?.code === 'sin-confirmar') {
+      logApp('accion_sin_confirmar', { accion, viaje_id: viaje?.id || '', dni: dniUsuario });
+      Alert.alert('Sin confirmar', TEXTO_SIN_CONFIRMAR);
+      return;
+    }
+
     const code = err?.code || err?.name || 'desconocido';
     await logApp('estado_error', {
       code,
@@ -1425,9 +1383,10 @@ export default function ChoferScreen({ usuario, onLogout }) {
     if (!motivo) { Alert.alert('Error', 'Describí el problema antes de continuar.'); return; }
 
     const viaje = modalDemora;
+    logApp('accion_intento', { accion: 'demora', viaje_id: viaje.id, dni: dniUsuario });
     setProcesando(true);
     try {
-      await reportarDemora({ db, viaje, motivo, usuario });
+      await conLimite(reportarDemora({ db, viaje, motivo, usuario }), LIMITE_ACCION_MS);
       await logApp('estado_actualizado', { viaje_id: viaje.id, estado: 'demorado', dni: dniUsuario });
       await avisarCoordinador('chofer_demora', viaje, motivo);
       setModalDemora(null);
@@ -1444,14 +1403,23 @@ export default function ChoferScreen({ usuario, onLogout }) {
    *
    * ORDEN (no es opcional):
    *   1. Obtener la posición de fin.
-   *   2. Descargar el buffer GPS. Las reglas de `gps_puntos` exigen el viaje en
-   *      EN_VIAJE, así que tiene que ir ANTES de cerrarlo: después rebota.
-   *   3. `finalizarViaje`, que cierra el viaje y empuja el despacho a ENTREGADO.
+   *   2. Subir lo pendiente (`descargarPendientes`). Las reglas de `gps_puntos`
+   *      exigen el viaje en EN_VIAJE, así que tiene que ir ANTES de cerrarlo:
+   *      después rebota. Si igual quedan puntos de este viaje (sin red, o la
+   *      subida venció), se registra `gps_pendientes_al_finalizar` con la
+   *      cantidad y SE FINALIZA IGUAL: el viaje siempre avanza.
+   *      LIMITACIÓN: esos puntos ya no pueden subir con el viaje cerrado; el
+   *      gestor los descarta en la próxima descarga (`gps_descarte`). Sin red,
+   *      este paso puede sumar hasta el límite de la subida (20 s, más la
+   *      renovación del token si hiciera falta) antes del cierre.
+   *   3. `finalizarViaje`, que cierra el viaje y empuja el despacho a ENTREGADO,
+   *      con el límite de `LIMITE_ACCION_MS`.
    *
    * @returns {Promise<void>}
    */
   async function confirmarFinalizar() {
     const viaje = modalFinalizar;
+    logApp('accion_intento', { accion: 'finalizar', viaje_id: viaje.id, dni: dniUsuario });
     setProcesando(true);
     try {
       if (!viaje.despacho_id) {
@@ -1465,18 +1433,25 @@ export default function ChoferScreen({ usuario, onLogout }) {
       }
 
       // 2. Traza pendiente, mientras el viaje todavía está EN_VIAJE.
-      const guardado = await leerJSON(KEY_VIAJE_ACTIVO, null);
-      if (guardado?.viajeId) await descargarBuffer(guardado.viajeId);
+      await descargarPendientes();
+      const quedan = await pendientesDeViaje(viaje.id);
+      if (quedan > 0) {
+        logApp('gps_pendientes_al_finalizar', {
+          viaje_id: viaje.id,
+          dni: dniUsuario,
+          puntos_pendientes: quedan,
+        });
+      }
 
       // 3. Cierre.
-      await finalizarViaje({
+      await conLimite(finalizarViaje({
         db,
         viaje,
         despacho: { id: viaje.despacho_id },
         posicion,
         cerradoPor: 'chofer',
         usuario,
-      });
+      }), LIMITE_ACCION_MS);
 
       await logApp('estado_actualizado', { viaje_id: viaje.id, estado: 'finalizado', dni: dniUsuario });
       await avisarCoordinador('chofer_finalizo', viaje);
@@ -1500,6 +1475,7 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * @returns {Promise<void>}
    */
   async function confirmarIniciar(v) {
+    logApp('accion_intento', { accion: 'iniciar', viaje_id: v.id, dni: dniUsuario });
     setProcesando(true);
     try {
       const posicion = await obtenerPuntoActual();
@@ -1507,7 +1483,10 @@ export default function ChoferScreen({ usuario, onLogout }) {
         await logApp('punto_no_disponible', { viaje_id: v.id, accion: 'iniciar' });
       }
 
-      await iniciarViaje({ db, viaje: v, posicion, misViajes: viajes, usuario });
+      await conLimite(
+        iniciarViaje({ db, viaje: v, posicion, misViajes: viajes, usuario }),
+        LIMITE_ACCION_MS
+      );
       await logApp('estado_actualizado', { viaje_id: v.id, estado: 'iniciado', dni: dniUsuario });
     } catch (err) {
       await manejarErrorAccion(err, 'iniciar', v);
@@ -1680,7 +1659,7 @@ export default function ChoferScreen({ usuario, onLogout }) {
               <TouchableOpacity style={s.btnVerde} onPress={continuarPermisoBackground}>
                 <Text style={s.btnBlanco}>Continuar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.btnGris} onPress={() => setModalPermiso(false)}>
+              <TouchableOpacity style={s.btnGris} onPress={posponerPermisoBackground}>
                 <Text style={s.btnGrisTxt}>Ahora no</Text>
               </TouchableOpacity>
             </ColumnaCentrada>

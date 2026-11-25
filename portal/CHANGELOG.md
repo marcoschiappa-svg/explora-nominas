@@ -79,6 +79,12 @@ viajes) mostró cuatro defectos de GPS:
 `package.json` suma la devDependency `@firebase/rules-unit-testing` 5.0.1 y el
 script `test:reglas`.
 
+**Parte 2 (app).** `src/shared/logica-gps.js` suma solo dos funciones puras,
+`urlDocumentoRest` y `leerEstadoViajeRest`, para que la app consulte el estado
+del viaje por REST (con tres tests nuevos en `logica-gps.test.js`); el resto de
+su API no cambia. La app sube por XHR con timeout nativo en vez de `fetch` (ver
+`explora-app/CHANGELOG.md`, v1.1.2).
+
 **Cambio de reglas (`firestore.rules.produccion`). Solo agrega permisos.**
 
 - `camposDelChofer()` suma `seguimiento_estado`,

@@ -503,6 +503,37 @@ export function urlCommitRest(projectId) {
 }
 
 /**
+ * URL del GET de un documento por la API REST (agregado en el prompt 2 de
+ * TrackEx v1.1.2 — GPS). La app consulta el estado del viaje por acá, y no por
+ * el SDK, por la misma razón que sube por REST: una lectura del SDK puede
+ * quedar esperando sin fallar en segundo plano.
+ *
+ * Referencia: https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/get
+ *
+ * @param {string} projectId
+ * @param {string} ruta Ruta del documento, por ejemplo `viajes/abc`.
+ * @returns {string}
+ */
+export function urlDocumentoRest(projectId, ruta) {
+  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${ruta}`;
+}
+
+/**
+ * Estado de un viaje a partir del documento REST (`Document`: `{ name,
+ * fields: { estado: { stringValue } } }`). Agregado en el prompt 2 de TrackEx
+ * v1.1.2 — GPS para `consultarEstadoViaje` de la app.
+ *
+ * Referencia: https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents#Document
+ *
+ * @param {Object|null} cuerpo Cuerpo JSON de la respuesta del GET.
+ * @returns {string|null} El estado, o `null` si falta.
+ */
+export function leerEstadoViajeRest(cuerpo) {
+  const valor = cuerpo && cuerpo.fields && cuerpo.fields.estado && cuerpo.fields.estado.stringValue;
+  return typeof valor === 'string' ? valor : null;
+}
+
+/**
  * Cuerpo JSON del `commit` que sube un lote de puntos de un viaje.
  *
  * Es el equivalente REST de `registrarPuntos()` (`logica-viajes.js`), atómico

@@ -1248,7 +1248,7 @@ función lo escribe.
 | `adjuntos` | todo | los marcados visibles | — |
 | `despachos` | todo | los suyos | — |
 | `viajes` | todo | los de su organización | el suyo, escritura acotada |
-| `gps_puntos` | todo | los de su organización | crea los suyos |
+| `gps_puntos` | todo | los de su organización | crea los suyos; reescribe idénticos (reenvío de lote) |
 | `historial` | lectura | — | — |
 | `contadores` | interno | — | — |
 | `app_logs` | consola | — | crea |
