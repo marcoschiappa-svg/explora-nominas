@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.5
+VERSION_ACTUAL: 1.2.6
 
 # Changelog — Portal Explora
 
@@ -18,6 +18,78 @@ Las versiones más nuevas van arriba.
 ---
 ## Sin publicar
 
+### v1.2.6 — Seguimiento: traza en vivo y estado del seguimiento
+
+**Encuadre inicial del mapa.** En notebooks el mapa quedaba como un recuadro
+gris hasta cambiar el zoom del navegador o el tamaño de la ventana: Leaflet
+medía el contenedor antes de que tuviera su tamaño final. Ahora el mapa se
+re-mide con un `ResizeObserver` (un solo `requestAnimationFrame` pendiente,
+ignorando medidas 0) y la vista inicial se aplica en la primera medida válida.
+La vista inicial pasa de Argentina entera a **Rosario al centro**, con el zoom
+que hace entrar Córdoba, Santa Fe, Paraná y Buenos Aires
+(`seguimiento-encuadre.js`, con test; zoom en pasos de 0,25). Mientras el
+usuario no mueva el mapa ni seleccione un viaje, cada cambio de tamaño
+re-aplica esa vista; "En vivo" la vuelve a aplicar.
+
+**Traza del viaje en curso.** En la prueba del 24/11 el coordinador no vio
+ningún recorrido: solo el Historial (viajes finalizados) dibujaba trazas y
+ningún viaje llegó a finalizarse desde la app. La traza parcial de un viaje en
+vivo se había sacado en el rediseño sin consultarlo. Ahora, al seleccionar un
+viaje **En viaje** (tarjeta, alerta o marcador), se dibuja su recorrido hasta
+el momento con la "A" en el primer punto, y se actualiza solo a medida que
+llegan puntos, sin mover el mapa (encuadra solo la primera vez). Hay una sola
+suscripción abierta a la vez y se cierra al deseleccionar, al elegir otro
+viaje, al cambiar de pestaña, con "En vivo", cuando el viaje se cierra y al
+salir de la pantalla. La primera lectura trae todos los puntos del viaje (hasta
+unos 3000 en un día): por eso solo se abre al seleccionar.
+
+**Estado del seguimiento.** TrackEx 1.1.2 informa en cada viaje si el
+seguimiento es completo, limitado (solo registra con la app abierta) o sin
+permiso de ubicación. La tarjeta muestra "seguimiento limitado" o "sin permiso
+de ubicación" y se suman a las alertas, separados de "sin señal". Los viajes
+iniciados con la app 1.1.1 o anterior no muestran nada (no informan).
+
+**Historial.** Los recorridos de la app 1.1.1 tenían cada punto dos veces: se
+dejan de dibujar los duplicados (mismas coordenadas a menos de 1 s). La tarjeta
+muestra la cantidad real de puntos del viaje seleccionado, una vez cargado, en
+vez del contador `puntos_registrados` (que sube de más cuando la app reenvía un
+lote). Si el recorrido no se puede cargar, aparece "No se pudo cargar el
+recorrido". El cierre manual deja el viaje en FINALIZADO, así que esos viajes
+también entran al Historial.
+
+- Nuevo: `src/pages/logica-seguimiento.js` (`prepararTraza`, `resumenTraza`,
+  `alertaSeguimiento`) y `src/pages/logica-seguimiento.test.js`;
+  `src/pages/seguimiento-encuadre.js` y su test (encuadre).
+- Modificado: `src/pages/Seguimiento.js`.
+- No cambia: reglas, lógica compartida, app.
+
+**Pruebas manuales** (en claro y en oscuro, con un viaje en curso de TrackEx
+1.1.2):
+
+1. Notebook (1280x650 y 1366x768) y 1920x1080: el mapa se ve sin gris, con
+   Rosario al centro; con zoom del navegador 125 % y 150 % también.
+2. Seleccionar el viaje en curso desde la tarjeta: acerca, abre el popup,
+   dibuja la traza con la "A" y encuadra la traza.
+3. Dejarla abierta unos minutos con el chofer en movimiento: la línea crece sin
+   que el mapa se mueva; mover o acercar el mapa a mano y verificar que no
+   vuelve a encuadrar.
+4. Tocar la tarjeta de nuevo: la traza desaparece. Seleccionar otro viaje: se
+   ve solo la traza del nuevo. Seleccionar desde el marcador y desde una alerta:
+   igual que desde la tarjeta.
+5. Un viaje Recibido no dibuja traza.
+6. Con la traza abierta, cambiar a Historial y volver a "En vivo": no queda
+   traza y la vista vuelve a Rosario.
+7. Cerrar a mano el viaje con la traza abierta: la traza desaparece, el viaje
+   sale de "En vivo" y aparece en Historial con su recorrido y la cantidad de
+   puntos.
+8. Un teléfono sin "Permitir siempre": su tarjeta muestra "seguimiento
+   limitado" y aparece la alerta ámbar; sin permiso de ubicación, la roja.
+9. Historial: un viaje de la app 1.1.1 dibuja el recorrido sin puntos dobles, y
+   la cantidad aparece recién después de cargarlo.
+
+Acompaña a **TrackEx v1.1.2** (app). La línea `VERSION_ACTUAL` se actualiza al
+publicar (Procedimiento.md, Paso 9).
+
 **Herramienta nueva: `scripts/asignar-claves-choferes.js`.** Asigna a todos los
 choferes activos la contraseña `<primer nombre>2026` (minúsculas, sin acentos,
 solo a-z; "Iván Pérez" -> `ivan2026`), para darles acceso a TrackEx v1.1.1. Es
@@ -34,6 +106,82 @@ inexistente) guarda un CSV. No escribe en Firestore. **Limitación:** la
 contraseña es predecible (alcanza con el nombre y el DNI para entrar) y hay que
 revisarla al salir del modo de prueba. No cambia el portal, las reglas ni el
 Apps Script.
+
+### Cambios que acompañan a TrackEx v1.1.2 — GPS (parte 1: base compartida y reglas)
+
+**Qué se corrigió.** El primer uso real de TrackEx v1.1.1 (24/11/2026, tres
+viajes) mostró cuatro defectos de GPS:
+
+- **A — Subida trabada en segundo plano.** El GPS capturó bien con la pantalla
+  apagada, pero las escrituras del SDK web de Firestore quedaron pendientes
+  horas: 558 puntos de 14:42 a 03:19 llegaron juntos a las 03:20. Causa raíz:
+  una escritura del SDK sin confirmar no falla, queda pendiente sin error ni
+  log. La app pasará a subir por la API REST con `fetch` y límite de tiempo
+  (prompt 2); acá queda construida y testeada esa subida.
+- **B — Lotes rechazados enteros (`permission-denied`).** Dos fuentes grababan
+  la misma lectura y se disparaban descargas superpuestas con puntos repetidos.
+  Causa raíz: `set()` sobre un punto existente es un update, y la regla de
+  `gps_puntos` decía `allow update: if false`: un punto repetido rechazaba el
+  lote entero. Además, una descarga exitosa vaciaba el buffer completo y perdía
+  los puntos de otra descarga en vuelo.
+- **C — Seguimiento limitado invisible.** Un teléfono sin permiso de segundo
+  plano siguió el viaje solo con la app abierta sin que nadie se enterara.
+  Causa raíz: el estado de permisos y servicio vivía solo en el teléfono.
+- **D — Hora del punto equivocada.** El punto se sellaba con `new Date()` al
+  procesar, no con la hora de la lectura; `precision` y `velocidad` llegaban
+  `null`.
+
+**Archivos nuevos.**
+
+- `src/shared/logica-gps.js`: lógica de GPS pura (filtros, buffer por viaje,
+  lotes de hasta 200, migración del buffer de la 1.1.1, commit REST,
+  clasificación de respuestas) y `crearGestorGPS`, el orquestador con cola
+  serial, una sola descarga en vuelo, timeout de 20 s y descarte de viajes
+  cerrados y puntos inválidos sin trabar el resto.
+- `src/shared/logica-gps.test.js`: unitarios y los escenarios del 24/11 contra
+  un servidor falso con la semántica de las reglas, incluidos los datos reales
+  de `src/shared/__fixtures__/gps-24-11-2026.json`.
+- `src/shared/logica-viajes-seguimiento.test.js`.
+- `reglas-tests/gps-y-viajes.reglas.test.js`: 16 casos de reglas contra el
+  emulador (`node:test`).
+
+`src/shared/logica-viajes.js` suma `cambiosEstadoSeguimiento`,
+`registrarEstadoSeguimiento`, `estadoSeguimiento`, `ETIQUETA_SEGUIMIENTO` y
+`COLOR_SEGUIMIENTO`; `registrarPuntos` no cambia (queda para la app ≤ 1.1.1).
+`package.json` suma la devDependency `@firebase/rules-unit-testing` 5.0.1 y el
+script `test:reglas`.
+
+**Parte 2 (app).** `src/shared/logica-gps.js` suma solo dos funciones puras,
+`urlDocumentoRest` y `leerEstadoViajeRest`, para que la app consulte el estado
+del viaje por REST (con tres tests nuevos en `logica-gps.test.js`); el resto de
+su API no cambia. La app sube por XHR con timeout nativo en vez de `fetch` (ver
+`explora-app/CHANGELOG.md`, v1.1.2).
+
+**Cambio de reglas (`firestore.rules.produccion`). Solo agrega permisos.**
+
+- `camposDelChofer()` suma `seguimiento_estado`,
+  `seguimiento_permiso_ubicacion`, `seguimiento_permiso_segundo_plano`,
+  `seguimiento_notificaciones`, `seguimiento_servicio`,
+  `seguimiento_version_app` y `seguimiento_ts`; el update del chofer exige que
+  `seguimiento_estado` sea `completo`, `limitado` o `sin_ubicacion`.
+- `gps_puntos`: el chofer puede reescribir un punto de su viaje solo si queda
+  idéntico. Hace idempotente el reenvío de un lote cuya respuesta se perdió.
+  Borrar sigue prohibido.
+
+**Cómo se verifica.** Desde `portal`:
+
+- `CI=true npm test -- --watchAll=false` (todo verde).
+- `firebase emulators:exec --only firestore --project demo-explora-reglas "npm run test:reglas"`
+  (requiere Java).
+
+**Orden de despliegue.** Primero las reglas: staging y después producción,
+siguiendo el Paso 8 de `Procedimiento.md`. Son inocuas para la app instalada:
+la 1.1.1 no se ve afectada y deja de tener rechazos por reescritura idéntica
+apenas se publiquen. La app 1.1.2 (prompt 2) se publica después.
+
+**Limitación conocida.** `puntos_registrados` es un `increment`: un lote
+reenviado suma de nuevo aunque los puntos se reescriban idénticos. El contador
+puede quedar por encima de los documentos reales de `gps_puntos`.
 
 ---
 ## v1.2.5 — 11/11/2026 — Programación, Tarifario y Seguimiento

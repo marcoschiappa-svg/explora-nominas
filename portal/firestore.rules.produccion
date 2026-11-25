@@ -857,6 +857,41 @@ service cloud.firestore {
     // Solo los campos de su propio recorrido. No puede cambiar a que despacho
     // pertenece el viaje, ni de que organizacion es, ni a que chofer esta
     // asignado.
+    //
+    // TrackEx v1.1.2 — GPS
+    //
+    //   SINTOMA: en el primer uso real (24/11/2026) los lotes de puntos GPS
+    //   se rechazaban enteros con permission-denied (rafagas de
+    //   `gps_flush_error`, `puntos_pendientes` creciendo de a uno), y un
+    //   telefono sin permiso de segundo plano siguio el viaje "solo con la
+    //   app abierta" sin que nadie se enterara.
+    //
+    //   CAUSA RAIZ: (1) la app reenviaba puntos ya escritos (dos fuentes y
+    //   descargas superpuestas) con `set()`, que sobre un documento
+    //   existente es un update, y la regla de `gps_puntos` decia
+    //   `allow update: if false`: un solo punto repetido rechazaba el lote
+    //   entero, incluida la ultima posicion del viaje. (2) El estado de los
+    //   permisos vivia solo en el telefono: no habia campo en el viaje para
+    //   reportarlo.
+    //
+    //   ALCANCE: SOLO AGREGA PERMISOS, no quita ninguno.
+    //     - `camposDelChofer()` suma los siete `seguimiento_*`, y el update
+    //       del chofer exige que `seguimiento_estado`, si cambia, sea
+    //       'completo', 'limitado' o 'sin_ubicacion'.
+    //     - `gps_puntos`: el chofer puede reescribir un punto de su viaje
+    //       solo si queda IDENTICO. Ver el bloque de PUNTOS GPS.
+    //     La app 1.1.1 instalada no se ve afectada; deja de tener rechazos
+    //     por reescritura identica apenas se publique.
+    //
+    //   LIMITACIONES: la reescritura identica no exige el viaje EN_VIAJE (no
+    //   hace falta: no cambia nada). Un lote reenviado igual suma de nuevo a
+    //   `puntos_registrados` (es un increment); el contador puede quedar por
+    //   encima de los documentos reales.
+    //
+    //   COMO SE VERIFICA: `reglas-tests/gps-y-viajes.reglas.test.js` contra el
+    //   emulador (desde `portal`):
+    //     firebase emulators:exec --only firestore --project demo-explora-reglas "npm run test:reglas"
+    //   y despues el Paso 8 de `Procedimiento.md` (staging y produccion).
     // -------------------------------------------------------------------------
 
     function camposDelChofer() {
@@ -868,7 +903,15 @@ service cloud.firestore {
               'puntos_registrados',
               'demorado', 'demora_motivo', 'demora_ts',
               'cerrado_por',
-              'actualizado_en'];
+              'actualizado_en',
+              // TrackEx v1.1.2 — GPS: estado del seguimiento, lo reporta la app.
+              'seguimiento_estado',
+              'seguimiento_permiso_ubicacion',
+              'seguimiento_permiso_segundo_plano',
+              'seguimiento_notificaciones',
+              'seguimiento_servicio',
+              'seguimiento_version_app',
+              'seguimiento_ts'];
     }
 
     // El chofer arranca y cierra. CANCELADO lo escribe el coordinador cuando
@@ -901,6 +944,8 @@ service cloud.firestore {
                       && noCambia('transportista_org_id')
                       && cambia().hasOnly(camposDelChofer())
                       && request.resource.data.estado in estadosDelChofer()
+                      // TrackEx v1.1.2 — GPS: solo los tres valores validos.
+                      && (!cambia().hasAny(['seguimiento_estado']) || request.resource.data.seguimiento_estado in ['completo', 'limitado', 'sin_ubicacion'])
                     );
 
       allow delete: if false;
@@ -918,13 +963,20 @@ service cloud.firestore {
       // reintento, cada punto cae en la misma clave en vez de duplicarse.
       //
       // Sobre el costo del get() al crear: la app sube los puntos en lote
-      // (hasta 10 por escritura). Firestore deduplica los accesos identicos
-      // dentro de una misma solicitud, asi que un lote de 10 puntos cuesta un
-      // solo get() del viaje, no diez.
+      // (hasta `LOTE_MAXIMO_PUNTOS` (200) por escritura). Firestore deduplica
+      // los accesos identicos dentro de una misma solicitud, asi que un lote
+      // de 200 puntos cuesta un solo get() del viaje, no doscientos.
       //
-      // Solo se crean. Nunca se modifican ni se borran: un punto es la lectura
-      // de un sensor en un instante, cambiarlo despues seria falsificar el
-      // recorrido.
+      // Nunca se modifican ni se borran: un punto es la lectura de un sensor
+      // en un instante, cambiarlo despues seria falsificar el recorrido.
+      //
+      // TrackEx v1.1.2 — GPS: el chofer SI puede reescribir un punto de su
+      // viaje si queda IDENTICO (`request.resource.data == resource.data`).
+      // La reescritura identica no falsifica nada (el punto queda igual) y
+      // hace idempotente el reenvio de un lote cuya respuesta se perdio. Sin
+      // esto, un lote reenviado con un punto ya escrito se rechaza entero,
+      // que es lo que paso el 24/11. Ver el bloque "TrackEx v1.1.2 — GPS" del
+      // encabezado de VIAJES.
       // -----------------------------------------------------------------------
 
       function viajePadre() {
@@ -945,7 +997,10 @@ service cloud.firestore {
                       && viajePadre().chofer_dni == miDni()
                       && viajePadre().estado == 'EN_VIAJE';
 
-        allow update, delete: if false;
+        allow update: if tieneRol('chofer')
+                      && viajePadre().chofer_dni == miDni()
+                      && request.resource.data == resource.data;
+        allow delete: if false;
       }
     }
 

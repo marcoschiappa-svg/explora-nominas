@@ -13,6 +13,81 @@ seguir viendo junto al semántico.
 
 ---
 
+## v1.1.2 — versionCode (lo asigna EAS al compilar) — sin publicar
+
+**TrackEx v1.1.2 — GPS: el recorrido sube con la pantalla bloqueada.**
+
+Primer uso real de la v1.1.1 (24/11/2026, tres viajes). Causas raíz:
+
+- **A — Subida trabada en segundo plano.** Con la app en segundo plano React
+  Native pausa los timers de JS, salvo mientras expo-task-manager procesa una
+  lectura. El SDK web de Firestore depende de esos timers: sus escrituras
+  quedaban pendientes horas sin fallar (558 puntos de 14:42 a 03:19 llegaron
+  juntos a las 03:20, al abrir la app). `logApp` esperaba una escritura así y
+  también podía colgar la tarea. Ahora la subida, la consulta del viaje y la
+  renovación del token van por la API REST con `XMLHttpRequest` y timeout
+  nativo (OkHttp `callTimeout`), la tarea espera todo su trabajo y `logApp` ya
+  no bloquea.
+- **B — Lotes rechazados enteros.** Las dos fuentes (primer y segundo plano)
+  grababan la misma lectura y había descargas superpuestas; un punto repetido
+  hacía rebotar el lote entero y una descarga exitosa vaciaba el buffer
+  completo. Ahora graba una sola fuente, el gestor compartido
+  (`portal/src/shared/logica-gps.js`) serializa el buffer y quita solo lo
+  confirmado, y la regla permite reescribir un punto idéntico.
+- **C — Seguimiento limitado invisible.** Un teléfono sin "Permitir siempre"
+  quedó sin traza y nadie se enteró; "Ahora no" no dejaba rastro. Ahora el viaje
+  guarda el estado del seguimiento (`seguimiento_*`: completo, limitado o sin
+  ubicación) y se registran `seguimiento_estado` y `permiso_background_pospuesto`.
+- **D — Hora del punto equivocada.** Se sellaba con la hora de procesamiento.
+  Ahora cada punto lleva la hora de la lectura, su precisión y su velocidad.
+- Además: la tarea de GPS se define en `src/gps/tarea.js`, importado primero
+  en `index.js` (antes dependía de que se importara la pantalla); al volver a la
+  app se rearranca el servicio si el sistema lo cortó (el 24/11 se cortó a las
+  13:21) y se sube lo pendiente. El reinicio se hace si la tarea no está
+  registrada (`motivo: no_registrado`) o si no hubo ninguna lectura aceptada en
+  15 minutos (`motivo: sin_lecturas`), porque el sistema puede matar el proceso
+  del servicio sin dar de baja la tarea; con el camión estacionado el reinicio
+  es inocuo. El token de la subida sale de una cache propia sin pasar por el SDK
+  de Auth en el camino normal (el SDK solo entra para renovarlo), y esa cache
+  se borra al tocar "Salir" y si cambia el usuario; el buffer local pasa de 1000 a 3000 puntos
+  (un día sin red) y se migra solo desde el formato de la v1.1.1.
+
+**Qué cambia para el chofer.** Nada visible, salvo dos cosas: el recorrido sube
+con la pantalla bloqueada, y si iniciar, demorar o finalizar no confirma en 25
+segundos aparece el aviso "No pudimos confirmar si se guardó. Revisá tu
+conexión: si en unos segundos el viaje no cambió, intentá de nuevo." (reintentar
+es seguro: las tres acciones son transacciones que revalidan el estado). Antes
+de cada acción queda `accion_intento` en `app_logs`.
+
+**Logs nuevos o cambiados en `app_logs`.** `gps_subida_error` (reemplaza al
+error de descarga de la v1.1.1), `gps_subida_recuperada`, `gps_descarte`,
+`gps_punto_descartado`, `gps_migracion_buffer`, `gps_servicio_reiniciado` (con
+`motivo` y `minutos`),
+`gps_pendientes_al_finalizar`, `seguimiento_estado`, `permiso_background_pospuesto`,
+`accion_intento`, `accion_sin_confirmar`. Los logs de permisos y de arranque del
+servicio llevan `viaje_id` y `dni`.
+
+- Nuevo: `src/gps/subida.js`, `src/gps/seguimiento.js`, `src/gps/tarea.js`
+- Modificado: `index.js`, `src/screens/ChoferScreen.js`, `src/registro.js`,
+  `src/compartido.js`, `app.json`
+- Fuera de la app: `portal/src/shared/logica-gps.js` (dos funciones nuevas),
+  `portal/src/shared/logica-gps.test.js`, `MODELO_DATOS_TOBE.md`,
+  `portal/CHANGELOG.md`
+- **Versión:** `app.json` pasa de 1.1.1 a **1.1.2**.
+
+### Requisitos y puesta en marcha
+
+1. **Requiere las reglas de la parte 1** (`gps_puntos` con reescritura idéntica
+   y los campos `seguimiento_*` en `viajes`), **ya publicadas**.
+2. Después de publicar la v1.1.2 en Play y de que los choferes actualicen,
+   **subir `configuracion_app/trackex.version_minima` a `1.1.2`**: la v1.1.1
+   tiene los defectos de subida. Igual que en la v1.1.1, subirla cuando no haya
+   viajes EN_VIAJE en teléfonos con versiones viejas (el bloqueo impide
+   finalizar).
+3. El GPS en segundo plano solo se prueba en un build de EAS, no en Expo Go.
+
+---
+
 ## v1.1.1 — versionCode (lo asigna EAS al compilar) — sin publicar
 
 Los próximos frentes de v1.1.1 se suman a esta misma entrada.

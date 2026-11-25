@@ -38,9 +38,58 @@
  *   (Los duplicados que se ven hoy en los datos son de otra causa: dos
  *   suscripciones de ubicación activas a la vez en la app, pasando la misma
  *   lectura con timestamps a milisegundos de distancia. Eso se arregla allá.)
+ *
+ *   TrackEx v1.1.2 — GPS: hasta esta versión esa idempotencia era solo de
+ *   diseño. La regla de `gps_puntos` decía `allow update: if false`, así que
+ *   reescribir un punto existente (aunque fuera idéntico) era un update
+ *   rechazado, y rechazaba el LOTE ENTERO. La idempotencia real requería que
+ *   la regla permitiera la reescritura idéntica, y eso se agrega en esta
+ *   versión (`firestore.rules.produccion`). Además, desde la 1.1.2 la clave es
+ *   la hora de la LECTURA (no la de procesamiento): ver `logica-gps.js`.
  * ========================================================================== */
 
-import { doc, collection, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
+/* -----------------------------------------------------------------------------
+ * TrackEx v1.1.2 — GPS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     En el primer uso real (24/11/2026) un teléfono arrancó el viaje sin
+ *     permiso de segundo plano. El cartel explicativo se cerró sin dejar log y
+ *     el viaje siguió "solo con la app abierta" sin que nadie se enterara: el
+ *     portal mostraba "sin señal" y no había forma de saber por qué.
+ *
+ *   CAUSA RAÍZ
+ *     El estado de los permisos y del servicio de segundo plano vivía solo en
+ *     el teléfono (`setGpsEstado` de `ChoferScreen.js`). Nada lo llevaba al
+ *     viaje, así que el coordinador no podía distinguir "el camión no tiene
+ *     señal" de "el teléfono no está configurado para seguirlo".
+ *
+ *   ALCANCE
+ *     (1) `cambiosEstadoSeguimiento()`, pura: arma los campos `seguimiento_*`
+ *         y deriva `seguimiento_estado` (`completo` | `limitado` |
+ *         `sin_ubicacion`).
+ *     (2) `registrarEstadoSeguimiento()`: los escribe en el viaje con
+ *         `updateDoc`, sin transacción ni historial (es telemetría).
+ *     (3) `estadoSeguimiento()`, `ETIQUETA_SEGUIMIENTO`, `COLOR_SEGUIMIENTO`:
+ *         lo que muestra el portal.
+ *     (4) `registrarPuntos()`: el cuerpo NO cambia. Desde la 1.1.2 la app sube
+ *         por `logica-gps.js` + REST; esta función queda por compatibilidad
+ *         con la app ≤ 1.1.1 ya instalada, que la tiene empaquetada.
+ *     Las reglas permiten los campos nuevos al chofer (`camposDelChofer()`).
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Los viajes iniciados con la app ≤ 1.1.1 no tienen `seguimiento_estado`:
+ *       el portal los muestra como "versión anterior de la app".
+ *     - Es el estado que la app reportó la última vez; si el sistema mata el
+ *       servicio sin avisar, el campo no se entera hasta el próximo reporte.
+ *       `saludGPS()` sigue siendo la señal de que llegan puntos.
+ *
+ *   CÓMO SE VERIFICA
+ *     `logica-viajes-seguimiento.test.js` (los tres estados y cada combinación
+ *     de faltantes; `estadoSeguimiento` en todos sus casos). Las reglas, en
+ *     `reglas-tests/gps-y-viajes.reglas.test.js` (casos 8 a 10).
+ * -------------------------------------------------------------------------- */
+
+import { doc, collection, serverTimestamp, writeBatch, increment, updateDoc } from 'firebase/firestore';
 import { enTransaccion, calcularDiferencias } from './datos';
 import { DESPACHO, VIAJE, ENTREGA, deltaContadores, viajeAbierto } from './estados';
 
@@ -670,6 +719,14 @@ export async function finalizarViaje({
  * la de N camiones a la vez. Si viviera solo en la subcolección, mostrar 12
  * camiones serían 12 consultas.
  *
+ * 4. TrackEx v1.1.2 — GPS (ver el bloque al principio del archivo): desde la
+ *    1.1.2 la app NO usa esta función; sube por `logica-gps.js` + la API REST
+ *    con límite de tiempo, porque una escritura del SDK sin confirmar no falla
+ *    y quedaba pendiente horas. Esta función queda, sin cambios, por
+ *    compatibilidad con la app ≤ 1.1.1 ya instalada, que la tiene empaquetada.
+ *    Su reenvío de puntos ya escritos deja de rechazarse cuando se publique la
+ *    regla de reescritura idéntica.
+ *
  * @param {string} viajeId
  * @param {Array} puntos [{ lat, lng, ts, precision, velocidad }]
  *   `ts` en milisegundos.
@@ -754,4 +811,124 @@ export const COLOR_GPS = {
   activo:       '#085041',
   intermitente: '#92400E',
   sin_senal:    '#B91C1C',
+};
+
+/* -----------------------------------------------------------------------------
+ * Estado del seguimiento (TrackEx v1.1.2 — GPS)
+ * -------------------------------------------------------------------------- */
+
+/** Valores de `seguimiento_estado`. Las reglas aceptan exactamente estos tres. */
+export const SEGUIMIENTO = {
+  COMPLETO: 'completo',
+  LIMITADO: 'limitado',
+  SIN_UBICACION: 'sin_ubicacion',
+};
+
+/**
+ * 1. Arma los campos `seguimiento_*` que la app escribe en el viaje.
+ *
+ * `completo` exige las cuatro cosas: permiso de ubicación, permiso de segundo
+ * plano, servicio activo y notificaciones. Las notificaciones cuentan porque
+ * Android exige que un servicio en primer plano muestre una notificación
+ * persistente: sin el permiso la notificación no se ve, y varios fabricantes
+ * matan los servicios sin notificación visible por gestión de batería. Un
+ * seguimiento sin notificaciones parece completo y se corta a las horas.
+ *
+ * Con permiso de ubicación pero sin alguno de los otros es `limitado`: hay
+ * traza solo mientras el chofer mira la app (o hasta que maten el servicio).
+ * Sin permiso de ubicación no hay traza de ningún tipo: `sin_ubicacion`.
+ *
+ * Pura, para testearla y para que la app la use sin Firestore si quiere
+ * mostrarlo en pantalla.
+ *
+ * @param {Object} estado
+ * @param {boolean} estado.permisoUbicacion Permiso de primer plano concedido.
+ * @param {boolean} estado.permisoSegundoPlano "Permitir siempre" concedido.
+ * @param {boolean} estado.notificaciones Permiso de notificaciones concedido.
+ * @param {boolean} estado.servicioActivo La tarea de segundo plano corre.
+ * @param {string} estado.versionApp Versión de TrackEx que reporta.
+ * @returns {Object} Campos a escribir en el viaje.
+ */
+export function cambiosEstadoSeguimiento({
+  permisoUbicacion, permisoSegundoPlano, notificaciones, servicioActivo, versionApp,
+}) {
+  const ubicacion = permisoUbicacion === true;
+  const segundoPlano = permisoSegundoPlano === true;
+  const avisos = notificaciones === true;
+  const servicio = servicioActivo === true;
+
+  let estado = SEGUIMIENTO.SIN_UBICACION;
+  if (ubicacion) {
+    estado = segundoPlano && servicio && avisos ? SEGUIMIENTO.COMPLETO : SEGUIMIENTO.LIMITADO;
+  }
+
+  return {
+    seguimiento_estado: estado,
+    seguimiento_permiso_ubicacion: ubicacion,
+    seguimiento_permiso_segundo_plano: segundoPlano,
+    seguimiento_notificaciones: avisos,
+    seguimiento_servicio: servicio,
+    seguimiento_version_app: String(versionApp || ''),
+  };
+}
+
+/**
+ * 2. Escribe el estado del seguimiento en el viaje.
+ *
+ * `updateDoc` directo, SIN transacción y SIN historial: es telemetría, como los
+ * puntos GPS. No hay nada que leer para decidir qué escribir, y anotar en
+ * `historial` cada cambio de permisos inflaría la auditoría de cambios de
+ * negocio con ruido técnico. La regla de `viajes` exige que
+ * `seguimiento_estado` sea uno de los tres valores válidos.
+ *
+ * @param {Object} params
+ * @param {Object} params.db Instancia de Firestore.
+ * @param {string} params.viajeId
+ * @param {Object} params.estado Lo que recibe `cambiosEstadoSeguimiento()`.
+ * @returns {Promise<void>}
+ */
+export async function registrarEstadoSeguimiento({ db, viajeId, estado }) {
+  if (!db) throw new Error('registrarEstadoSeguimiento: falta db');
+  if (!viajeId) throw new Error('registrarEstadoSeguimiento: falta viajeId');
+
+  await updateDoc(doc(db, 'viajes', viajeId), {
+    ...cambiosEstadoSeguimiento(estado || {}),
+    seguimiento_ts: serverTimestamp(),
+    actualizado_en: serverTimestamp(),
+  });
+}
+
+/**
+ * 3. Estado del seguimiento de un viaje, para el portal.
+ *
+ * Complementa a `saludGPS()`: aquella dice si llegan puntos; esta dice si el
+ * teléfono está configurado para mandarlos. Un viaje "sin señal" con
+ * seguimiento `limitado` no es un camión en una zona sin cobertura: es un
+ * teléfono sin "Permitir siempre".
+ *
+ * @param {Object|null} viaje
+ * @returns {'no_corresponde'|'desconocido'|'completo'|'limitado'|'sin_ubicacion'}
+ *   `desconocido`: el viaje lo inició una app ≤ 1.1.1, que no reporta.
+ */
+export function estadoSeguimiento(viaje) {
+  if (!viaje || viaje.estado !== VIAJE.EN_VIAJE) return 'no_corresponde';
+  if (!viaje.seguimiento_estado) return 'desconocido';
+  return viaje.seguimiento_estado;
+}
+
+/** Mismo criterio que `ETIQUETA_GPS`: texto corto en minúscula, vacío si no corresponde. */
+export const ETIQUETA_SEGUIMIENTO = {
+  no_corresponde: '',
+  completo:       'seguimiento completo',
+  limitado:       'seguimiento limitado',
+  sin_ubicacion:  'sin permiso de ubicación',
+  desconocido:    'versión anterior de la app',
+};
+
+/** Mismo criterio y paleta que `COLOR_GPS`: verde bien, ámbar degradado, rojo sin traza, gris sin dato. */
+export const COLOR_SEGUIMIENTO = {
+  completo:      '#085041',
+  limitado:      '#92400E',
+  sin_ubicacion: '#B91C1C',
+  desconocido:   '#9CA3AF',
 };
