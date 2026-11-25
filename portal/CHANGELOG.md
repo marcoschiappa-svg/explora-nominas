@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.5
+VERSION_ACTUAL: 1.2.6
 
 # Changelog — Portal Explora
 
@@ -34,6 +34,76 @@ inexistente) guarda un CSV. No escribe en Firestore. **Limitación:** la
 contraseña es predecible (alcanza con el nombre y el DNI para entrar) y hay que
 revisarla al salir del modo de prueba. No cambia el portal, las reglas ni el
 Apps Script.
+
+### Cambios que acompañan a TrackEx v1.1.2 — GPS (parte 1: base compartida y reglas)
+
+**Qué se corrigió.** El primer uso real de TrackEx v1.1.1 (24/11/2026, tres
+viajes) mostró cuatro defectos de GPS:
+
+- **A — Subida trabada en segundo plano.** El GPS capturó bien con la pantalla
+  apagada, pero las escrituras del SDK web de Firestore quedaron pendientes
+  horas: 558 puntos de 14:42 a 03:19 llegaron juntos a las 03:20. Causa raíz:
+  una escritura del SDK sin confirmar no falla, queda pendiente sin error ni
+  log. La app pasará a subir por la API REST con `fetch` y límite de tiempo
+  (prompt 2); acá queda construida y testeada esa subida.
+- **B — Lotes rechazados enteros (`permission-denied`).** Dos fuentes grababan
+  la misma lectura y se disparaban descargas superpuestas con puntos repetidos.
+  Causa raíz: `set()` sobre un punto existente es un update, y la regla de
+  `gps_puntos` decía `allow update: if false`: un punto repetido rechazaba el
+  lote entero. Además, una descarga exitosa vaciaba el buffer completo y perdía
+  los puntos de otra descarga en vuelo.
+- **C — Seguimiento limitado invisible.** Un teléfono sin permiso de segundo
+  plano siguió el viaje solo con la app abierta sin que nadie se enterara.
+  Causa raíz: el estado de permisos y servicio vivía solo en el teléfono.
+- **D — Hora del punto equivocada.** El punto se sellaba con `new Date()` al
+  procesar, no con la hora de la lectura; `precision` y `velocidad` llegaban
+  `null`.
+
+**Archivos nuevos.**
+
+- `src/shared/logica-gps.js`: lógica de GPS pura (filtros, buffer por viaje,
+  lotes de hasta 200, migración del buffer de la 1.1.1, commit REST,
+  clasificación de respuestas) y `crearGestorGPS`, el orquestador con cola
+  serial, una sola descarga en vuelo, timeout de 20 s y descarte de viajes
+  cerrados y puntos inválidos sin trabar el resto.
+- `src/shared/logica-gps.test.js`: unitarios y los escenarios del 24/11 contra
+  un servidor falso con la semántica de las reglas, incluidos los datos reales
+  de `src/shared/__fixtures__/gps-24-11-2026.json`.
+- `src/shared/logica-viajes-seguimiento.test.js`.
+- `reglas-tests/gps-y-viajes.reglas.test.js`: 16 casos de reglas contra el
+  emulador (`node:test`).
+
+`src/shared/logica-viajes.js` suma `cambiosEstadoSeguimiento`,
+`registrarEstadoSeguimiento`, `estadoSeguimiento`, `ETIQUETA_SEGUIMIENTO` y
+`COLOR_SEGUIMIENTO`; `registrarPuntos` no cambia (queda para la app ≤ 1.1.1).
+`package.json` suma la devDependency `@firebase/rules-unit-testing` 5.0.1 y el
+script `test:reglas`.
+
+**Cambio de reglas (`firestore.rules.produccion`). Solo agrega permisos.**
+
+- `camposDelChofer()` suma `seguimiento_estado`,
+  `seguimiento_permiso_ubicacion`, `seguimiento_permiso_segundo_plano`,
+  `seguimiento_notificaciones`, `seguimiento_servicio`,
+  `seguimiento_version_app` y `seguimiento_ts`; el update del chofer exige que
+  `seguimiento_estado` sea `completo`, `limitado` o `sin_ubicacion`.
+- `gps_puntos`: el chofer puede reescribir un punto de su viaje solo si queda
+  idéntico. Hace idempotente el reenvío de un lote cuya respuesta se perdió.
+  Borrar sigue prohibido.
+
+**Cómo se verifica.** Desde `portal`:
+
+- `CI=true npm test -- --watchAll=false` (todo verde).
+- `firebase emulators:exec --only firestore --project demo-explora-reglas "npm run test:reglas"`
+  (requiere Java).
+
+**Orden de despliegue.** Primero las reglas: staging y después producción,
+siguiendo el Paso 8 de `Procedimiento.md`. Son inocuas para la app instalada:
+la 1.1.1 no se ve afectada y deja de tener rechazos por reescritura idéntica
+apenas se publiquen. La app 1.1.2 (prompt 2) se publica después.
+
+**Limitación conocida.** `puntos_registrados` es un `increment`: un lote
+reenviado suma de nuevo aunque los puntos se reescriban idénticos. El contador
+puede quedar por encima de los documentos reales de `gps_puntos`.
 
 ---
 ## v1.2.5 — 11/11/2026 — Programación, Tarifario y Seguimiento

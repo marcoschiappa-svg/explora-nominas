@@ -571,6 +571,14 @@ ultima_ts                           Timestamp | null
 
 puntos_registrados    number
 
+seguimiento_estado                 string | ausente   completo | limitado | sin_ubicacion
+seguimiento_permiso_ubicacion      bool | ausente     permiso de ubicación (primer plano)
+seguimiento_permiso_segundo_plano  bool | ausente     "Permitir siempre"
+seguimiento_notificaciones         bool | ausente     permiso de notificaciones
+seguimiento_servicio               bool | ausente     la tarea de segundo plano corre
+seguimiento_version_app            string | ausente   versión de TrackEx que reportó
+seguimiento_ts                     Timestamp | ausente  cuándo reportó
+
 cliente_razon_social  string      denormalizados para la pantalla del chofer
 producto_nombre       string
 origen_texto          string
@@ -626,6 +634,25 @@ saludGPS(viaje):
     si ultima_ts hace < 15 min         → intermitente
     si no                              → sin señal
 ```
+
+### Estado del seguimiento — TrackEx v1.1.2
+
+Los campos `seguimiento_*` los escribe **la app** (`registrarEstadoSeguimiento`
+en `logica-viajes.js`) cuando cambia su configuración. Es **telemetría**:
+`updateDoc` directo, sin transacción y sin historial, igual que los puntos GPS.
+
+```
+seguimiento_estado:
+    sin permiso de ubicación                                  → sin_ubicacion
+    ubicación + segundo plano + servicio + notificaciones     → completo
+    ubicación pero falta alguno de los otros                  → limitado
+```
+
+Las notificaciones cuentan porque, sin la notificación visible del servicio,
+varios fabricantes lo matan. Los viajes iniciados con la app ≤ 1.1.1 no tienen
+estos campos: el portal los muestra como "versión anterior de la app"
+(`estadoSeguimiento`). Complementa a `saludGPS`: aquella dice si llegan puntos;
+esta, si el teléfono está configurado para mandarlos.
 
 ---
 
@@ -773,10 +800,17 @@ despachos vivos `ENTREGADO`, recuenta los contadores del pedido) y completa
 viajes/{viajeId}/gps_puntos/{ts_en_milisegundos}
 
 lat, lng            number
-ts                  Timestamp
-precision           number | null
-velocidad           number | null
+ts                  Timestamp       hora de la LECTURA (desde TrackEx 1.1.2)
+precision           number | null   metros (se carga desde TrackEx 1.1.2)
+velocidad           number | null   km/h (se carga desde TrackEx 1.1.2)
 ```
+
+**Desde TrackEx 1.1.2** `ts` (y por lo tanto la clave del documento) es la hora
+de la lectura del GPS, no la hora en que la app la procesó. Hasta la 1.1.1 se
+sellaba con `new Date()` al procesar y, con entregas atrasadas o en lote, la
+posición quedaba con hora incorrecta. `precision` y `velocidad` llegaban
+siempre `null` y pasan a cargarse. La app sube por la API REST
+(`logica-gps.js`), en lotes de hasta 200 puntos.
 
 **La clave es el timestamp del punto**, no autogenerada. Vuelve idempotente la
 escritura: si un lote se reenvía por un reintento, cada punto cae en la misma
@@ -791,8 +825,11 @@ Ordenar por ID es ordenar cronológicamente: el recorrido se lee sin índice.
 **Subcolección y no colección raíz:** un punto nunca se consulta fuera de su
 viaje.
 
-**Solo se crean.** Nunca se modifican ni se borran: un punto es la lectura de un
-sensor en un instante.
+**Nunca se modifican ni se borran:** un punto es la lectura de un sensor en un
+instante. Desde TrackEx 1.1.2 el chofer **puede reescribir un punto solo si
+queda idéntico**: no cambia nada y hace idempotente el reenvío de un lote cuya
+respuesta se perdió. Antes, un lote con un solo punto ya escrito se rechazaba
+entero.
 
 Hoy el recorrido vive en `gps_track_{n}` como campo del pedido, donde **el sufijo
 es el índice del array de despachos, no el número del despacho** — reordenar
