@@ -44,11 +44,16 @@
  *      `fetch` con `AbortController` depende de un `setTimeout`.
  *   2. EL TIMEOUT NATIVO GANA AL DEL GESTOR: `TIMEOUT_SUBIDA_MS - 2000`. El
  *      reloj del gestor (`setTimeout`) queda como segunda red de seguridad.
- *   3. TOKEN SIN LA RED DEL SDK: cache propia con margen de 5 minutos y
- *      renovación por XHR contra `securetoken.googleapis.com`. `sembrarToken`
- *      llena la cache con la app abierta, para que la primera subida en
- *      segundo plano no tenga que renovar.
+ *   3. TOKEN SIN EL SDK EN EL CAMINO NORMAL: cache propia con margen de 5
+ *      minutos que se usa sin consultar el SDK de Auth; solo para renovar se
+ *      espera `authStateReady` y se renueva por XHR contra
+ *      `securetoken.googleapis.com`. `sembrarToken` llena la cache con la app
+ *      abierta. La cache se borra al cerrar sesión y si cambia el usuario.
  * LIMITACIONES CONOCIDAS:
+ *   - Mientras el token cacheado tenga vida, la subida no se entera de un
+ *     cierre de sesión que no pasó por ChoferScreen (por ejemplo, borrar los
+ *     datos de Auth desde fuera): a lo sumo una hora; después la renovación
+ *     da `sin_sesion`.
  *   - `auth.authStateReady()` NO es solo lectura de disco: al inicializar,
  *     Firebase Auth recarga el usuario persistido contra la red
  *     (`reloadAndSetCurrentUserOrClear` → `_reloadWithoutSaving`). Por eso se
@@ -205,6 +210,10 @@ export async function invalidarToken() {
  * abierta (los timers corren y el SDK de Auth funciona normalmente), para que
  * la primera subida en segundo plano no tenga que renovar por red.
  *
+ * Si la cache es de OTRO usuario, se borra primero (ajuste al prompt 2): como
+ * `obtenerToken` usa la cache sin consultar el SDK, un token ajeno no puede
+ * quedar ahí aunque `getIdTokenResult` falle a continuación.
+ *
  * Nunca lanza: es una optimización.
  *
  * @param {import('firebase/auth').User|null} user `auth.currentUser`.
@@ -212,6 +221,8 @@ export async function invalidarToken() {
  */
 export async function sembrarToken(user) {
   if (!user) return;
+  const cache = await leerCacheToken();
+  if (cache && cache.uid !== user.uid) await invalidarToken();
   try {
     const resultado = await user.getIdTokenResult();
     const expiraMs = new Date(resultado.expirationTime).getTime();
@@ -227,10 +238,16 @@ export async function sembrarToken(user) {
  * de por qué no lo consiguió (para el log de la subida).
  *
  * Pasos:
- *   1. `auth.authStateReady()` con tope, para saber qué usuario hay (la cache
- *      solo vale para el mismo `uid`).
- *   2. Cache con más de `MARGEN_TOKEN_MS` de vida → la usa.
- *   3. Si no, renueva con el refresh token por XHR. Formato verificado contra
+ *   1. Cache con más de `MARGEN_TOKEN_MS` de vida → la usa, SIN tocar el SDK
+ *      de Auth (ni `authStateReady`). Ajuste al prompt 2: el SDK no debe estar
+ *      en el camino normal de la subida en segundo plano (§1 del prompt 2:
+ *      depende de timers que ahí están pausados, y su inicialización recarga
+ *      el usuario por red). Que la cache no sea de otro usuario lo garantiza
+ *      quien la escribe y la borra: se borra al cerrar sesión (ChoferScreen,
+ *      antes de `onLogout`) y `sembrarToken` la borra si cambió el `uid`.
+ *   2. Solo si hay que renovar: `auth.authStateReady()` con tope, para tener
+ *      el usuario y su refresh token.
+ *   3. Renueva con el refresh token por XHR. Formato verificado contra
  *      la doc oficial de la API REST de Firebase Auth, "Exchange a refresh
  *      token for an ID token" (https://firebase.google.com/docs/reference/rest/auth):
  *      POST `https://securetoken.googleapis.com/v1/token?key=[API_KEY]`,
@@ -242,15 +259,17 @@ export async function sembrarToken(user) {
  * @returns {Promise<{token: string|null, detalle: string|null}>}
  */
 async function obtenerTokenConDetalle() {
+  const cache = await leerCacheToken();
+  if (cache && cache.expiraMs - Date.now() > MARGEN_TOKEN_MS) {
+    return { token: cache.token, detalle: null };
+  }
+
+  // Hay que renovar: recién acá entra el SDK de Auth (solo lectura del usuario).
   const listo = await terminaAntesDe(auth.authStateReady(), TOPE_AUTH_MS);
   const user = auth.currentUser;
   if (!user) return { token: null, detalle: listo ? 'sin_sesion' : 'auth_no_lista' };
 
   const ahora = Date.now();
-  const cache = await leerCacheToken();
-  if (cache && cache.uid === user.uid && cache.expiraMs - ahora > MARGEN_TOKEN_MS) {
-    return { token: cache.token, detalle: null };
-  }
 
   const apiKey = auth.app.options.apiKey;
   const refresco = user.refreshToken;

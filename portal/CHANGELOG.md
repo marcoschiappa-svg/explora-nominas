@@ -18,6 +18,78 @@ Las versiones más nuevas van arriba.
 ---
 ## Sin publicar
 
+### v1.2.6 — Seguimiento: traza en vivo y estado del seguimiento
+
+**Encuadre inicial del mapa.** En notebooks el mapa quedaba como un recuadro
+gris hasta cambiar el zoom del navegador o el tamaño de la ventana: Leaflet
+medía el contenedor antes de que tuviera su tamaño final. Ahora el mapa se
+re-mide con un `ResizeObserver` (un solo `requestAnimationFrame` pendiente,
+ignorando medidas 0) y la vista inicial se aplica en la primera medida válida.
+La vista inicial pasa de Argentina entera a **Rosario al centro**, con el zoom
+que hace entrar Córdoba, Santa Fe, Paraná y Buenos Aires
+(`seguimiento-encuadre.js`, con test; zoom en pasos de 0,25). Mientras el
+usuario no mueva el mapa ni seleccione un viaje, cada cambio de tamaño
+re-aplica esa vista; "En vivo" la vuelve a aplicar.
+
+**Traza del viaje en curso.** En la prueba del 24/11 el coordinador no vio
+ningún recorrido: solo el Historial (viajes finalizados) dibujaba trazas y
+ningún viaje llegó a finalizarse desde la app. La traza parcial de un viaje en
+vivo se había sacado en el rediseño sin consultarlo. Ahora, al seleccionar un
+viaje **En viaje** (tarjeta, alerta o marcador), se dibuja su recorrido hasta
+el momento con la "A" en el primer punto, y se actualiza solo a medida que
+llegan puntos, sin mover el mapa (encuadra solo la primera vez). Hay una sola
+suscripción abierta a la vez y se cierra al deseleccionar, al elegir otro
+viaje, al cambiar de pestaña, con "En vivo", cuando el viaje se cierra y al
+salir de la pantalla. La primera lectura trae todos los puntos del viaje (hasta
+unos 3000 en un día): por eso solo se abre al seleccionar.
+
+**Estado del seguimiento.** TrackEx 1.1.2 informa en cada viaje si el
+seguimiento es completo, limitado (solo registra con la app abierta) o sin
+permiso de ubicación. La tarjeta muestra "seguimiento limitado" o "sin permiso
+de ubicación" y se suman a las alertas, separados de "sin señal". Los viajes
+iniciados con la app 1.1.1 o anterior no muestran nada (no informan).
+
+**Historial.** Los recorridos de la app 1.1.1 tenían cada punto dos veces: se
+dejan de dibujar los duplicados (mismas coordenadas a menos de 1 s). La tarjeta
+muestra la cantidad real de puntos del viaje seleccionado, una vez cargado, en
+vez del contador `puntos_registrados` (que sube de más cuando la app reenvía un
+lote). Si el recorrido no se puede cargar, aparece "No se pudo cargar el
+recorrido". El cierre manual deja el viaje en FINALIZADO, así que esos viajes
+también entran al Historial.
+
+- Nuevo: `src/pages/logica-seguimiento.js` (`prepararTraza`, `resumenTraza`,
+  `alertaSeguimiento`) y `src/pages/logica-seguimiento.test.js`;
+  `src/pages/seguimiento-encuadre.js` y su test (encuadre).
+- Modificado: `src/pages/Seguimiento.js`.
+- No cambia: reglas, lógica compartida, app.
+
+**Pruebas manuales** (en claro y en oscuro, con un viaje en curso de TrackEx
+1.1.2):
+
+1. Notebook (1280x650 y 1366x768) y 1920x1080: el mapa se ve sin gris, con
+   Rosario al centro; con zoom del navegador 125 % y 150 % también.
+2. Seleccionar el viaje en curso desde la tarjeta: acerca, abre el popup,
+   dibuja la traza con la "A" y encuadra la traza.
+3. Dejarla abierta unos minutos con el chofer en movimiento: la línea crece sin
+   que el mapa se mueva; mover o acercar el mapa a mano y verificar que no
+   vuelve a encuadrar.
+4. Tocar la tarjeta de nuevo: la traza desaparece. Seleccionar otro viaje: se
+   ve solo la traza del nuevo. Seleccionar desde el marcador y desde una alerta:
+   igual que desde la tarjeta.
+5. Un viaje Recibido no dibuja traza.
+6. Con la traza abierta, cambiar a Historial y volver a "En vivo": no queda
+   traza y la vista vuelve a Rosario.
+7. Cerrar a mano el viaje con la traza abierta: la traza desaparece, el viaje
+   sale de "En vivo" y aparece en Historial con su recorrido y la cantidad de
+   puntos.
+8. Un teléfono sin "Permitir siempre": su tarjeta muestra "seguimiento
+   limitado" y aparece la alerta ámbar; sin permiso de ubicación, la roja.
+9. Historial: un viaje de la app 1.1.1 dibuja el recorrido sin puntos dobles, y
+   la cantidad aparece recién después de cargarlo.
+
+Acompaña a **TrackEx v1.1.2** (app). La línea `VERSION_ACTUAL` se actualiza al
+publicar (Procedimiento.md, Paso 9).
+
 **Herramienta nueva: `scripts/asignar-claves-choferes.js`.** Asigna a todos los
 choferes activos la contraseña `<primer nombre>2026` (minúsculas, sin acentos,
 solo a-z; "Iván Pérez" -> `ivan2026`), para darles acceso a TrackEx v1.1.1. Es

@@ -13,8 +13,8 @@
  * -----------------------------------------------------------------------------
  * MODELO DE DATOS (AsyncStorage)
  * -----------------------------------------------------------------------------
- *   explora:viaje_activo      `{ viajeId }` del viaje EN_VIAJE, o ausente. Lo
- *                             escribe ChoferScreen (EFECTO 3). Antes de la
+ *   explora:viaje_activo      `{ viajeId, inicioMs }` del viaje EN_VIAJE, o
+ *                             ausente. Lo escribe ChoferScreen (EFECTO 3). Antes de la
  *                             v1.1.0 tenía la forma `{ docId, despachoIdx,
  *                             pedidoId }`: esa forma se descarta (ver
  *                             `leerViajeActivo`).
@@ -62,8 +62,9 @@
  *     viaje anterior todavía pendientes. Los sube o descarta el gestor.
  *   - `hasStartedLocationUpdatesAsync` informa si la tarea está registrada.
  *     Si el sistema mató el proceso del servicio sin dar de baja la tarea,
- *     puede seguir dando `true` y `asegurarServicio` no rearranca. Se ve en el
- *     teléfono (ver el informe del prompt 2).
+ *     puede seguir dando `true`. `asegurarServicio` lo detecta por la falta de
+ *     lecturas (`MINUTOS_SIN_LECTURAS_PARA_REINICIAR`), pero solo cuando el
+ *     chofer vuelve a abrir la app: con la pantalla apagada nada lo revisa.
  * CÓMO SE VERIFICA: en `app_logs` aparecen `gps_migracion_buffer` (una vez por
  *   teléfono que actualiza con puntos pendientes) y `gps_servicio_reiniciado`
  *   al volver a la app si el sistema había cortado el servicio; en
@@ -106,7 +107,12 @@ export const GPS_TASK = 'explora-gps-task';
  * sobrevive a ese reinicio de contexto. Mismas claves que la v1.1.1.
  * -------------------------------------------------------------------------- */
 
-/** Viaje en curso: `{ viajeId }` o ausente. */
+/**
+ * Viaje en curso: `{ viajeId, inicioMs }` o ausente. `inicioMs` (ms epoch del
+ * inicio del viaje, de su `estado_ts`) lo usa `asegurarServicio` cuando
+ * todavía no hubo ninguna lectura aceptada; la v1.1.1 guardaba solo
+ * `{ viajeId }`, y en ese caso falta.
+ */
 export const KEY_VIAJE_ACTIVO = 'explora:viaje_activo';
 
 /** Buffer de puntos pendientes de subir (ver la cabecera). */
@@ -128,6 +134,22 @@ export const NOTIFICACION_SERVICIO = {
   notificationColor: colorEstado.acentoVerde,
   killServiceOnDestroy: false,
 };
+
+/**
+ * Minutos sin ninguna lectura aceptada (con el servicio supuestamente activo)
+ * a partir de los cuales `asegurarServicio` reinicia el servicio: 15.
+ *
+ * `hasStartedLocationUpdatesAsync` informa si la tarea está REGISTRADA, y
+ * puede seguir dando `true` si el sistema mató el proceso del servicio sin
+ * darla de baja: un servicio muerto solo se detecta porque dejan de llegar
+ * lecturas. Con captura cada 30 s / 50 m, 15 minutos sin lecturas es o un
+ * servicio muerto o un camión estacionado (no supera los 50 m). En el segundo
+ * caso el reinicio es inocuo: se detiene y se vuelve a registrar la misma
+ * tarea con las mismas opciones, y no se pierde nada. Un umbral más bajo
+ * reiniciaría en cada parada corta; uno más alto deja más traza perdida si el
+ * servicio sí murió.
+ */
+const MINUTOS_SIN_LECTURAS_PARA_REINICIAR = 15;
 
 /* =============================================================================
  * UTILIDADES DE ALMACENAMIENTO
@@ -337,11 +359,16 @@ export async function servicioActivo() {
  * (ChoferScreen muestra "Seguimiento limitado"; `asegurarServicio` lo
  * registra).
  *
+ * Con `forzar` registra la tarea aunque `hasStartedLocationUpdatesAsync` dé
+ * `true`: lo usa el reinicio de `asegurarServicio`, para que un
+ * `stopLocationUpdatesAsync` que falló no deje el reinicio sin efecto.
+ *
  * @param {Object} [notificacion=NOTIFICACION_SERVICIO]
+ * @param {{forzar?: boolean}} [opciones]
  * @returns {Promise<void>}
  */
-export async function iniciarServicio(notificacion = NOTIFICACION_SERVICIO) {
-  if (await servicioActivo()) return;
+export async function iniciarServicio(notificacion = NOTIFICACION_SERVICIO, { forzar = false } = {}) {
+  if (!forzar && (await servicioActivo())) return;
   await Location.startLocationUpdatesAsync(GPS_TASK, opcionesServicio(notificacion));
 }
 
@@ -469,14 +496,47 @@ export async function pendientesDeViaje(viajeId) {
 }
 
 /**
+ * Minutos desde la última lectura aceptada de ese viaje o, si todavía no hubo
+ * ninguna, desde el inicio del viaje (`inicioMs` de `explora:viaje_activo`).
+ *
+ * @param {string} viajeId
+ * @returns {Promise<number|null>} `null` si no hay ni lectura ni inicio
+ *   conocido (viaje activo guardado por la v1.1.1).
+ */
+async function minutosSinLecturas(viajeId) {
+  const ultimo = await leerJSON(KEY_ULTIMO_PUNTO, null);
+  let desde = null;
+  if (ultimo && ultimo.viajeId === viajeId && Number.isFinite(ultimo.ts)) {
+    desde = ultimo.ts;
+  } else {
+    const activo = await leerJSON(KEY_VIAJE_ACTIVO, null);
+    if (activo && Number.isFinite(activo.inicioMs)) desde = activo.inicioMs;
+  }
+  return desde == null ? null : Math.max(0, Math.round((Date.now() - desde) / 60000));
+}
+
+/**
  * Rearranca el servicio de segundo plano si el sistema lo cortó. Se usa al
  * volver a primer plano (EFECTO 4 de ChoferScreen).
  *
  * Caso del 24/11: el sistema cortó la captura a las 13:21 y el chofer siguió
- * viaje sin traza. Si hay viaje activo, permiso de segundo plano concedido y
- * el servicio no corre, se arranca con las mismas opciones y se registra
- * `gps_servicio_reiniciado`. Nunca lanza (un fallo se registra como
+ * viaje sin traza. Con viaje activo y permiso de segundo plano concedido,
+ * reinicia en dos casos:
+ *   - `no_registrado`: `hasStartedLocationUpdatesAsync` da `false`. Se arranca
+ *     con las mismas opciones.
+ *   - `sin_lecturas` (ajuste al prompt 2): da `true`, pero la última lectura
+ *     aceptada de este viaje tiene `MINUTOS_SIN_LECTURAS_PARA_REINICIAR` o
+ *     más (o no hubo ninguna desde que arrancó el viaje). La tarea puede
+ *     seguir registrada con el proceso del servicio muerto; se detiene
+ *     (`stopLocationUpdatesAsync`, atrapando el error) y se vuelve a
+ *     registrar con `iniciarServicio(..., { forzar: true })`.
+ * Registra `gps_servicio_reiniciado` con `motivo` y `minutos` (`null` si no se
+ * conoce el inicio). Nunca lanza (un fallo se registra como
  * `gps_servicio_reinicio_error`).
+ *
+ * LIMITACIÓN: solo cuenta las lecturas ACEPTADAS. Una racha larga de lecturas
+ * imprecisas (más de 100 m de error) también dispara el reinicio, que es
+ * inocuo.
  *
  * @param {Object} [opcionesNotificacion=NOTIFICACION_SERVICIO]
  * @returns {Promise<boolean>} Si el servicio quedó activo.
@@ -484,18 +544,34 @@ export async function pendientesDeViaje(viajeId) {
 export async function asegurarServicio(opcionesNotificacion = NOTIFICACION_SERVICIO) {
   const viajeId = await leerViajeActivo();
   if (!viajeId) return false;
-  if (await servicioActivo()) return true;
 
+  const corriendo = await servicioActivo();
   const bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
-  if (!bg || bg.status !== 'granted') return false;
+  if (!bg || bg.status !== 'granted') return corriendo;
+
+  let motivo = null;
+  let minutos = null;
+  if (!corriendo) {
+    motivo = 'no_registrado';
+  } else {
+    minutos = await minutosSinLecturas(viajeId);
+    if (minutos == null || minutos >= MINUTOS_SIN_LECTURAS_PARA_REINICIAR) motivo = 'sin_lecturas';
+  }
+  if (!motivo) return true;
 
   try {
-    await iniciarServicio(opcionesNotificacion);
-    logApp('gps_servicio_reiniciado', { viaje_id: viajeId });
+    if (corriendo) {
+      await Location.stopLocationUpdatesAsync(GPS_TASK).catch((err) => {
+        console.warn('stopLocationUpdates error:', err?.message || err);
+      });
+    }
+    await iniciarServicio(opcionesNotificacion, { forzar: true });
+    logApp('gps_servicio_reiniciado', { viaje_id: viajeId, motivo, minutos });
     return true;
   } catch (err) {
     logApp('gps_servicio_reinicio_error', {
       viaje_id: viajeId,
+      motivo,
       code: err?.code || '',
       mensaje: err?.message || '',
     });

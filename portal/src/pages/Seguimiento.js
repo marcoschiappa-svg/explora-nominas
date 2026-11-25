@@ -22,8 +22,11 @@
  *   Lo que el modelo nuevo NO trae, a diferencia del viejo (y las
  *   simplificaciones que eso obligo, ver el archivo entero para el detalle
  *   de cada una): sin flecha de rumbo (necesitaria el punto anterior), sin
- *   traza parcial al centrar un viaje en vivo, sin OV/OC en la busqueda (no
- *   esta denormalizado en `viajes`, vive en `despachos`).
+ *   OV/OC en la busqueda (no esta denormalizado en `viajes`, vive en
+ *   `despachos`). La traza parcial al centrar un viaje en vivo se habia
+ *   sacado aca y VOLVIO en la v1.2.6 (ver "v1.2.6 — Traza en vivo y estado
+ *   del seguimiento"): al seleccionar un viaje EN_VIAJE se dibuja su
+ *   recorrido hasta el momento.
  *
  *   La demora pasa a mostrarse como badge aparte, no como estado exclusivo
  *   -- `logica-viajes.js` ya lo dice: "la demora es un atributo, no un
@@ -214,6 +217,72 @@
  *     y 150 %; cambiar tabs y filtros sin franjas grises; con un viaje
  *     seleccionado, redimensionar no lo saca de la vista; "En vivo" vuelve a
  *     la vista de Rosario.
+ *
+ * -----------------------------------------------------------------------------
+ * v1.2.6 — Traza en vivo y estado del seguimiento (acompaña a TrackEx v1.1.2)
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     (a) En la prueba real del 24/11/2026 el coordinador no vio ningún
+ *     recorrido: ningún viaje llegó a finalizarse desde la app y la pantalla
+ *     solo dibujaba trazas en "Historial" (viajes FINALIZADO).
+ *     (b) Un viaje que solo registra con la app abierta ("seguimiento
+ *     limitado") se veía igual que uno sin señal.
+ *     (c) En el historial, los recorridos de la 1.1.1 tenían cada punto dos
+ *     veces, y la tarjeta mostraba `puntos_registrados`, que no es confiable.
+ *
+ *   CAUSA RAÍZ
+ *     (a) En el REDISENO (ver arriba) se sacó la traza parcial al centrar un
+ *     viaje en vivo. Ese recorte se hizo SIN CONSULTARLO y era una
+ *     funcionalidad pedida: con él, un viaje en curso no tenía forma de
+ *     mostrar su recorrido.
+ *     (b) La pantalla no leía el estado del seguimiento: hasta TrackEx 1.1.2
+ *     no existía (`seguimiento_estado` lo escribe la app desde esa versión).
+ *     (c) TrackEx 1.1.1 grababa cada lectura con dos fuentes (mismas
+ *     coordenadas, ms de diferencia), y `puntos_registrados` es un
+ *     `increment` que sube de más cuando la app reenvía un lote.
+ *
+ *   ALCANCE
+ *     1. Al seleccionar un viaje EN_VIAJE en "En vivo" (tarjeta, alerta o
+ *        marcador) se abre UNA suscripción (`trazaUnsubRef`) a
+ *        `viajes/{id}/gps_puntos` con `orderBy('ts')` y se dibuja la traza
+ *        (`prepararTraza`, misma `L.polyline`) con "A" en el primer punto; sin
+ *        "B": la posición actual ya es el `circleMarker` del viaje. Un viaje
+ *        RECIBIDO no abre suscripción.
+ *     2. Cada actualización redibuja SIN re-encuadrar; el encuadre a la
+ *        traza se hace solo con el primer snapshot que trae traza. Seleccionar
+ *        ya cuenta como interacción (v1.2.6 (5)), así que el re-encuadre
+ *        automático de la vista inicial no pisa este encuadre; el `fitBounds`
+ *        se marca como programático (`aplicandoVistaRef`).
+ *     3. Baja de la suscripción: al deseleccionar, al seleccionar otro viaje,
+ *        al cambiar de pestaña, en `volverAVivo()`, si el viaje sale de la
+ *        lista (se cerró o lo saca un filtro) y al desmontar.
+ *     4. Historial: `seleccionarHistorial` usa `prepararTraza` (los
+ *        duplicados de la 1.1.1 dejan de dibujarse), atrapa el error de
+ *        `getDocs` (traza vacía y aviso "No se pudo cargar el recorrido") y la
+ *        tarjeta muestra la cantidad REAL de puntos del viaje seleccionado
+ *        (`resumenTraza`) una vez cargada, en vez de `puntos_registrados`.
+ *     5. Estado del seguimiento: Pastilla en la tarjeta del viaje en vivo y
+ *        alerta en `getAlertas()` (`alertaSeguimiento`), solo para
+ *        `limitado` y `sin_ubicacion`. El popup no cambia.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Costo: la primera lectura de la suscripción trae TODOS los puntos del
+ *       viaje (hasta unos 3000 en un día, uno cada 30 s); después llegan solo
+ *       los nuevos. Por eso se abre solo al seleccionar explícitamente un
+ *       viaje, nunca para todos.
+ *     - Un error del listener se registra con `console.error` y deja la traza
+ *       vacía; no se reintenta hasta volver a seleccionar el viaje.
+ *     - Un viaje sin posición todavía (`ultima_lat` vacío) no se puede
+ *       seleccionar desde la tarjeta (igual que antes), así que tampoco
+ *       muestra traza: no tiene puntos.
+ *     - Los viajes iniciados con TrackEx ≤ 1.1.1 no tienen
+ *       `seguimiento_estado`: no muestran Pastilla ni alerta de seguimiento.
+ *
+ *   CÓMO SE VERIFICA
+ *     `CI=true npm test` (incluye `logica-seguimiento.test.js`) y
+ *     `CI=true npm run build` sin warnings. Manual (claro y oscuro, con un
+ *     viaje en curso de TrackEx 1.1.2): ver la entrada v1.2.6 de
+ *     portal/CHANGELOG.md.
  * ========================================================================== */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -224,7 +293,12 @@ import { collection, onSnapshot, query, where, doc, getDocs, orderBy } from 'fir
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { VIAJE, ETIQUETA_VIAJE } from '../shared/estados';
-import { saludGPS, ETIQUETA_GPS, COLOR_GPS } from '../shared/logica-viajes';
+import {
+  saludGPS, ETIQUETA_GPS, COLOR_GPS,
+  estadoSeguimiento, ETIQUETA_SEGUIMIENTO, COLOR_SEGUIMIENTO,
+} from '../shared/logica-viajes';
+// v1.2.6 — traza en vivo (1, 4) y estado del seguimiento (5).
+import { prepararTraza, resumenTraza, alertaSeguimiento } from './logica-seguimiento';
 import { marca, colorEstado, espacio, radio, tipografia, paletaTexto } from '../shared/tokens';
 import { useTema } from '../ui/TemaContext';
 import Tarjeta from '../ui/Tarjeta';
@@ -399,6 +473,10 @@ function Seguimiento({ usuario, onVolver }) {
   const [seleccionado, setSeleccionado] = useState(null);
   const [seleccionadoHist, setSeleccionadoHist] = useState(null);
   const [cargando, setCargando] = useState(true);
+  // v1.2.6 — traza en vivo (4): `{ id, cantidad }` del recorrido de historial
+  // ya cargado, y el id del viaje cuyo recorrido no se pudo cargar.
+  const [resumenHist, setResumenHist] = useState(null);
+  const [errorHist, setErrorHist] = useState(null);
   // RF-02: el viaje sobre el que está abierto ModalCierreManual, o null.
   const [cerrandoManual, setCerrandoManual] = useState(null);
 
@@ -430,6 +508,17 @@ function Seguimiento({ usuario, onVolver }) {
   // v1.2.6 (5): si el usuario ya movió el mapa, y si el movimiento en curso es nuestro.
   const interactuoRef = useRef(false);
   const aplicandoVistaRef = useRef(false);
+  // v1.2.6 — traza en vivo (1): la ÚNICA suscripción de traza abierta (su
+  // `unsub`), el viaje al que pertenece, y si ya se encuadró (2).
+  const trazaUnsubRef = useRef(null);
+  const trazaViajeRef = useRef(null);
+  const trazaEncuadradaRef = useRef(false);
+  // v1.2.6 — traza en vivo (4): último recorrido de historial pedido, para
+  // descartar la respuesta de un clic anterior que llega tarde.
+  const histPedidoRef = useRef(null);
+  // v1.2.6 — traza en vivo (1): lista vigente, para que el clic de un marcador
+  // (cuyo handler se creó con el viaje de ese momento) use el estado actual.
+  const vivosRef = useRef([]);
 
   useEffect(() => {
     if (sinAcceso) { setCargando(false); return; }
@@ -646,11 +735,32 @@ function Seguimiento({ usuario, onVolver }) {
           interactuoRef.current = true; // v1.2.6 (5)
           setSeleccionado(c.id);
           map.panTo(marker.getLatLng());
+          // v1.2.6 — traza en vivo (1): con el viaje VIGENTE, no el de la
+          // creación del marcador (pudo pasar de RECIBIDO a EN_VIAJE).
+          abrirTrazaVivo(vivosRef.current.find(x => x.id === c.id) || c);
         });
         markersRef.current[c.id] = marker;
       }
     });
-  }, [choferesFiltrados]);
+  }, [choferesFiltrados]); // eslint-disable-line react-hooks/exhaustive-deps -- `abrirTrazaVivo` solo usa refs y setters estables
+
+  // v1.2.6 — traza en vivo (3): si el viaje de la traza sale de la lista
+  // (se cerró, pasó a FINALIZADO, o un filtro lo saca y con él su marcador),
+  // o deja de estar EN_VIAJE, se da de baja la suscripción y se deselecciona.
+  // Depende solo de `choferesFiltrados`: `cerrarTrazaVivo` solo usa refs.
+  useEffect(() => {
+    const id = trazaViajeRef.current;
+    if (!id) return;
+    const vigente = choferesFiltrados.find(c => c.id === id);
+    if (!vigente || vigente.estado !== VIAJE.EN_VIAJE) {
+      cerrarTrazaVivo();
+      setSeleccionado(null);
+    }
+  }, [choferesFiltrados]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // v1.2.6 — traza en vivo (3): al desmontar, baja la suscripción. Solo
+  // desuscribe: el mapa (y la traza dibujada) lo destruye su propio cleanup.
+  useEffect(() => () => bajarSuscripcionTraza(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function limpiarPolyline() {
     if (polylineRef.current) { polylineRef.current.remove(); polylineRef.current = null; }
@@ -661,14 +771,92 @@ function Seguimiento({ usuario, onVolver }) {
     marcadoresHistRef.current = [];
   }
 
-  function dibujarTraza(track) {
+  /**
+   * Dibuja la traza (`L.polyline`). `encuadrar` en false (v1.2.6 — traza en
+   * vivo (2)) redibuja sin mover el mapa; el historial encuadra siempre.
+   */
+  function dibujarTraza(track, { encuadrar = true } = {}) {
     limpiarPolyline();
     const map = mapInstanceRef.current;
     if (!track || track.length < 2 || !map) return;
     const path = track.map(p => [p.lat, p.lng]);
     // v1.2.5 (2): sin `geodesic` -- ver LIMITACIONES CONOCIDAS.
     polylineRef.current = L.polyline(path, { color: marca, opacity: 0.75, weight: 3 }).addTo(map);
-    map.fitBounds(polylineRef.current.getBounds());
+    if (encuadrar) map.fitBounds(polylineRef.current.getBounds());
+  }
+
+  /**
+   * v1.2.6 — traza en vivo (3): da de baja la suscripción de traza, si hay.
+   * No toca el mapa (sirve también al desmontar, cuando ya no existe).
+   */
+  function bajarSuscripcionTraza() {
+    if (trazaUnsubRef.current) {
+      trazaUnsubRef.current();
+      trazaUnsubRef.current = null;
+    }
+    trazaViajeRef.current = null;
+    trazaEncuadradaRef.current = false;
+  }
+
+  /** v1.2.6 — traza en vivo (3): baja la suscripción y borra la traza y la "A". */
+  function cerrarTrazaVivo() {
+    bajarSuscripcionTraza();
+    limpiarPolyline();
+    limpiarMarcadoresHist();
+  }
+
+  /**
+   * v1.2.6 — traza en vivo (1, 2): redibuja la traza del viaje en curso con la
+   * "A" en el primer punto. Encuadra solo la primera vez que hay traza; el
+   * `fitBounds` se marca como programático (v1.2.6 (5)).
+   */
+  function dibujarTrazaVivo(traza) {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const encuadrar = !trazaEncuadradaRef.current && traza.length >= 2;
+    dibujarTraza(traza, { encuadrar: false });
+    limpiarMarcadoresHist();
+    if (traza.length >= 1) {
+      marcadoresHistRef.current.push(
+        L.marker([traza[0].lat, traza[0].lng], { title: 'Inicio', icon: iconoLetra('A', colorEstado.exitoBorde) }).addTo(map)
+      );
+    }
+    if (encuadrar && polylineRef.current) {
+      trazaEncuadradaRef.current = true;
+      aplicandoVistaRef.current = true;
+      try {
+        map.fitBounds(polylineRef.current.getBounds());
+      } finally {
+        aplicandoVistaRef.current = false;
+      }
+    }
+  }
+
+  /**
+   * v1.2.6 — traza en vivo (1): abre la suscripción a la traza de un viaje en
+   * curso. Una sola a la vez: cierra la anterior. RECIBIDO no tiene traza.
+   * COSTO: el primer snapshot trae todos los puntos del viaje (hasta ~3000 en
+   * un día), por eso solo se llama al seleccionar un viaje explícitamente.
+   */
+  function abrirTrazaVivo(c) {
+    cerrarTrazaVivo();
+    if (!c || c.estado !== VIAJE.EN_VIAJE) return;
+
+    const id = c.id;
+    trazaViajeRef.current = id;
+    trazaUnsubRef.current = onSnapshot(
+      query(collection(db, 'viajes', id, 'gps_puntos'), orderBy('ts')),
+      (snap) => {
+        if (trazaViajeRef.current !== id) return; // llegó tarde, ya se cambió de viaje
+        dibujarTrazaVivo(prepararTraza(snap.docs.map(d => d.data())));
+      },
+      (err) => {
+        console.error('Traza en vivo:', err);
+        if (trazaViajeRef.current !== id) return;
+        limpiarPolyline();
+        limpiarMarcadoresHist();
+      }
+    );
   }
 
   function centrarEnChofer(c) {
@@ -678,17 +866,35 @@ function Seguimiento({ usuario, onVolver }) {
     map.setView([c.ultima_lat, c.ultima_lng], 13);
     setSeleccionado(c.id);
     if (markersRef.current[c.id]) markersRef.current[c.id].openPopup();
+    abrirTrazaVivo(c); // v1.2.6 — traza en vivo (1)
   }
 
   async function seleccionarHistorial(h) {
     setSeleccionadoHist(h.id);
     interactuoRef.current = true; // v1.2.6 (5)
+    // v1.2.6 — traza en vivo (4): sin número hasta que cargue; sin aviso viejo.
+    histPedidoRef.current = h.id;
+    setResumenHist(null);
+    setErrorHist(null);
 
     Object.keys(markersRef.current).forEach(uid => markersRef.current[uid].remove());
-    limpiarMarcadoresHist();
+    cerrarTrazaVivo();
 
-    const snap = await getDocs(query(collection(db, 'viajes', h.id, 'gps_puntos'), orderBy('ts')));
-    const track = snap.docs.map(d => d.data());
+    // v1.2.6 — traza en vivo (4): un error deja la traza vacía con aviso.
+    let track = [];
+    let fallo = false;
+    try {
+      const snap = await getDocs(query(collection(db, 'viajes', h.id, 'gps_puntos'), orderBy('ts')));
+      track = prepararTraza(snap.docs.map(d => d.data()));
+    } catch (err) {
+      console.error('Recorrido del historial:', err);
+      fallo = true;
+    }
+    // Un clic en otro viaje (o un cambio de pestaña) mientras se cargaba este:
+    // se descarta.
+    if (histPedidoRef.current !== h.id) return;
+    if (fallo) setErrorHist(h.id);
+    else setResumenHist({ id: h.id, cantidad: resumenTraza(track).cantidad });
 
     dibujarTraza(track);
 
@@ -707,8 +913,11 @@ function Seguimiento({ usuario, onVolver }) {
   }
 
   function volverAVivo() {
-    limpiarPolyline();
-    limpiarMarcadoresHist();
+    // v1.2.6 — traza en vivo (3): baja la suscripción y deselecciona (la
+    // tarjeta no puede quedar marcada sin su traza).
+    cerrarTrazaVivo();
+    setSeleccionado(null);
+    histPedidoRef.current = null;
     setSeleccionadoHist(null);
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -756,11 +965,17 @@ function Seguimiento({ usuario, onVolver }) {
       if (salud === 'sin_senal') {
         alertas.push({ id: c.id, chofer: c.chofer, msg: ETIQUETA_GPS.sin_senal, tipo: 'red' });
       }
+      // v1.2.6 — traza en vivo (5): "seguimiento limitado" / "sin permiso de
+      // ubicación", separado de "sin señal".
+      const alertaSeg = alertaSeguimiento(c);
+      if (alertaSeg) alertas.push({ id: c.id, chofer: c.chofer, ...alertaSeg });
     });
     return alertas;
   }
 
   const alertas = getAlertas();
+  // v1.2.6 — traza en vivo (1): ver `vivosRef`.
+  vivosRef.current = choferesFiltrados;
 
   if (sinAcceso) {
     return <div style={styles.wrap}><div style={styles.bannerError}>{sinAcceso}</div></div>;
@@ -789,7 +1004,11 @@ function Seguimiento({ usuario, onVolver }) {
           <button style={{ ...styles.tabBtn, ...(tab === 'vivo' ? styles.tabBtnActive : {}) }}
             onClick={() => { setTab('vivo'); volverAVivo(); }}>🔴 En vivo</button>
           <button style={{ ...styles.tabBtn, ...(tab === 'historial' ? styles.tabBtnActive : {}) }}
-            onClick={() => { setTab('historial'); limpiarPolyline(); limpiarMarcadoresHist(); setSeleccionadoHist(null); }}>📂 Historial</button>
+            onClick={() => {
+              // v1.2.6 — traza en vivo (3): cambiar de pestaña baja la suscripción.
+              setTab('historial'); cerrarTrazaVivo(); setSeleccionado(null);
+              histPedidoRef.current = null; setSeleccionadoHist(null);
+            }}>📂 Historial</button>
         </div>
       </div>
 
@@ -878,7 +1097,7 @@ function Seguimiento({ usuario, onVolver }) {
                 return (
                   <Tarjeta
                     key={c.id}
-                    onClick={() => { if (seleccionado === c.id) { limpiarPolyline(); setSeleccionado(null); } else { centrarEnChofer(c); } }}
+                    onClick={() => { if (seleccionado === c.id) { cerrarTrazaVivo(); setSeleccionado(null); } else { centrarEnChofer(c); } }}
                     style={{ marginBottom: espacio.sm, padding: '10px 12px', borderColor: activo ? colorEstadoViaje : undefined }}
                   >
                     <div style={styles.choferHeader}>
@@ -886,6 +1105,12 @@ function Seguimiento({ usuario, onVolver }) {
                       <span style={styles.choferNombre}>{c.chofer}</span>
                       <Pastilla chico colores={{ bg: colorEstadoViaje + '22', color: colorEstadoViaje }}>{ETIQUETA_VIAJE[c.estado] || c.estado}</Pastilla>
                       {c.demorado && <Pastilla chico colores={{ bg: colorEstado.advertenciaFondo, color: colorEstado.advertenciaTexto }}>Demorado</Pastilla>}
+                      {/* v1.2.6 — traza en vivo (5): solo limitado / sin_ubicacion. */}
+                      {['limitado', 'sin_ubicacion'].includes(estadoSeguimiento(c)) && (
+                        <Pastilla chico colores={{ bg: COLOR_SEGUIMIENTO[estadoSeguimiento(c)] + '22', color: COLOR_SEGUIMIENTO[estadoSeguimiento(c)] }}>
+                          {ETIQUETA_SEGUIMIENTO[estadoSeguimiento(c)]}
+                        </Pastilla>
+                      )}
                     </div>
                     {c.transporte && <div style={styles.choferTransporte}>🚚 {c.transporte}</div>}
                     <div style={styles.choferGrid}>
@@ -950,7 +1175,12 @@ function Seguimiento({ usuario, onVolver }) {
                       <div style={styles.cf}><span style={styles.cl}>Fin</span><span style={styles.cv}>{formatTs(h.fin_ts)}</span></div>
                       <div style={styles.cf}><span style={styles.cl}>Unidad</span><span style={styles.cv}>{h.patente_tractor}{h.patente_semi ? ' / ' + h.patente_semi : ''}</span></div>
                     </div>
-                    <div style={styles.puntosGps}>📍 {h.puntos_registrados || 0} puntos GPS</div>
+                    {/* v1.2.6 — traza en vivo (4): cantidad REAL (deduplicada) del
+                        viaje seleccionado, una vez cargada; `puntos_registrados`
+                        no es confiable. Sin número mientras no esté cargada. */}
+                    {resumenHist && resumenHist.id === h.id && (
+                      <div style={styles.puntosGps}>📍 {resumenHist.cantidad} puntos GPS</div>
+                    )}
                   </Tarjeta>
                 );
               })}
@@ -970,6 +1200,12 @@ function Seguimiento({ usuario, onVolver }) {
           {tab === 'historial' && !seleccionadoHist && (
             <div style={styles.sinGps}>
               Seleccioná un viaje del panel para ver el recorrido.
+            </div>
+          )}
+          {/* v1.2.6 — traza en vivo (4): el `getDocs` del recorrido falló. */}
+          {tab === 'historial' && seleccionadoHist && errorHist === seleccionadoHist && (
+            <div style={styles.sinGps}>
+              No se pudo cargar el recorrido.
             </div>
           )}
         </div>

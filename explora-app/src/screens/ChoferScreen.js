@@ -215,8 +215,14 @@
  *       → `informarSeguimiento` (campos `seguimiento_*` del viaje),
  *         `permiso_background_pospuesto`, `viaje_id`/`dni` en los logs,
  *         `accion_intento` + límite de 25 s + `accion_sin_confirmar`.
- *   (10) SERVICIO CORTADO POR EL SISTEMA. Nada lo volvía a arrancar.
- *       → `asegurarServicio` al volver a primer plano (EFECTO 4).
+ *   (10) SERVICIO CORTADO POR EL SISTEMA. Nada lo volvía a arrancar, y
+ *       `hasStartedLocationUpdatesAsync` puede seguir dando `true` con el
+ *       proceso muerto.
+ *       → `asegurarServicio` al volver a primer plano (EFECTO 4): rearranca
+ *         si la tarea no está registrada o si no hubo lecturas en 15 minutos
+ *         (por eso `viaje_activo` guarda `inicioMs`, EFECTO 3).
+ *   El token de la subida se usa desde su cache sin pasar por el SDK de Auth;
+ *   por eso "Salir" la borra antes de `onLogout` (`salir`).
  * ALCANCE: el JSX, los estilos, los textos y el flujo de pantallas no cambian
  *   (salvo el aviso nuevo de acción sin confirmar). La tarea conserva nombre y
  *   opciones de servicio.
@@ -280,11 +286,11 @@ import {
   marca, colorEstado, espacio, radio, tipografia,
 } from '../compartido';
 import {
-  KEY_VIAJE_ACTIVO, escribirJSON, ganchos, servicioActivo, iniciarServicio,
+  KEY_VIAJE_ACTIVO, leerJSON, escribirJSON, ganchos, servicioActivo, iniciarServicio,
   detenerGPSBackground, limpiarEstadoLocalGPS, procesarUbicaciones,
   descargarPendientes, pendientesDeViaje, asegurarServicio,
 } from '../gps/seguimiento';
-import { sembrarToken } from '../gps/subida';
+import { sembrarToken, invalidarToken } from '../gps/subida';
 
 /**
  * Colores de una tarjeta de aviso según su tipo. SOLO de tokens:
@@ -631,7 +637,16 @@ export default function ChoferScreen({ usuario, onLogout }) {
         const activo = viajeActivoRef.current;
         if (!activo) return;
 
-        await escribirJSON(KEY_VIAJE_ACTIVO, { viajeId: activo.id });
+        // `inicioMs` (ajuste al prompt 2): lo usa `asegurarServicio` si todavía
+        // no hubo lecturas. Sale de `estado_ts`; si aún no llegó del servidor
+        // (escritura propia recién hecha), se conserva el guardado para este
+        // viaje o, si no hay, la hora actual.
+        const previo = await leerJSON(KEY_VIAJE_ACTIVO, null);
+        const desdeServidor = Date.parse(activo.estado_ts);
+        const inicioMs = Number.isFinite(desdeServidor)
+          ? desdeServidor
+          : (previo?.viajeId === activo.id && Number.isFinite(previo.inicioMs) ? previo.inicioMs : Date.now());
+        await escribirJSON(KEY_VIAJE_ACTIVO, { viajeId: activo.id, inicioMs });
         sembrarToken(auth.currentUser); // sin await: es una optimización
 
         if (!cancelado) await activarSeguimiento();
@@ -1500,6 +1515,23 @@ export default function ChoferScreen({ usuario, onLogout }) {
    * ======================================================================== */
 
   /**
+   * Botón "Salir": borra la cache del token de la subida GPS y recién después
+   * llama a `onLogout` (App.js, que borra el token push y cierra la sesión).
+   *
+   * Por qué (ajuste al prompt 2 de TrackEx v1.1.2 — GPS): la subida en
+   * segundo plano usa el token cacheado SIN consultar el SDK de Auth, así que
+   * la cache no puede sobrevivir al cierre de sesión: si otro chofer
+   * ingresara en este teléfono, los puntos subirían con el token del anterior
+   * hasta que venciera. `invalidarToken` nunca lanza.
+   *
+   * @returns {Promise<void>}
+   */
+  async function salir() {
+    await invalidarToken();
+    onLogout();
+  }
+
+  /**
    * Abre los ajustes de la app. Es la salida que se le ofrece al chofer cuando
    * el permiso está denegado y el sistema ya no vuelve a preguntar.
    * Si `openSettings` falla, se dan las instrucciones manuales.
@@ -1729,7 +1761,7 @@ export default function ChoferScreen({ usuario, onLogout }) {
               <TouchableOpacity onPress={() => setModalClave(true)} hitSlop={HIT_SLOP} accessibilityLabel="Cambiar contraseña">
                 <Text style={s.btnTema}>🔑</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onLogout} hitSlop={HIT_SLOP}>
+              <TouchableOpacity onPress={salir} hitSlop={HIT_SLOP}>
                 <Text style={s.btnSalir}>Salir</Text>
               </TouchableOpacity>
             </View>

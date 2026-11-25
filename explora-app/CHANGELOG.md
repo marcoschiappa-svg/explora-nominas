@@ -43,7 +43,13 @@ Primer uso real de la v1.1.1 (24/11/2026, tres viajes). Causas raíz:
 - Además: la tarea de GPS se define en `src/gps/tarea.js`, importado primero
   en `index.js` (antes dependía de que se importara la pantalla); al volver a la
   app se rearranca el servicio si el sistema lo cortó (el 24/11 se cortó a las
-  13:21) y se sube lo pendiente; el buffer local pasa de 1000 a 3000 puntos
+  13:21) y se sube lo pendiente. El reinicio se hace si la tarea no está
+  registrada (`motivo: no_registrado`) o si no hubo ninguna lectura aceptada en
+  15 minutos (`motivo: sin_lecturas`), porque el sistema puede matar el proceso
+  del servicio sin dar de baja la tarea; con el camión estacionado el reinicio
+  es inocuo. El token de la subida sale de una cache propia sin pasar por el SDK
+  de Auth en el camino normal (el SDK solo entra para renovarlo), y esa cache
+  se borra al tocar "Salir" y si cambia el usuario; el buffer local pasa de 1000 a 3000 puntos
   (un día sin red) y se migra solo desde el formato de la v1.1.1.
 
 **Qué cambia para el chofer.** Nada visible, salvo dos cosas: el recorrido sube
@@ -55,7 +61,8 @@ de cada acción queda `accion_intento` en `app_logs`.
 
 **Logs nuevos o cambiados en `app_logs`.** `gps_subida_error` (reemplaza al
 error de descarga de la v1.1.1), `gps_subida_recuperada`, `gps_descarte`,
-`gps_punto_descartado`, `gps_migracion_buffer`, `gps_servicio_reiniciado`,
+`gps_punto_descartado`, `gps_migracion_buffer`, `gps_servicio_reiniciado` (con
+`motivo` y `minutos`),
 `gps_pendientes_al_finalizar`, `seguimiento_estado`, `permiso_background_pospuesto`,
 `accion_intento`, `accion_sin_confirmar`. Los logs de permisos y de arranque del
 servicio llevan `viaje_id` y `dni`.
