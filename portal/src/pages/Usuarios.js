@@ -73,9 +73,44 @@
  *   pantalla (formulario, lista, invitaciones, baja) no cambió.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada visita a la pantalla releía la colección `organizaciones` entera
+ *     (y, para el admin, `usuarios` entera), aunque otras pantallas ya las
+ *     tuvieran leídas.
+ *
+ *   ALCANCE
+ *     1. Solo el listener de `organizaciones` (colección completa) pasa a
+ *        `useColeccionCompartida`. Con `sinAcceso` se pasa `null`.
+ *     2. Su `console.error` se conserva con `useAvisarError`.
+ *     3. Admin: el listener de `usuarios` (colección completa, idéntica a la
+ *        clave `usuarios` del catálogo) pasa a `useColeccionCompartida`. La
+ *        rama filtrada por organización (transportista) queda como estaba.
+ *        `cargando` sigue siendo "hasta que llega `usuarios`" (o su error) en
+ *        las dos ramas, y el `console.error('Usuarios:')` se conserva.
+ *     El listener de `invitaciones` no cambia.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     La lista de usuarios muestra la misma organización por fila y el alta
+ *     ofrece las mismas organizaciones. `exploraLecturas()` no suma otra
+ *     lectura completa de `organizaciones` (ni, como admin, de `usuarios`)
+ *     al volver a entrar. Como transportista, la lista muestra solo los
+ *     usuarios de su organización, igual que antes.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useColeccionCompartida, useAvisarError } from '../suscripciones-compartidas';
 import { crear, actualizar, desactivar, reactivar } from '../shared/datos';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso } from '../sesion';
 import { claveNormalizada, normalizarCuit } from '../mapa-normalizacion';
@@ -135,9 +170,9 @@ const FORM_VACIO = {
 
 export default function Usuarios({ usuario, onVolver }) {
   const styles = useEstilos();
-  const [usuarios, setUsuarios] = useState([]);
-  const [organizaciones, setOrganizaciones] = useState([]);
-  const [cargando, setCargando] = useState(true);
+  // v1.2.7 (3): estado propio solo para la rama filtrada (transportista).
+  const [usuariosFiltrados, setUsuariosFiltrados] = useState([]);
+  const [cargandoFiltrados, setCargandoFiltrados] = useState(true);
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
@@ -158,22 +193,22 @@ export default function Usuarios({ usuario, onVolver }) {
   /* ── Carga ──────────────────────────────────────────────────────────────── */
 
   useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
+    if (sinAcceso) { setCargandoFiltrados(false); return; }
 
     // El transportista solo ve los suyos, y la consulta TIENE que venir
     // filtrada: las reglas rechazan la lectura de la colección entera.
-    const consulta = soyAdmin
-      ? collection(db, 'usuarios')
-      : query(collection(db, 'usuarios'), where('organizacion_id', '==', miOrg));
+    // v1.2.7 (3): la rama del admin (colección completa) sale de
+    // `useColeccionCompartida` (abajo); acá queda solo la filtrada.
+    let unsubUsuarios = () => {};
+    if (!soyAdmin) {
+      const consulta = query(collection(db, 'usuarios'), where('organizacion_id', '==', miOrg));
+      unsubUsuarios = onSnapshot(consulta, (snap) => {
+        setUsuariosFiltrados(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setCargandoFiltrados(false);
+      }, (err) => { console.error('Usuarios:', err); setCargandoFiltrados(false); });
+    }
 
-    const unsubUsuarios = onSnapshot(consulta, (snap) => {
-      setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    }, (err) => { console.error('Usuarios:', err); setCargando(false); });
-
-    const unsubOrgs = onSnapshot(collection(db, 'organizaciones'), (snap) => {
-      setOrganizaciones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error('Organizaciones:', err));
+    // v1.2.7 (1): `organizaciones` sale de `useColeccionCompartida` (abajo).
 
     // Solo el admin invita —el transportista da de alta choferes, que nunca
     // pasan por invitación—, y las reglas solo dejan leer la colección
@@ -186,8 +221,20 @@ export default function Usuarios({ usuario, onVolver }) {
       }, (err) => console.error('Invitaciones:', err));
     }
 
-    return () => { unsubUsuarios(); unsubOrgs(); unsubInvitaciones(); };
+    return () => { unsubUsuarios(); unsubInvitaciones(); };
   }, [sinAcceso, soyAdmin, miOrg]);
+
+  // v1.2.7 (1)(2): compartido; con `sinAcceso`, `null` (no se suscribe).
+  const { docs: organizaciones, error: errorOrgs } = useColeccionCompartida(sinAcceso ? null : 'organizaciones');
+  useAvisarError(errorOrgs, 'Organizaciones:');
+
+  // v1.2.7 (3): admin -- `usuarios` completa, compartida (misma consulta que
+  // el catálogo). Transportista y sin acceso: `null` (no se suscribe).
+  const usuariosCompartidos = useColeccionCompartida(!sinAcceso && soyAdmin ? 'usuarios' : null);
+  useAvisarError(usuariosCompartidos.error, 'Usuarios:');
+  const usuarios = soyAdmin ? usuariosCompartidos.docs : usuariosFiltrados;
+  // Hasta que llega `usuarios` (o su error), en las dos ramas, como antes.
+  const cargando = soyAdmin && !sinAcceso ? usuariosCompartidos.cargando : cargandoFiltrados;
 
   const orgsPorId = useMemo(
     () => new Map(organizaciones.map(o => [o.id, o])),

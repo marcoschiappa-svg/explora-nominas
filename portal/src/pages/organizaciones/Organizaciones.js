@@ -92,9 +92,42 @@
  *     sesiones.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Esta pantalla abría 5 colecciones enteras al entrar y las cerraba al
+ *     salir: cada visita las releía, aunque Pedidos/Programación ya las
+ *     tuvieran leídas.
+ *
+ *   ALCANCE
+ *     1. Los 5 listeners (`organizaciones`, `productos`,
+ *        `organizacion_domicilios`, `domicilios`, `organizacion_emails`) pasan
+ *        a `useColeccionCompartida`: mismas consultas, compartidas. Con
+ *        `sinAcceso` se pasa `null` (no se suscribe).
+ *     2. `cargando` sigue siendo "hasta que llega `organizaciones`" (o su
+ *        error).
+ *     3. Los `console.error` de los callbacks de error se conservan con
+ *        `useAvisarError`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`: los arrays son compartidos (no
+ *     mutarlos) y una colección leída sigue suscripta 10 minutos después de
+ *     salir de la pantalla.
+ *
+ *   CÓMO SE VERIFICA
+ *     Organizaciones se ve igual (localidad, correos, productos por fila). Con
+ *     `exploraLecturas()`: entrar a Pedidos y después a Organizaciones no
+ *     suma otra lectura completa de `organizaciones`, `productos`,
+ *     `domicilios` ni `organizacion_domicilios`.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { useColeccionCompartida, useAvisarError } from '../../suscripciones-compartidas';
 import { esAdmin, tieneRol, motivoSinAcceso } from '../../sesion';
 import { rolesDe } from '../../modulos';
 import { claveNormalizada } from '../../mapa-normalizacion';
@@ -151,12 +184,22 @@ export default function Organizaciones({ usuario, onVolver }) {
     return FORM_VACIO;
   }
 
-  const [organizaciones, setOrganizaciones] = useState([]);
-  const [productos, setProductos] = useState([]);
-  const [vinculos, setVinculos] = useState([]);
-  const [domicilios, setDomicilios] = useState([]);
-  const [emailsOrg, setEmailsOrg] = useState([]);
-  const [cargando, setCargando] = useState(true);
+  // v1.2.7 (1): colecciones compartidas; con `sinAcceso`, `null` (no se suscribe).
+  const clave = (c) => (sinAcceso ? null : c);
+  // v1.2.7 (2): `cargando` = hasta que llega `organizaciones` (o su error).
+  const { docs: organizaciones, cargando, error: errorOrgs } = useColeccionCompartida(clave('organizaciones'));
+  const { docs: productos, error: errorProductos } = useColeccionCompartida(clave('productos'));
+  // 3. Localidad del primer domicilio por fila -- ver el encabezado.
+  const { docs: vinculos, error: errorVinculos } = useColeccionCompartida(clave('organizacion_domicilios'));
+  const { docs: domicilios, error: errorDomicilios } = useColeccionCompartida(clave('domicilios'));
+  // 6. Correos de todas las organizaciones -- ver el encabezado v1.2.2.
+  const { docs: emailsOrg, error: errorEmails } = useColeccionCompartida(clave('organizacion_emails'));
+  // v1.2.7 (3): los mismos `console.error` que tenían los callbacks de error.
+  useAvisarError(errorOrgs, 'Organizaciones:');
+  useAvisarError(errorProductos, 'Productos:');
+  useAvisarError(errorVinculos, 'Vínculos:');
+  useAvisarError(errorDomicilios, 'Domicilios:');
+  useAvisarError(errorEmails, 'Correos:');
 
   const [filtro, setFiltro] = useState('');
   const [grupoActivo, setGrupoActivo] = useState(
@@ -167,34 +210,6 @@ export default function Organizaciones({ usuario, onVolver }) {
   // `modalAbierto: { tipo: 'organizacion'|'domicilios'|'emails'|'usuarios'|'productos', org }`
   // -- `org: null` es el alta. Nunca hay dos modales a la vez.
   const [modalAbierto, setModalAbierto] = useState(null);
-
-  useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
-
-    const unsub = onSnapshot(collection(db, 'organizaciones'), (snap) => {
-      setOrganizaciones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    }, (err) => { console.error('Organizaciones:', err); setCargando(false); });
-
-    const unsubProductos = onSnapshot(collection(db, 'productos'), (snap) => {
-      setProductos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error('Productos:', err));
-
-    // 3. Localidad del primer domicilio por fila -- ver el encabezado.
-    const unsubVinculos = onSnapshot(collection(db, 'organizacion_domicilios'), (snap) => {
-      setVinculos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error('Vínculos:', err));
-    const unsubDomicilios = onSnapshot(collection(db, 'domicilios'), (snap) => {
-      setDomicilios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error('Domicilios:', err));
-
-    // 6. Correos de todas las organizaciones -- ver el encabezado v1.2.2.
-    const unsubEmails = onSnapshot(collection(db, 'organizacion_emails'), (snap) => {
-      setEmailsOrg(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error('Correos:', err));
-
-    return () => { unsub(); unsubProductos(); unsubVinculos(); unsubDomicilios(); unsubEmails(); };
-  }, [sinAcceso]);
 
   // Preferencias -- ver el encabezado v1.2.0 (rediseño Organizaciones) de
   // `filtros-listado.js`. Se leen una vez al montar; si hay guardadas,

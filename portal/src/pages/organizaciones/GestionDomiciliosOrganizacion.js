@@ -53,9 +53,39 @@
  *   lista sin ningún botón de acción.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada vez que se montaba la gestión de domicilios (modal de Domicilios,
+ *     pestaña de la ficha, `Domicilios.js`) se leía la colección `domicilios`
+ *     entera para el buscador.
+ *
+ *   ALCANCE
+ *     1. Solo el listener de `domicilios` (colección completa) pasa a
+ *        `useColeccionCompartida('domicilios')`. El de
+ *        `organizacion_domicilios` filtrado por organización no cambia.
+ *     2. `cargando` sigue siendo "hasta que llega `domicilios`" (o su error).
+ *     3. El `console.error` del callback de error se conserva con
+ *        `useAvisarError`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     Alta con sugerencias, vincular, desvincular y marcar principal funcionan
+ *     igual. `exploraLecturas()` no suma otra lectura completa de
+ *     `domicilios` al abrir y cerrar la gestión.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit, doc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { useColeccionCompartida, useAvisarError } from '../../suscripciones-compartidas';
 import { crear, actualizar, enTransaccion, calcularDiferencias } from '../../shared/datos';
 import { claveDomicilio } from '../../mapa-normalizacion';
 import {
@@ -100,9 +130,13 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
   const styles = useEstilos();
   const editable = puedeEditar && !soloLectura;
 
-  const [domicilios, setDomicilios] = useState([]);   // todos, para el buscador
+  // Todos los domicilios: los necesita el buscador para sugerir. Son decenas,
+  // no miles, así que traerlos enteros es más simple y más rápido que
+  // consultar en cada tecla.
+  // v1.2.7 (1)(2): compartidos; `cargando` = hasta que llegan (o su error).
+  const { docs: domicilios, cargando, error: errorDomicilios } = useColeccionCompartida('domicilios');
+  useAvisarError(errorDomicilios, 'GestionDomiciliosOrganizacion:'); // v1.2.7 (3)
   const [vinculos, setVinculos] = useState([]);       // los de esta organización
-  const [cargando, setCargando] = useState(true);
   const [mostrandoForm, setMostrandoForm] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
   const [elegido, setElegido] = useState(null);       // domicilio existente elegido
@@ -113,14 +147,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
   /* ── Carga ──────────────────────────────────────────────────────────────── */
 
   useEffect(() => {
-    // Todos los domicilios: los necesita el buscador para sugerir. Son decenas,
-    // no miles, así que traerlos enteros es más simple y más rápido que
-    // consultar en cada tecla.
-    const unsubDom = onSnapshot(collection(db, 'domicilios'), (snap) => {
-      setDomicilios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    }, (err) => { console.error('GestionDomiciliosOrganizacion:', err); setCargando(false); });
-
+    // v1.2.7 (1): `domicilios` sale de `useColeccionCompartida` (arriba).
     const unsubVin = onSnapshot(
       query(collection(db, 'organizacion_domicilios'),
             where('organizacion_id', '==', organizacion.id)),
@@ -128,7 +155,7 @@ export default function GestionDomiciliosOrganizacion({ usuario, organizacion, p
       (err) => console.error('Vínculos:', err)
     );
 
-    return () => { unsubDom(); unsubVin(); };
+    return () => { unsubVin(); };
   }, [organizacion.id]);
 
   /** Los domicilios de esta organización, resolviendo cada vínculo. */

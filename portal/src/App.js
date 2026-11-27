@@ -1,4 +1,54 @@
 /* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore. La
+ *     solución (`suscripciones-compartidas.js` + caché persistente en
+ *     `firebase.js`) hace que los datos sobrevivan a las pantallas: hay que
+ *     cortarlos explícitamente al cerrar sesión o cambiar de usuario.
+ *
+ *   CAUSA RAÍZ
+ *     Antes cada pantalla cerraba sus listeners al desmontarse, así que el
+ *     logout no tenía que hacer nada más que `signOut`. Con suscripciones
+ *     compartidas (que siguen vivas 10 minutos después de salir de una
+ *     pantalla) y caché en IndexedDB, `signOut` solo ya no alcanza.
+ *
+ *   ALCANCE
+ *     1. `handleLogout` usa `cerrarSesionCompleta()` (`cerrar-sesion.js`):
+ *        cierra suscripciones, `signOut`, termina Firestore, borra la caché
+ *        local y recarga la página.
+ *     2. `onAuthStateChanged`: si no hay usuario, o si el uid cambió respecto
+ *        del anterior, `cerrarTodasLasSuscripciones()` ANTES de cualquier otra
+ *        cosa. Así nunca quedan datos de un usuario en la sesión de otro,
+ *        tampoco cuando el logout viene de otra pestaña o la sesión vence.
+ *     3. Logout desde otra pestaña: si esta pestaña tenía una sesión del
+ *        portal cargada y Auth informa que ya no hay usuario, y el cierre NO
+ *        lo inició esta pestaña (bandera de `cerrar-sesion.js`,
+ *        `cierreIniciadoEnEstaPestana()`), se hace `window.location.reload()`.
+ *        Sin esto, la pestaña quedaba en Login con Firestore terminado (el
+ *        borrado de la caché de la otra pestaña lo termina) y había que
+ *        recargarla a mano. "Tenía una sesión" = `cargarSesion` devolvió una
+ *        sesión en esta pestaña: así no recargan ni la carga inicial en Login
+ *        ni el `signOut` que hacen `Login.js` y este archivo cuando el usuario
+ *        no tiene acceso (perdería el mensaje de "sin acceso").
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     El logout recarga la página (antes no): se ve un parpadeo de la pantalla
+ *     de carga antes del Login. Las salidas que no pasan por el botón (otra
+ *     pestaña, sesión vencida) cierran las suscripciones pero no borran la
+ *     caché local (ver `cerrar-sesion.js`). Por (3), esas salidas también
+ *     recargan la pestaña: con la sesión vencida o revocada se ve una recarga
+ *     antes del Login. Lo que se estuviera escribiendo en un formulario de esa
+ *     pestaña se pierde (antes también se perdía, al pasar a Login).
+ *
+ *   CÓMO SE VERIFICA
+ *     Entrar a Programación, volver a Home y cerrar sesión: la página recarga
+ *     en Login. Con dos pestañas, cerrar sesión en una: la otra se recarga
+ *     sola, queda en Login y se puede volver a entrar sin F5. Abrir el portal
+ *     sin sesión: queda en Login sin recargas en bucle. Entrar con un usuario
+ *     sin acceso: aparece el mensaje de "sin acceso" y no se recarga.
+ *
+ * -----------------------------------------------------------------------------
  * v1.2.5 — UN SOLO TARIFARIO Y ALTO FIJO PARA SEGUIMIENTO
  * -----------------------------------------------------------------------------
  *   SÍNTOMA
@@ -135,6 +185,8 @@
 import React, { useState, useEffect } from 'react';
 import { auth, ENTORNO } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { cerrarTodasLasSuscripciones } from './suscripciones-compartidas';
+import { cerrarSesionCompleta, cierreIniciadoEnEstaPestana } from './cerrar-sesion';
 import { cargarSesion } from './sesion';
 import { moduloPorId, puedeVerModulo } from './modulos';
 import Login from './pages/Login';
@@ -208,7 +260,33 @@ function Contenido() {
   const [modulo, setModulo] = useState('home');
 
   useEffect(() => {
+    // v1.2.7 (2): uid de la última notificación de Auth (null = sin usuario).
+    let uidAnterior = null;
+    // v1.2.7 (3): si esta pestaña llegó a tener una sesión del portal cargada
+    // (no alcanza con que Auth haya informado un usuario: ver el encabezado).
+    let habiaSesion = false;
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      // v1.2.7 (2): antes que cualquier otra cosa -- nunca quedan datos de un
+      // usuario en la sesión de otro.
+      const uidNuevo = firebaseUser ? firebaseUser.uid : null;
+      if (!firebaseUser || (uidAnterior !== null && uidAnterior !== uidNuevo)) {
+        cerrarTodasLasSuscripciones();
+      }
+      uidAnterior = uidNuevo;
+
+      // v1.2.7 (3): logout hecho en OTRA pestaña (o sesión vencida): recargar,
+      // para arrancar con una instancia de Firestore nueva. No recarga si el
+      // cierre lo inició esta pestaña (lo hace `cerrarSesionCompleta` al
+      // final) ni si no había sesión (carga inicial en Login).
+      if (!firebaseUser) {
+        const recargar = habiaSesion && !cierreIniciadoEnEstaPestana();
+        habiaSesion = false;
+        if (recargar) {
+          window.location.reload();
+          return;
+        }
+      }
+
       if (firebaseUser) {
         // `cargarSesion` lee los DOS modelos: el documento viejo de
         // `usuarios_portal` —que es lo que usan las pantallas actuales— y el
@@ -221,6 +299,7 @@ function Contenido() {
         // nuevo, y eso lo imponen las reglas, no esta pantalla.
         const sesion = await cargarSesion(firebaseUser);
         if (sesion) {
+          habiaSesion = true; // v1.2.7 (3)
           setUsuario(sesion);
         } else {
           await auth.signOut();
@@ -240,9 +319,9 @@ function Contenido() {
   }
 
   async function handleLogout() {
-    await auth.signOut();
-    setUsuario(null);
-    setModulo('home');
+    // v1.2.7 (1): cierra suscripciones, signOut, termina Firestore, borra la
+    // caché local y recarga la página (no vuelve de acá).
+    await cerrarSesionCompleta();
   }
 
   // Antes esta función tenía ~15 `return` distintos, uno por rama. Pasa a
@@ -381,4 +460,4 @@ function App() {
   );
 }
 
-export default App;
+export default App;
