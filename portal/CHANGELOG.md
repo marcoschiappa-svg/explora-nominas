@@ -1,6 +1,6 @@
 ### SEÑALIZACIÓN DE LA VERSIÓN ACTUAL - MANTENER ACTUALIZADO
 
-VERSION_ACTUAL: 1.2.6
+VERSION_ACTUAL: 1.2.7
 
 # Changelog — Portal Explora
 
@@ -17,6 +17,81 @@ Las versiones más nuevas van arriba.
 
 ---
 ## Sin publicar
+
+### v1.2.7 — Lecturas compartidas y caché persistente de Firestore
+
+**Síntoma.** `explora-portal` superó la cuota diaria gratuita de Firestore:
+114k lecturas contra 1k escrituras en un día.
+
+**Causa raíz.** La navegación del portal es por estado (`modulo` en `App.js`):
+cada pantalla abría `onSnapshot` sobre colecciones COMPLETAS al montarse y las
+cerraba al salir, así que volver a entrar releía todo (Programación sola son 10
+colecciones enteras, Pedidos 9). Además Firestore se inicializaba sin caché
+persistente: cada F5 o pestaña nueva también releía todo.
+
+**Qué cambió.**
+
+- Nuevo `src/suscripciones-compartidas.js`: catálogo fijo de 13 consultas
+  (mismas colecciones, `where` y `orderBy` que antes; sin índices nuevos ni
+  cambios de reglas) y un almacén con una sola suscripción viva por consulta,
+  compartida entre pantallas. Al salir de la última pantalla que la usa, la
+  suscripción sigue viva 10 minutos: si se vuelve a entrar antes, no se relee
+  nada. Hook `useColeccionCompartida(clave | null)`.
+- Pedidos, Programación, Organizaciones (pantalla, ficha y gestión de
+  domicilios), Productos, Calendario operativo, Usuarios (`organizaciones`, y
+  `usuarios` completa para el admin; la consulta filtrada del transportista
+  queda igual) y Seguimiento (admin/coordinador) leen del almacén. Lo que
+  ven y hacen las pantallas no cambia. Los listeners filtrados (por
+  organización, pedido, DNI, etc.) quedan como estaban.
+- Seguimiento, para admin/coordinador: lee `viajes`, `organizaciones` y
+  `usuarios` del almacén y separa en memoria vivos (RECIBIDO/EN_VIAJE),
+  historial (FINALIZADO) y transportistas. El transportista que ve solo su
+  empresa sigue exactamente igual.
+- `src/firebase.js`: caché persistente en IndexedDB compartida entre pestañas
+  (`persistentLocalCache` + `persistentMultipleTabManager`). Sin IndexedDB
+  (p. ej. navegación privada de Firefox) el SDK cae solo a caché en memoria y
+  el portal funciona como antes.
+- Nuevo `src/cerrar-sesion.js` (`cerrarSesionCompleta`): el logout cierra las
+  suscripciones, hace `signOut`, termina Firestore, borra la caché local y
+  **recarga la página**. `App.js` además cierra todas las suscripciones cuando
+  Auth informa que no hay usuario o que cambió el uid.
+- Logout desde otra pestaña: las demás pestañas que tenían una sesión cargada
+  **se recargan solas** y quedan en Login con Firestore nuevo (sin esto,
+  quedaban con Firestore terminado y había que apretar F5 para volver a
+  entrar). La pestaña que cierra la sesión no recarga a mitad del proceso
+  (bandera en `cerrar-sesion.js`), y no recargan la carga inicial en Login ni
+  el login rechazado por falta de acceso (se sigue viendo el mensaje).
+- Tests: `src/suscripciones-compartidas.test.js`.
+
+**Cómo verificar.** En la consola del navegador:
+
+1. `exploraLecturasReiniciar()`.
+2. Entrar a Programación, volver a Home, entrar a Pedidos y otra vez a
+   Programación.
+3. `exploraLecturas()` muestra una tabla por colección con una sola lectura
+   completa de cada una (más los cambios reales que hayan llegado), no una por
+   visita.
+4. F5 en Programación y `exploraLecturas()` de nuevo: suma solo lo que cambió
+   en el servidor, no las colecciones enteras.
+
+El contador es una **aproximación** (documentos recibidos del servidor por las
+suscripciones compartidas), no la facturación real: el número de verdad está
+en la consola de Firebase → Firestore → Uso.
+
+**Limitaciones conocidas.**
+
+- Las pestañas que se enteran de un logout (hecho en otra pestaña, o por sesión
+  vencida/revocada) se recargan: lo que se estuviera escribiendo en un
+  formulario se pierde (antes también, al pasar a Login).
+- Cerrar sesión descarta las escrituras hechas sin conexión que todavía no se
+  enviaron.
+- Si se cierra el navegador sin cerrar sesión, la caché local queda en esa
+  máquina hasta el próximo logout.
+- Una colección leída sigue suscripta hasta 10 minutos después de salir de la
+  pantalla: los cambios de ese lapso se leen igual.
+- Para admin/coordinador, entrar SOLO a Seguimiento lee `viajes` completa (con
+  cancelados) en vez de dos consultas por estado; combinado con Programación
+  se lee una sola vez.
 
 ### v1.2.6 — Seguimiento: traza en vivo y estado del seguimiento
 

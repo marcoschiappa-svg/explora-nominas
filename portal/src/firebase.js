@@ -38,6 +38,57 @@
 // Cuando el portal NO está en producción, muestra una franja de color
 // arriba de todo avisándolo. Si no ves ninguna franja, estás tocando la
 // base real.
+//
+// ───────────────────────────────────────────────────────────────
+// v1.2.7 — LECTURAS COMPARTIDAS
+// ───────────────────────────────────────────────────────────────
+//   SÍNTOMA
+//     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+//     lecturas contra 1k escrituras en un día).
+//
+//   CAUSA RAÍZ
+//     Además de releer colecciones al cambiar de pantalla (eso lo resuelve
+//     `suscripciones-compartidas.js`), Firestore se inicializaba con
+//     `getFirestore(app)`: caché solo en memoria. Cada F5 o pestaña nueva
+//     arrancaba sin nada y leía todas las colecciones enteras del servidor.
+//
+//   ALCANCE
+//     1. `initializeFirestore(app, { localCache: persistentLocalCache({
+//        tabManager: persistentMultipleTabManager() }) })` en vez de
+//        `getFirestore(app)`: caché en IndexedDB compartida entre pestañas.
+//        Al reanudar una consulta, el servidor manda solo lo que cambió.
+//        `connectFirestoreEmulator` queda igual.
+//     2. `cerrarSesionCompleta()` NO vive acá: necesita
+//        `cerrarTodasLasSuscripciones()`, y `suscripciones-compartidas.js`
+//        importa `db` de este archivo (import circular). Está en
+//        `cerrar-sesion.js`.
+//
+//   LIMITACIONES CONOCIDAS
+//     - Sin IndexedDB (navegación privada de Firefox, IndexedDB bloqueado,
+//       cuota llena): verificado en el SDK instalado (firebase 12.13.0,
+//       @firebase/firestore 4.14.1, `__PRIVATE_ensureOfflineComponents`):
+//       los errores `UNIMPLEMENTED` ("This platform is either missing
+//       IndexedDB...") y `FAILED_PRECONDITION`, y los DOMException de cuota /
+//       estado inválido, se registran como warning ("Error using user
+//       provided cache. Falling back to memory cache") y el SDK sigue con
+//       caché en memoria. El portal funciona igual que antes de v1.2.7.
+//     - La caché queda en el disco del navegador entre sesiones. El logout
+//       del portal la borra (`cerrar-sesion.js`), pero si alguien cierra el
+//       navegador SIN cerrar sesión, los datos cacheados quedan en esa
+//       máquina hasta el próximo logout. En una computadora compartida, el
+//       usuario siguiente podría recibir un primer snapshot de caché (de
+//       consultas que sus reglas le permiten hacer) antes de la respuesta
+//       del servidor.
+//     - Con caché persistente, los snapshots pueden llegar primero desde la
+//       caché (`fromCache: true`) y después del servidor: la primera pintada
+//       puede mostrar datos de la sesión anterior por un instante.
+//
+//   CÓMO SE VERIFICA
+//     DevTools → Application → IndexedDB: aparece
+//     `firestore/[DEFAULT]/<proyecto>/main`. Con F5 en Programación,
+//     `exploraLecturas()` muestra solo los cambios, no las colecciones
+//     enteras. En una ventana privada de Firefox el portal carga igual (con
+//     el warning de fallback en consola).
 
 import { initializeApp } from 'firebase/app';
 import {
@@ -48,7 +99,9 @@ import {
   connectAuthEmulator,
 } from 'firebase/auth';
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
 
@@ -110,7 +163,11 @@ export const CONFIG_ACTIVA = firebaseConfig;
 // ── Inicialización ──────────────────────────────────────────────
 const app      = initializeApp(firebaseConfig);
 export const auth     = getAuth(app);              // módulo de autenticación
-export const db       = getFirestore(app);         // módulo de base de datos
+// v1.2.7 (1): caché persistente en IndexedDB, compartida entre pestañas. Si
+// IndexedDB no está disponible, el SDK cae solo a caché en memoria.
+export const db       = initializeFirestore(app, { // módulo de base de datos
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const provider = new GoogleAuthProvider();  // login con Google
 
 // ── Conexión a los emuladores locales ───────────────────────────

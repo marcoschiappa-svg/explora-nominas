@@ -60,9 +60,42 @@
  *   "Datos generales" habilitada.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada vez que se abría la ficha de una organización, este modal leía la
+ *     colección `domicilios` entera, aunque la pantalla de atrás
+ *     (Organizaciones) ya la tuviera leída.
+ *
+ *   ALCANCE
+ *     1. Solo el listener de `domicilios` (colección completa) pasa a
+ *        `useColeccionCompartida('domicilios')`, y solo mientras se edita una
+ *        organización (`idOrg`); en el alta se pasa `null`, como antes no se
+ *        abría el listener. Los listeners filtrados por organización
+ *        (correos, vínculos, usuarios) no cambian.
+ *     2. El `console.error` del callback de error se conserva con
+ *        `useAvisarError`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Si `editando` pasa de una organización a `null` con el modal abierto,
+ *     `domicilios` vuelve a `[]` (antes quedaba la última lista); hoy no hay
+ *     ningún flujo que lo haga. Ver también `suscripciones-compartidas.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     Abrir la ficha de una organización: la vista previa de Domicilios
+ *     muestra lo mismo que antes. `exploraLecturas()` no suma otra lectura
+ *     completa de `domicilios` al abrir y cerrar fichas.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { useColeccionCompartida, useAvisarError } from '../../suscripciones-compartidas';
 import { crear, actualizar, desactivar, reactivar } from '../../shared/datos';
 import { claveNormalizada, normalizarCuit } from '../../mapa-normalizacion';
 import { textoDomicilio } from '../../buscar-domicilios';
@@ -138,20 +171,21 @@ export default function ModalOrganizacion({
   // Datos vivos para los contadores y las vistas previas (solo al editar).
   const [emails, setEmails] = useState([]);
   const [vinculos, setVinculos] = useState([]);
-  const [domicilios, setDomicilios] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [cargandoUsuarios, setCargandoUsuarios] = useState(true);
 
   const idOrg = editando ? editando.id : null;
+  // v1.2.7 (1): `domicilios` compartido, solo al editar (en el alta, `null`).
+  const { docs: domicilios, error: errorDomicilios } = useColeccionCompartida(idOrg ? 'domicilios' : null);
+  useAvisarError(errorDomicilios, 'Modal (domicilios):'); // v1.2.7 (2)
   useEffect(() => {
     if (!idOrg) return undefined;
     const filtro = (col) => query(collection(db, col), where('organizacion_id', '==', idOrg));
     const lista = (snap) => snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const unsubEmails = onSnapshot(filtro('organizacion_emails'), s => setEmails(lista(s)), e => console.error('Modal (correos):', e));
     const unsubVin = onSnapshot(filtro('organizacion_domicilios'), s => setVinculos(lista(s)), e => console.error('Modal (vínculos):', e));
-    const unsubDom = onSnapshot(collection(db, 'domicilios'), s => setDomicilios(lista(s)), e => console.error('Modal (domicilios):', e));
     const unsubUsu = onSnapshot(filtro('usuarios'), s => { setUsuarios(lista(s)); setCargandoUsuarios(false); }, e => { console.error('Modal (usuarios):', e); setCargandoUsuarios(false); });
-    return () => { unsubEmails(); unsubVin(); unsubDom(); unsubUsu(); };
+    return () => { unsubEmails(); unsubVin(); unsubUsu(); };
   }, [idOrg]);
 
   useEffect(() => {

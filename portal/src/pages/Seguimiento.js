@@ -285,11 +285,57 @@
  *     portal/CHANGELOG.md.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada pantalla abría sus propios listeners al entrar y los cerraba al
+ *     salir. Para admin/coordinador, Seguimiento leía `viajes` (dos consultas
+ *     por estado), las organizaciones transportistas y `usuarios` completa,
+ *     colecciones que Programación ya tenía leídas enteras.
+ *
+ *   ALCANCE
+ *     1. Transportista que solo ve su empresa (`soloVeSuEmpresa`): TODO queda
+ *        exactamente como antes (sus consultas filtradas por organización,
+ *        mismos listeners, mismo `cargando`); los hooks reciben `null`.
+ *     2. Admin/coordinador: `viajes` sale del almacén compartido y se separa
+ *        en memoria: vivos = estado RECIBIDO o EN_VIAJE, historial =
+ *        FINALIZADO (mismo criterio que los `where` de antes).
+ *     3. Admin/coordinador: `organizaciones` del almacén, filtradas por
+ *        `es_transportista === true` (lo que hacía el `where`).
+ *     4. Admin/coordinador: `usuarios` del almacén; se mantiene el filtro por
+ *        rol chofer de siempre.
+ *     5. `cargando` sigue siendo "hasta que llegan los viajes" (o su error), y
+ *        se conservan los `console.error` ('Viajes en vivo:', 'Historial:').
+ *     La traza en vivo y el historial de `gps_puntos` no se tocan.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     - Para admin/coordinador esto cambia la consulta: en vez de dos
+ *       consultas por estado lee `viajes` completa (incluye CANCELADO y
+ *       cualquier otro estado). Es la misma lectura que ya hace Programación,
+ *       así que entre las dos pantallas se lee una sola vez; entrando SOLO a
+ *       Seguimiento, la primera lectura trae más documentos que antes.
+ *     - Las listas de vivos e historial se recalculan con cualquier cambio en
+ *       `viajes` (también de un viaje cancelado): los efectos que dependen de
+ *       ellas pueden correr más seguido que antes, con el mismo resultado.
+ *
+ *   CÓMO SE VERIFICA
+ *     Como coordinador: "En vivo" e "Historial" muestran los mismos viajes,
+ *     transportes y choferes que antes. Como transportista: sin cambios.
+ *     `exploraLecturas()`: entrando a Programación y después a Seguimiento,
+ *     `viajes`, `organizaciones` y `usuarios` no suman otra lectura completa.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, where, doc, getDocs, orderBy } from 'firebase/firestore';
+import { useColeccionCompartida, useAvisarError } from '../suscripciones-compartidas';
 import { esAdmin, tieneRol, miOrganizacion, motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { VIAJE, ETIQUETA_VIAJE } from '../shared/estados';
@@ -466,13 +512,14 @@ function Seguimiento({ usuario, onVolver }) {
   const styles = useEstilos();
   const { oscuro } = useTema();
   const [tab, setTab] = useState('vivo');
-  const [viajesVivos, setViajesVivos] = useState([]);
-  const [viajesHistorial, setViajesHistorial] = useState([]);
-  const [organizaciones, setOrganizaciones] = useState([]);
-  const [choferesInfo, setChoferesInfo] = useState([]);
+  // v1.2.7 (1): estado propio, solo para el transportista que ve su empresa.
+  const [vivosEmpresa, setVivosEmpresa] = useState([]);
+  const [historialEmpresa, setHistorialEmpresa] = useState([]);
+  const [orgsEmpresa, setOrgsEmpresa] = useState([]);
+  const [choferesEmpresa, setChoferesEmpresa] = useState([]);
+  const [cargandoEmpresa, setCargandoEmpresa] = useState(true);
   const [seleccionado, setSeleccionado] = useState(null);
   const [seleccionadoHist, setSeleccionadoHist] = useState(null);
-  const [cargando, setCargando] = useState(true);
   // v1.2.6 — traza en vivo (4): `{ id, cantidad }` del recorrido de historial
   // ya cargado, y el id del viaje cuyo recorrido no se pudo cargar.
   const [resumenHist, setResumenHist] = useState(null);
@@ -520,48 +567,80 @@ function Seguimiento({ usuario, onVolver }) {
   // (cuyo handler se creó con el viaje de ese momento) use el estado actual.
   const vivosRef = useRef([]);
 
+  // v1.2.7 (1): transportista que ve solo su empresa -- exactamente los
+  // listeners filtrados de siempre. Para el resto, ver (2)-(4) más abajo.
   useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
+    if (sinAcceso) { setCargandoEmpresa(false); return; }
+    if (!soloVeSuEmpresa) return undefined;
 
     const base = collection(db, 'viajes');
-    const filtroOrg = soloVeSuEmpresa ? [where('transportista_org_id', '==', miOrg)] : [];
+    const filtroOrg = [where('transportista_org_id', '==', miOrg)];
 
     const consultaVivos = query(base, ...filtroOrg, where('estado', 'in', [VIAJE.RECIBIDO, VIAJE.EN_VIAJE]));
     const consultaHist = query(base, ...filtroOrg, where('estado', '==', VIAJE.FINALIZADO));
 
     const unsubVivos = onSnapshot(consultaVivos, (snap) => {
-      setViajesVivos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    }, (err) => { console.error('Viajes en vivo:', err); setCargando(false); });
+      setVivosEmpresa(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCargandoEmpresa(false);
+    }, (err) => { console.error('Viajes en vivo:', err); setCargandoEmpresa(false); });
 
     const unsubHist = onSnapshot(consultaHist, (snap) => {
-      setViajesHistorial(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setHistorialEmpresa(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => console.error('Historial:', err));
 
     return () => { unsubVivos(); unsubHist(); };
   }, [sinAcceso, soloVeSuEmpresa, miOrg]);
 
   useEffect(() => {
-    if (sinAcceso) return;
+    if (sinAcceso || !soloVeSuEmpresa) return undefined; // v1.2.7 (1)
 
-    const unsubOrgs = soloVeSuEmpresa
-      ? onSnapshot(doc(db, 'organizaciones', miOrg), (snap) => {
-          setOrganizaciones(snap.exists() ? [{ id: snap.id, ...snap.data() }] : []);
-        })
-      : onSnapshot(
-          query(collection(db, 'organizaciones'), where('es_transportista', '==', true)),
-          (snap) => setOrganizaciones(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-        );
+    const unsubOrgs = onSnapshot(doc(db, 'organizaciones', miOrg), (snap) => {
+      setOrgsEmpresa(snap.exists() ? [{ id: snap.id, ...snap.data() }] : []);
+    });
 
-    const consultaChoferes = soloVeSuEmpresa
-      ? query(collection(db, 'usuarios'), where('organizacion_id', '==', miOrg))
-      : collection(db, 'usuarios');
+    const consultaChoferes = query(collection(db, 'usuarios'), where('organizacion_id', '==', miOrg));
     const unsubChoferes = onSnapshot(consultaChoferes, (snap) => {
-      setChoferesInfo(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => (u.roles || []).includes('chofer')));
+      setChoferesEmpresa(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => (u.roles || []).includes('chofer')));
     });
 
     return () => { unsubOrgs(); unsubChoferes(); };
   }, [sinAcceso, soloVeSuEmpresa, miOrg]);
+
+  // v1.2.7 (2)-(4): admin/coordinador -- colecciones compartidas. `null` (no
+  // se suscribe) para el transportista de (1) y sin acceso.
+  const usaAlmacen = !sinAcceso && !soloVeSuEmpresa;
+  const viajesAlmacen = useColeccionCompartida(usaAlmacen ? 'viajes' : null);
+  const orgsAlmacen = useColeccionCompartida(usaAlmacen ? 'organizaciones' : null);
+  const usuariosAlmacen = useColeccionCompartida(usaAlmacen ? 'usuarios' : null);
+
+  // v1.2.7 (2): mismo criterio que los `where('estado', ...)` de (1).
+  const vivosAlmacen = useMemo(
+    () => viajesAlmacen.docs.filter(v => v.estado === VIAJE.RECIBIDO || v.estado === VIAJE.EN_VIAJE),
+    [viajesAlmacen.docs]
+  );
+  const historialAlmacen = useMemo(
+    () => viajesAlmacen.docs.filter(v => v.estado === VIAJE.FINALIZADO),
+    [viajesAlmacen.docs]
+  );
+  // v1.2.7 (3): lo que hacía `where('es_transportista', '==', true)`.
+  const transportistasAlmacen = useMemo(
+    () => orgsAlmacen.docs.filter(o => o.es_transportista === true),
+    [orgsAlmacen.docs]
+  );
+  // v1.2.7 (4): el filtro por rol chofer de siempre.
+  const choferesAlmacen = useMemo(
+    () => usuariosAlmacen.docs.filter(u => (u.roles || []).includes('chofer')),
+    [usuariosAlmacen.docs]
+  );
+
+  const viajesVivos = soloVeSuEmpresa ? vivosEmpresa : vivosAlmacen;
+  const viajesHistorial = soloVeSuEmpresa ? historialEmpresa : historialAlmacen;
+  const organizaciones = soloVeSuEmpresa ? orgsEmpresa : transportistasAlmacen;
+  const choferesInfo = soloVeSuEmpresa ? choferesEmpresa : choferesAlmacen;
+  // v1.2.7 (5): hasta que llegan los viajes (o su error), como antes.
+  const cargando = soloVeSuEmpresa ? cargandoEmpresa : viajesAlmacen.cargando;
+  useAvisarError(viajesAlmacen.error, 'Viajes en vivo:');
+  useAvisarError(viajesAlmacen.error, 'Historial:');
 
   const orgsPorId = useMemo(() => new Map(organizaciones.map(o => [o.id, o])), [organizaciones]);
   const choferesPorUid = useMemo(() => new Map(choferesInfo.map(c => [c.id, c])), [choferesInfo]);

@@ -70,9 +70,35 @@
  *     eliminar.
  * ========================================================================== */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada visita a la pantalla releía la colección `productos` entera.
+ *
+ *   ALCANCE
+ *     1. El listener de `productos` pasa a `useColeccionCompartida`: misma
+ *        consulta, compartida. Con `sinAcceso` se pasa `null`.
+ *     2. `cargando` sigue siendo "hasta que llega `productos`" (o su error).
+ *     3. El `console.error` del callback de error se conserva con
+ *        `useAvisarError`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     La lista y el ABM de productos funcionan igual. `exploraLecturas()` no
+ *     suma otra lectura completa de `productos` al volver a entrar.
+ * -------------------------------------------------------------------------- */
+
+import React, { useState, useMemo } from 'react';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useColeccionCompartida, useAvisarError } from '../suscripciones-compartidas';
 import { crear, actualizar, desactivar, reactivar } from '../shared/datos';
 import { esComercial, motivoSinAcceso } from '../sesion';
 import { rolesDe } from '../modulos';
@@ -81,8 +107,6 @@ import { claveNormalizada } from '../mapa-normalizacion';
 const FORM_VACIO = { nombre: '', codigo: '', obs: '' };
 
 export default function Productos({ usuario, onVolver }) {
-  const [productos, setProductos] = useState([]);
-  const [cargando, setCargando] = useState(true);
   const [vista, setVista] = useState('lista');
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
@@ -96,16 +120,10 @@ export default function Productos({ usuario, onVolver }) {
 
   /* ── Carga ──────────────────────────────────────────────────────────────── */
 
-  useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
-
-    const unsub = onSnapshot(collection(db, 'productos'), (snap) => {
-      setProductos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCargando(false);
-    }, (err) => { console.error('Productos:', err); setCargando(false); });
-
-    return () => unsub();
-  }, [sinAcceso]);
+  // v1.2.7 (1)(2): compartido; con `sinAcceso`, `null` (no se suscribe).
+  // `cargando` = hasta que llega `productos` (o su error).
+  const { docs: productos, cargando, error: errorProductos } = useColeccionCompartida(sinAcceso ? null : 'productos');
+  useAvisarError(errorProductos, 'Productos:'); // v1.2.7 (3)
 
   const visibles = useMemo(
     () => productos

@@ -47,9 +47,38 @@
  *   lo abre, y que el comercial/transportista no ven este módulo.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día).
+ *
+ *   CAUSA RAÍZ
+ *     Cada visita a la pantalla releía `calendario_operativo` y
+ *     `calendario_reglas` enteras.
+ *
+ *   ALCANCE
+ *     1. Los dos listeners pasan a `useColeccionCompartida`
+ *        (`calendario_operativo` completa y `calendario_reglas`): mismas
+ *        consultas, compartidas. Con `sinAcceso` se pasa `null`.
+ *     2. `reglas` (datos del doc `semanal`, sin `id`, igual que `d.data()`, o
+ *        null) pasa a `useMemo` sobre `docs`.
+ *     3. `cargando` sigue siendo "hasta que llega `calendario_operativo`" (o
+ *        su error), y su `console.error` se conserva con `useAvisarError`.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`.
+ *
+ *   CÓMO SE VERIFICA
+ *     El calendario y la regla semanal se ven y se editan igual.
+ *     `exploraLecturas()` no suma otra lectura completa al volver a entrar.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useColeccionCompartida, useAvisarError } from '../suscripciones-compartidas';
 import { crear, actualizar, desactivar } from '../shared/datos';
 import { motivoSinAcceso } from '../sesion';
 import { rolesDe } from '../modulos';
@@ -128,28 +157,23 @@ export default function CalendarioOperativo({ usuario, onVolver }) {
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mes, setMes] = useState(hoy.getMonth());
 
-  const [dias, setDias] = useState([]); // TODOS los documentos, activos e inactivos
-  const [reglas, setReglas] = useState(null);
-  const [cargando, setCargando] = useState(true);
+  // v1.2.7 (1): compartidos; con `sinAcceso`, `null` (no se suscribe).
+  // `dias`: TODOS los documentos, activos e inactivos. v1.2.7 (3): `cargando`
+  // = hasta que llega `calendario_operativo` (o su error).
+  const { docs: dias, cargando, error: errorDias } = useColeccionCompartida(sinAcceso ? null : 'calendario_operativo');
+  const { docs: reglasDocs } = useColeccionCompartida(sinAcceso ? null : 'calendario_reglas');
+  useAvisarError(errorDias, 'calendario_operativo:'); // v1.2.7 (3)
+  // v1.2.7 (2): datos del doc `semanal` sin `id` (igual que `d.data()`), o null.
+  const reglas = useMemo(() => {
+    const semanal = reglasDocs.find(d => d.id === 'semanal');
+    if (!semanal) return null;
+    const { id, ...datos } = semanal;
+    return datos;
+  }, [reglasDocs]);
 
   const [diaAbierto, setDiaAbierto] = useState(null); // fechaISO, o null
   const [guardandoReglas, setGuardandoReglas] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
-    const unsubs = [
-      onSnapshot(collection(db, 'calendario_operativo'), (snap) => {
-        setDias(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setCargando(false);
-      }, (err) => { console.error('calendario_operativo:', err); setCargando(false); }),
-      onSnapshot(collection(db, 'calendario_reglas'), (snap) => {
-        const semanal = snap.docs.find(d => d.id === 'semanal');
-        setReglas(semanal ? semanal.data() : null);
-      }),
-    ];
-    return () => unsubs.forEach(u => u());
-  }, [sinAcceso]);
 
   const docsPorFecha = useMemo(() => new Map(dias.map(d => [d.id, d])), [dias]);
   // Solo los activos entran a `tipoDelDia()` -- mismo criterio que las

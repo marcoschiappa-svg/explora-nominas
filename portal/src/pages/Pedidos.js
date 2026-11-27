@@ -449,9 +449,49 @@
  *     cumplido la banda se ve como cualquier otro dato, sin botón.
  * ========================================================================== */
 
+/* -----------------------------------------------------------------------------
+ * v1.2.7 — LECTURAS COMPARTIDAS
+ * -----------------------------------------------------------------------------
+ *   SÍNTOMA
+ *     `explora-portal` superó la cuota diaria gratuita de Firestore (114k
+ *     lecturas en un día). Esta pantalla sola abría 9 colecciones enteras.
+ *
+ *   CAUSA RAÍZ
+ *     Los 9 `onSnapshot` vivían en un `useEffect` de la pantalla: se abrían al
+ *     entrar y se cerraban al salir, así que cada visita releía todo.
+ *
+ *   ALCANCE
+ *     1. Los 9 listeners pasan a `useColeccionCompartida` (claves `pedidos`,
+ *        `entregas`, `organizaciones`, `productos`, `domicilios`,
+ *        `organizacion_domicilios`, `usuarios`, `calendario_operativo_activo`,
+ *        `calendario_reglas`): mismas consultas, compartidas con el resto de
+ *        las pantallas. Con `sinAcceso` se pasa `null` (no se suscribe), como
+ *        antes no se abría ningún listener.
+ *     2. Lo que se armaba dentro de los callbacks pasa a `useMemo` sobre
+ *        `docs`: `entregasPorPedido` (Map pedido → entregas ordenadas por
+ *        número), `calendarioDias` (Map fecha → datos, SIN el `id`, igual
+ *        que `d.data()`) y `calendarioReglas` (datos del doc `semanal`, sin
+ *        `id`, o null).
+ *     3. `cargando` sigue siendo "hasta que llega `pedidos`" (o su error).
+ *     4. Los `console.error` de los callbacks de error ('Pedidos:',
+ *        'Entregas:') se conservan con `useAvisarError`.
+ *     El listener de `historial` del detalle (filtrado por pedido) no cambia.
+ *
+ *   LIMITACIONES CONOCIDAS
+ *     Ver `suscripciones-compartidas.js`: los arrays son compartidos (no
+ *     mutarlos) y una colección leída sigue suscripta 10 minutos después de
+ *     salir de la pantalla.
+ *
+ *   CÓMO SE VERIFICA
+ *     Pedidos se ve y se comporta igual. En consola: `exploraLecturasReiniciar()`,
+ *     entrar a Pedidos, volver a Home y entrar de nuevo: `exploraLecturas()`
+ *     no suma una segunda lectura completa de ninguna colección.
+ * -------------------------------------------------------------------------- */
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useColeccionCompartida, useAvisarError } from '../suscripciones-compartidas';
 import { esInterno, motivoSinAcceso, tieneAlgunRol } from '../sesion';
 import { claveNormalizada } from '../mapa-normalizacion';
 import { textoDomicilio } from '../buscar-domicilios';
@@ -582,20 +622,6 @@ function traducirError(err) {
 
 export default function Pedidos({ usuario, onVolver }) {
   const styles = useEstilos();
-  const [pedidos, setPedidos] = useState([]);
-  const [entregasPorPedido, setEntregasPorPedido] = useState(new Map());
-  const [organizaciones, setOrganizaciones] = useState([]);
-  const [productos, setProductos] = useState([]);
-  const [domicilios, setDomicilios] = useState([]);
-  const [vinculos, setVinculos] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  // v1.2.0 (RF-10) -- calendario operativo, solo para ADVERTIR (nunca
-  // bloquea acá, a diferencia de la fecha de carga en Programación). Mismo
-  // criterio que ahí: Map<fechaISO, {...}> de los días ACTIVOS + la regla
-  // semanal.
-  const [calendarioDias, setCalendarioDias] = useState(new Map());
-  const [calendarioReglas, setCalendarioReglas] = useState(null);
 
   const [vista, setVista] = useState('lista');
   const [vistaLista, setVistaLista] = useState('tarjetas');
@@ -644,58 +670,54 @@ export default function Pedidos({ usuario, onVolver }) {
 
   const sinAcceso = motivoSinAcceso(usuario, ['admin', 'comercial', 'coordinador']);
 
-  useEffect(() => {
-    if (sinAcceso) { setCargando(false); return; }
+  // v1.2.7 (1): colecciones compartidas con el resto de las pantallas. Con
+  // `sinAcceso`, `null`: no se suscribe (antes no se abría ningún listener).
+  const clave = (c) => (sinAcceso ? null : c);
+  // v1.2.7 (3): `cargando` = hasta que llega `pedidos` (o su error), como antes.
+  const { docs: pedidos, cargando, error: errorPedidos } = useColeccionCompartida(clave('pedidos'));
+  const { docs: entregas, error: errorEntregas } = useColeccionCompartida(clave('entregas'));
+  const { docs: organizaciones } = useColeccionCompartida(clave('organizaciones'));
+  const { docs: productos } = useColeccionCompartida(clave('productos'));
+  const { docs: domicilios } = useColeccionCompartida(clave('domicilios'));
+  const { docs: vinculos } = useColeccionCompartida(clave('organizacion_domicilios'));
+  // Para "Creado por" en el detalle del pedido -- resuelve
+  // `creado_por_uid` contra el nombre. Sin filtro: los tres roles con
+  // acceso a esta pantalla (admin/comercial/coordinador) son internos, y
+  // las reglas de `usuarios` les permiten leer la colección entera.
+  const { docs: usuarios } = useColeccionCompartida(clave('usuarios'));
+  // v1.2.0 (RF-10) -- calendario operativo, solo para ADVERTIR (nunca
+  // bloquea acá, a diferencia de la fecha de carga en Programación). Mismo
+  // criterio que ahí: Map<fechaISO, {...}> de los días ACTIVOS + la regla
+  // semanal.
+  const { docs: diasActivos } = useColeccionCompartida(clave('calendario_operativo_activo'));
+  const { docs: reglasDocs } = useColeccionCompartida(clave('calendario_reglas'));
 
-    const unsubs = [
-      onSnapshot(query(collection(db, 'pedidos'), orderBy('creado_en', 'desc')), (snap) => {
-        setPedidos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setCargando(false);
-      }, (err) => { console.error('Pedidos:', err); setCargando(false); }),
+  // v1.2.7 (4): los mismos `console.error` que tenían los callbacks de error.
+  useAvisarError(errorPedidos, 'Pedidos:');
+  useAvisarError(errorEntregas, 'Entregas:');
 
-      onSnapshot(collection(db, 'entregas'), (snap) => {
-        const mapa = new Map();
-        snap.docs.forEach(d => {
-          const e = { id: d.id, ...d.data() };
-          const lista = mapa.get(e.pedido_id) || [];
-          lista.push(e);
-          mapa.set(e.pedido_id, lista);
-        });
-        for (const lista of mapa.values()) lista.sort((a, b) => a.numero - b.numero);
-        setEntregasPorPedido(mapa);
-      }, (err) => console.error('Entregas:', err)),
-
-      onSnapshot(collection(db, 'organizaciones'), (snap) =>
-        setOrganizaciones(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-
-      onSnapshot(collection(db, 'productos'), (snap) =>
-        setProductos(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-
-      onSnapshot(collection(db, 'domicilios'), (snap) =>
-        setDomicilios(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-
-      onSnapshot(collection(db, 'organizacion_domicilios'), (snap) =>
-        setVinculos(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-
-      // Para "Creado por" en el detalle del pedido -- resuelve
-      // `creado_por_uid` contra el nombre. Sin filtro: los tres roles con
-      // acceso a esta pantalla (admin/comercial/coordinador) son internos, y
-      // las reglas de `usuarios` les permiten leer la colección entera.
-      onSnapshot(collection(db, 'usuarios'), (snap) =>
-        setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-
-      // v1.2.0 (RF-10) -- ver el estado más arriba.
-      onSnapshot(query(collection(db, 'calendario_operativo'), where('estado', '==', 'activo')), (snap) => {
-        setCalendarioDias(new Map(snap.docs.map(d => [d.id, d.data()])));
-      }),
-      onSnapshot(collection(db, 'calendario_reglas'), (snap) => {
-        const semanal = snap.docs.find(d => d.id === 'semanal');
-        setCalendarioReglas(semanal ? semanal.data() : null);
-      }),
-    ];
-
-    return () => unsubs.forEach(u => u());
-  }, [sinAcceso]);
+  // v1.2.7 (2): lo que antes se armaba dentro de cada callback.
+  const entregasPorPedido = useMemo(() => {
+    const mapa = new Map();
+    entregas.forEach(e => {
+      const lista = mapa.get(e.pedido_id) || [];
+      lista.push(e);
+      mapa.set(e.pedido_id, lista);
+    });
+    for (const lista of mapa.values()) lista.sort((a, b) => a.numero - b.numero);
+    return mapa;
+  }, [entregas]);
+  // Sin `id` en los valores, igual que `d.data()`.
+  const calendarioDias = useMemo(
+    () => new Map(diasActivos.map(({ id, ...datos }) => [id, datos])),
+    [diasActivos]
+  );
+  const calendarioReglas = useMemo(() => {
+    const semanal = reglasDocs.find(d => d.id === 'semanal');
+    if (!semanal) return null;
+    const { id, ...datos } = semanal;
+    return datos;
+  }, [reglasDocs]);
 
   const orgsPorId = useMemo(() => new Map(organizaciones.map(o => [o.id, o])), [organizaciones]);
   const prodsPorId = useMemo(() => new Map(productos.map(p => [p.id, p])), [productos]);
